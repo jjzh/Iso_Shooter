@@ -16,7 +16,7 @@ import { PLAYER } from '../config/player.js';
 import { applyUrlParams, snapshotDefaults } from './urlParams.js';
 
 const gameState = {
-  phase: 'playing',
+  phase: 'waiting',
   playerHealth: PLAYER.maxHealth,
   playerMaxHealth: PLAYER.maxHealth,
   currency: 0,
@@ -32,6 +32,11 @@ let lastTime = 0;
 
 function gameLoop(timestamp) {
   requestAnimationFrame(gameLoop);
+
+  if (gameState.phase === 'waiting') {
+    getRendererInstance().render(getScene(), getCamera());
+    return;
+  }
 
   if (gameState.phase === 'gameOver') {
     getRendererInstance().render(getScene(), getCamera());
@@ -156,10 +161,16 @@ function init() {
   initDamageNumbers();
   initTuningPanel();
   initSpawnEditor(scene, gameState);
-  initScreens(restart);
+  initScreens(restart, () => {
+    // Called when Start button is pressed
+    gameState.phase = 'playing';
+    document.getElementById('hud').style.visibility = 'visible';
+    startWave(0, gameState);
+    lastTime = performance.now();
+  });
 
-  // Start wave system
-  startWave(0, gameState);
+  // Hide HUD until game starts
+  document.getElementById('hud').style.visibility = 'hidden';
 
   lastTime = performance.now();
   requestAnimationFrame(gameLoop);

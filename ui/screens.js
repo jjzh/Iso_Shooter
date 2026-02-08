@@ -1,6 +1,22 @@
+let startScreen, startBtn;
 let gameOverScreen, restartBtn, gameOverStats;
 
-export function initScreens(onRestart) {
+export function initScreens(onRestart, onStart) {
+  // Start screen
+  startScreen = document.getElementById('start-screen');
+  startBtn = document.getElementById('start-btn');
+
+  const handleStart = () => {
+    hideStartScreen();
+    onStart();
+  };
+  startBtn.addEventListener('click', handleStart);
+  startBtn.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    handleStart();
+  });
+
+  // Game over screen
   gameOverScreen = document.getElementById('game-over-screen');
   restartBtn = document.getElementById('restart-btn');
   gameOverStats = document.getElementById('game-over-stats');
@@ -9,6 +25,10 @@ export function initScreens(onRestart) {
     hideScreens();
     onRestart();
   });
+}
+
+export function hideStartScreen() {
+  startScreen.classList.add('hidden');
 }
 
 export function showGameOver(gameState) {

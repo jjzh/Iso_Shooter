@@ -51,7 +51,7 @@ function applyEnemySpeedMultiplier(mult) {
   }
 }
 
-let panel, isCollapsed = false; // expanded by default
+let panel, isCollapsed = true; // collapsed by default
 
 export function initTuningPanel() {
   captureOriginalSpeeds();
@@ -64,7 +64,7 @@ export function initTuningPanel() {
   // Toggle button
   const toggle = document.createElement('div');
   toggle.id = 'tuning-toggle';
-  toggle.textContent = '×'; // starts expanded
+  toggle.textContent = 'Tune'; // starts collapsed
   toggle.addEventListener('click', () => {
     isCollapsed = !isCollapsed;
     panel.classList.toggle('collapsed', isCollapsed);
@@ -202,7 +202,8 @@ export function initTuningPanel() {
     }
   });
 
-  // Start expanded (no collapsed class)
+  // Start collapsed by default
+  panel.classList.add('collapsed');
   document.body.appendChild(panel);
   injectStyles();
 }

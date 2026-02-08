@@ -34,6 +34,10 @@ export function initRenderer() {
   camera.position.copy(cameraOffset);
   camera.lookAt(0, 0, 0);
 
+  // Zoom camera in on mobile for tighter view
+  const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  if (hasTouch) applyFrustum(8);
+
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));

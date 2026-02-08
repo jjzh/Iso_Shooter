@@ -245,7 +245,7 @@ canvas {
   display: none; /* hidden on desktop */
   position: fixed;
   right: 20px;
-  bottom: 40px;
+  bottom: 20%;
   z-index: 20;
   flex-direction: column;
   align-items: center;
