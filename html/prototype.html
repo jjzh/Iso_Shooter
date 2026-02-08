@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Dual Stick Isometric Prototype</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #1a1a2e;
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  .joystick-zone {
+    position: fixed;
+    bottom: 0;
+    width: 50%;
+    height: 45%;
+    z-index: 10;
+  }
+  #zone-left { left: 0; }
+  #zone-right { right: 0; }
+
+  .label {
+    position: fixed;
+    bottom: 8px;
+    font-family: 'SF Pro', system-ui, sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.25);
+    pointer-events: none;
+    z-index: 20;
+  }
+  #label-left { left: 20px; }
+  #label-right { right: 20px; }
+
+  #hud {
+    position: fixed;
+    top: max(12px, env(safe-area-inset-top));
+    left: 16px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    color: rgba(255,255,255,0.4);
+    z-index: 20;
+    pointer-events: none;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div id="pos">pos: 0, 0</div>
+  <div id="aim">aim: —</div>
+  <div id="speed">speed: 0</div>
+</div>
+
+<div id="zone-left" class="joystick-zone"></div>
+<div id="zone-right" class="joystick-zone"></div>
+<div id="label-left" class="label">move</div>
+<div id="label-right" class="label">aim</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.2/nipplejs.min.js"></script>
+<script>
+// ── Scene Setup ──
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+scene.fog = new THREE.Fog(0x1a1a2e, 25, 50);
+
+// Isometric-style camera
+const frustum = 12;
+const aspect = window.innerWidth / window.innerHeight;
+const camera = new THREE.OrthographicCamera(
+  -frustum * aspect, frustum * aspect,
+  frustum, -frustum, 0.1, 100
+);
+// Classic isometric angle
+camera.position.set(20, 20, 20);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+
+// ── Lighting ──
+const ambientLight = new THREE.AmbientLight(0x8888cc, 0.5);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0xffeedd, 0.9);
+dirLight.position.set(10, 15, 10);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(1024, 1024);
+dirLight.shadow.camera.near = 1;
+dirLight.shadow.camera.far = 50;
+dirLight.shadow.camera.left = -20;
+dirLight.shadow.camera.right = 20;
+dirLight.shadow.camera.top = 20;
+dirLight.shadow.camera.bottom = -20;
+scene.add(dirLight);
+
+const rimLight = new THREE.DirectionalLight(0x4488ff, 0.3);
+rimLight.position.set(-10, 5, -10);
+scene.add(rimLight);
+
+// ── Ground ──
+const groundGeo = new THREE.PlaneGeometry(60, 60);
+const groundMat = new THREE.MeshStandardMaterial({
+  color: 0x2a2a4a,
+  roughness: 0.9,
+  metalness: 0.1
+});
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Grid overlay
+const gridHelper = new THREE.GridHelper(60, 30, 0x3a3a5a, 0x2e2e4e);
+gridHelper.position.y = 0.01;
+scene.add(gridHelper);
+
+// ── Arena props (simple obstacles for spatial reference) ──
+function createProp(x, z, w, h, d, color) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.2 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, h / 2, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  return mesh;
+}
+
+createProp(6, 4, 2, 1.5, 2, 0x4a4a7a);
+createProp(-5, -3, 1.5, 2, 1.5, 0x4a4a7a);
+createProp(3, -7, 3, 1, 1, 0x4a4a7a);
+createProp(-8, 6, 1, 3, 1, 0x4a4a7a);
+createProp(8, -5, 1.5, 1.2, 3, 0x4a4a7a);
+createProp(-4, 8, 2, 0.8, 2, 0x4a4a7a);
+
+// ── Player Character ──
+const playerGroup = new THREE.Group();
+
+// Body (cylinder)
+const bodyGeo = new THREE.CylinderGeometry(0.35, 0.4, 1.0, 8);
+const bodyMat = new THREE.MeshStandardMaterial({ color: 0x44cc88, roughness: 0.5, metalness: 0.3 });
+const body = new THREE.Mesh(bodyGeo, bodyMat);
+body.position.y = 0.7;
+body.castShadow = true;
+playerGroup.add(body);
+
+// Head (sphere)
+const headGeo = new THREE.SphereGeometry(0.3, 8, 6);
+const headMat = new THREE.MeshStandardMaterial({ color: 0x55ddaa, roughness: 0.4, metalness: 0.2 });
+const head = new THREE.Mesh(headGeo, headMat);
+head.position.y = 1.45;
+head.castShadow = true;
+playerGroup.add(head);
+
+// Aim indicator (elongated cone pointing forward)
+const aimGeo = new THREE.ConeGeometry(0.12, 0.6, 4);
+const aimMat = new THREE.MeshStandardMaterial({ color: 0xff6644, emissive: 0xff4422, emissiveIntensity: 0.5 });
+const aimIndicator = new THREE.Mesh(aimGeo, aimMat);
+aimIndicator.rotation.x = Math.PI / 2;
+aimIndicator.position.set(0, 0.8, 0.7);
+playerGroup.add(aimIndicator);
+
+playerGroup.position.y = 0;
+scene.add(playerGroup);
+
+// Player shadow disc
+const shadowGeo = new THREE.CircleGeometry(0.5, 16);
+const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 });
+const playerShadow = new THREE.Mesh(shadowGeo, shadowMat);
+playerShadow.rotation.x = -Math.PI / 2;
+playerShadow.position.y = 0.02;
+scene.add(playerShadow);
+
+// ── Projectiles ──
+const projectiles = [];
+const projectileGeo = new THREE.SphereGeometry(0.12, 6, 4);
+const projectileMat = new THREE.MeshStandardMaterial({
+  color: 0xff6644, emissive: 0xff4422, emissiveIntensity: 0.8
+});
+
+function fireProjectile() {
+  const mesh = new THREE.Mesh(projectileGeo, projectileMat);
+  mesh.position.copy(playerGroup.position);
+  mesh.position.y = 0.8;
+
+  const dir = new THREE.Vector3(
+    -Math.sin(playerGroup.rotation.y),
+    0,
+    -Math.cos(playerGroup.rotation.y)
+  );
+
+  scene.add(mesh);
+  projectiles.push({ mesh, dir, life: 0 });
+}
+
+let lastFireTime = 0;
+const fireRate = 150; // ms between shots
+
+// ── State ──
+const moveInput = { x: 0, y: 0 };
+const aimInput = { x: 0, y: 0 };
+let isAiming = false;
+const playerPos = new THREE.Vector3(0, 0, 0);
+const moveSpeed = 8;
+const projectileSpeed = 18;
+
+// Camera offset for isometric follow
+const cameraOffset = new THREE.Vector3(20, 20, 20);
+
+// ── Joysticks ──
+const leftJoystick = nipplejs.create({
+  zone: document.getElementById('zone-left'),
+  mode: 'dynamic',
+  position: { left: '50%', top: '50%' },
+  color: 'rgba(68, 204, 136, 0.35)',
+  size: 120,
+  restOpacity: 0.5
+});
+
+const rightJoystick = nipplejs.create({
+  zone: document.getElementById('zone-right'),
+  mode: 'dynamic',
+  position: { left: '50%', top: '50%' },
+  color: 'rgba(255, 102, 68, 0.35)',
+  size: 120,
+  restOpacity: 0.5
+});
+
+leftJoystick.on('move', (evt, data) => {
+  const force = Math.min(data.force, 1.5) / 1.5;
+  const angle = data.angle.radian;
+  moveInput.x = Math.cos(angle) * force;
+  moveInput.y = Math.sin(angle) * force;
+});
+leftJoystick.on('end', () => { moveInput.x = 0; moveInput.y = 0; });
+
+rightJoystick.on('move', (evt, data) => {
+  const force = Math.min(data.force, 1.5) / 1.5;
+  const angle = data.angle.radian;
+  aimInput.x = Math.cos(angle) * force;
+  aimInput.y = Math.sin(angle) * force;
+  isAiming = true;
+});
+rightJoystick.on('end', () => {
+  aimInput.x = 0; aimInput.y = 0;
+  isAiming = false;
+});
+
+// ── HUD refs ──
+const hudPos = document.getElementById('pos');
+const hudAim = document.getElementById('aim');
+const hudSpeed = document.getElementById('speed');
+
+// ── Game Loop ──
+const clock = new THREE.Clock();
+let bobPhase = 0;
+
+function update() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const now = performance.now();
+
+  // -- Movement (convert joystick input to isometric world space) --
+  // Joystick X maps to world diagonal (camera-relative right)
+  // Joystick Y maps to world diagonal (camera-relative forward)
+  if (Math.abs(moveInput.x) > 0.05 || Math.abs(moveInput.y) > 0.05) {
+    // Camera faces along (-1, -1, -1) direction (isometric)
+    // Right in screen space = world (1, 0, -1) normalized
+    // Up in screen space = world (-1, 0, -1) normalized
+    const rightDir = new THREE.Vector3(1, 0, -1).normalize();
+    const upDir = new THREE.Vector3(-1, 0, -1).normalize();
+
+    const move = new THREE.Vector3()
+      .addScaledVector(rightDir, moveInput.x)
+      .addScaledVector(upDir, moveInput.y);
+
+    if (move.length() > 1) move.normalize();
+
+    playerPos.addScaledVector(move, moveSpeed * dt);
+
+    // Clamp to arena
+    playerPos.x = Math.max(-28, Math.min(28, playerPos.x));
+    playerPos.z = Math.max(-28, Math.min(28, playerPos.z));
+
+    // Bob animation
+    bobPhase += dt * 12;
+    body.position.y = 0.7 + Math.sin(bobPhase) * 0.05;
+    head.position.y = 1.45 + Math.sin(bobPhase) * 0.07;
+  }
+
+  playerGroup.position.copy(playerPos);
+  playerShadow.position.x = playerPos.x;
+  playerShadow.position.z = playerPos.z;
+
+  // -- Aiming (also in isometric screen-to-world space) --
+  if (isAiming) {
+    const rightDir = new THREE.Vector3(1, 0, -1).normalize();
+    const upDir = new THREE.Vector3(-1, 0, -1).normalize();
+
+    const aimWorld = new THREE.Vector3()
+      .addScaledVector(rightDir, aimInput.x)
+      .addScaledVector(upDir, aimInput.y);
+
+    if (aimWorld.length() > 0.1) {
+      const angle = Math.atan2(-aimWorld.x, -aimWorld.z);
+      playerGroup.rotation.y = angle;
+    }
+
+    // Auto-fire while aiming
+    if (now - lastFireTime > fireRate) {
+      fireProjectile();
+      lastFireTime = now;
+    }
+  }
+
+  // -- Projectiles --
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+    p.mesh.position.addScaledVector(p.dir, projectileSpeed * dt);
+    p.life += dt;
+    if (p.life > 1.5) {
+      scene.remove(p.mesh);
+      projectiles.splice(i, 1);
+    }
+  }
+
+  // -- Camera follow --
+  camera.position.copy(playerPos).add(cameraOffset);
+  camera.lookAt(playerPos);
+
+  // -- HUD --
+  hudPos.textContent = `pos: ${playerPos.x.toFixed(1)}, ${playerPos.z.toFixed(1)}`;
+  hudAim.textContent = `aim: ${isAiming ? (playerGroup.rotation.y * 180 / Math.PI).toFixed(0) + '°' : '—'}`;
+  const spd = Math.sqrt(moveInput.x ** 2 + moveInput.y ** 2);
+  hudSpeed.textContent = `speed: ${(spd * moveSpeed).toFixed(1)}`;
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(update);
+}
+
+update();
+
+// ── Resize ──
+window.addEventListener('resize', () => {
+  const a = window.innerWidth / window.innerHeight;
+  camera.left = -frustum * a;
+  camera.right = frustum * a;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

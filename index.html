@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iso Battler</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- HUD layer (HTML overlay) -->
+  <div id="hud">
+    <div id="health-bar-container">
+      <div id="health-bar"></div>
+      <div id="health-text"></div>
+    </div>
+    <div id="wave-indicator">Wave 1</div>
+    <div id="currency-display">
+      <span id="currency-icon">&#x25C6;</span>
+      <span id="currency-count">0</span>
+    </div>
+    <div id="ability-bar"></div>
+  </div>
+
+  <!-- Wave announcement -->
+  <div id="wave-announce"></div>
+
+  <!-- Overlay screens -->
+  <div id="game-over-screen" class="screen hidden">
+    <h1>DEFEATED</h1>
+    <p id="game-over-stats"></p>
+    <button id="restart-btn">Restart</button>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script type="module" src="engine/game.js?v=7"></script>
+</body>
+</html>
