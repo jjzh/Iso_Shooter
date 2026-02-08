@@ -26,7 +26,8 @@ export function initRenderer() {
   scene.background = new THREE.Color(0x0a0a1a);
   scene.fog = new THREE.Fog(0x0a0a1a, 30, 60);
 
-  const aspect = window.innerWidth / window.innerHeight;
+  const { w, h } = getViewportSize();
+  const aspect = w / h;
   camera = new THREE.OrthographicCamera(
     -baseFrustum * aspect, baseFrustum * aspect,
     baseFrustum, -baseFrustum, 0.1, 100
@@ -39,7 +40,7 @@ export function initRenderer() {
   if (hasTouch) applyFrustum(8);
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(w, h);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   document.body.prepend(renderer.domElement);
 
@@ -74,8 +75,15 @@ export function initRenderer() {
   // Arena pits
   createPits();
 
-  // Resize handler
+  // Resize handler — also handle mobile orientation changes
   window.addEventListener('resize', onResize);
+  window.addEventListener('orientationchange', () => {
+    // Delay to let browser settle after orientation change
+    setTimeout(onResize, 150);
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', onResize);
+  }
 
   return { scene, camera, renderer };
 }
@@ -216,13 +224,23 @@ export function rebuildArenaVisuals() {
   createPits();
 }
 
+function getViewportSize() {
+  // visualViewport gives accurate size on mobile (accounts for browser chrome)
+  if (window.visualViewport) {
+    return { w: window.visualViewport.width, h: window.visualViewport.height };
+  }
+  return { w: window.innerWidth, h: window.innerHeight };
+}
+
 function onResize() {
+  const { w, h } = getViewportSize();
   applyFrustum(currentFrustum);
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(w, h);
 }
 
 function applyFrustum(f) {
-  const aspect = window.innerWidth / window.innerHeight;
+  const { w, h } = getViewportSize();
+  const aspect = w / h;
   camera.left = -f * aspect;
   camera.right = f * aspect;
   camera.top = f;
