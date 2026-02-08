@@ -9,6 +9,8 @@ html, body {
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   -webkit-user-select: none;
   user-select: none;
+  touch-action: none;
+  -webkit-touch-callout: none;
 }
 
 canvas {
@@ -236,4 +238,113 @@ canvas {
 
 #wave-announce.visible {
   opacity: 1;
+}
+
+/* ── Mobile Action Buttons (Wild Rift style) ── */
+#mobile-actions {
+  display: none; /* hidden on desktop */
+  position: fixed;
+  right: 20px;
+  bottom: 140px;
+  z-index: 20;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  pointer-events: auto;
+}
+
+.mobile-btn {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: rgba(15, 15, 30, 0.85);
+  border: 2px solid rgba(100, 100, 160, 0.5);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+
+.mobile-btn.ready {
+  border-color: rgba(68, 255, 136, 0.7);
+  box-shadow: 0 0 12px rgba(68, 255, 136, 0.25), inset 0 0 8px rgba(68, 255, 136, 0.08);
+}
+
+.mobile-btn:active {
+  transform: scale(0.9);
+}
+
+.mobile-btn-icon {
+  font-size: 22px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.mobile-btn-label {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 8px;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-top: 1px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.mobile-btn-cd-text {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 20px;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.9);
+  z-index: 3;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+
+.mobile-btn-cd-overlay {
+  position: absolute;
+  bottom: 0; left: 0;
+  width: 100%; height: 0%;
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* ── Touch Joystick Zones ── */
+.joystick-zone {
+  position: fixed;
+  bottom: 0;
+  width: 50%;
+  height: 45%;
+  z-index: 15;
+  display: none; /* hidden by default — shown on touch devices */
+}
+#zone-left  { left: 0; }
+#zone-right { right: 0; }
+
+/* ── Mobile overrides (touch devices) ── */
+@media (pointer: coarse) {
+  .joystick-zone { display: block; }
+  /* Hide desktop ability bar on mobile */
+  #ability-bar { display: none !important; }
+  /* Show mobile action buttons */
+  #mobile-actions { display: flex; }
+  /* Hide crosshair cursor on touch */
+  html, body { cursor: default; }
+}
+
+/* Also add touch-action: none for proper touch handling */
+.joystick-zone {
+  touch-action: none;
+  -webkit-touch-callout: none;
 }

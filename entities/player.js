@@ -79,8 +79,8 @@ export function createPlayer(scene) {
       emissiveIntensity: 0.8
     })
   );
-  aimIndicator.rotation.x = Math.PI / 2;
-  aimIndicator.position.set(0, 0.8, 0.7);
+  aimIndicator.rotation.x = -Math.PI / 2;
+  aimIndicator.position.set(0, 0.8, -0.7);
   playerGroup.add(aimIndicator);
 
   scene.add(playerGroup);

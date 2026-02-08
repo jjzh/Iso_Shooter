@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Iso Battler</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -32,7 +32,28 @@
     <button id="restart-btn">Restart</button>
   </div>
 
+  <!-- Mobile action buttons (hidden on desktop via CSS) -->
+  <div id="mobile-actions">
+    <div id="mobile-btn-dash" class="mobile-btn ready">
+      <div class="mobile-btn-icon">⚡</div>
+      <div class="mobile-btn-label">Dash</div>
+      <div class="mobile-btn-cd-text"></div>
+      <div class="mobile-btn-cd-overlay"></div>
+    </div>
+    <div id="mobile-btn-ultimate" class="mobile-btn ready">
+      <div class="mobile-btn-icon">💨</div>
+      <div class="mobile-btn-label">Push</div>
+      <div class="mobile-btn-cd-text"></div>
+      <div class="mobile-btn-cd-overlay"></div>
+    </div>
+  </div>
+
+  <!-- Touch joystick zones (hidden on non-touch devices via CSS) -->
+  <div id="zone-left" class="joystick-zone"></div>
+  <div id="zone-right" class="joystick-zone"></div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script type="module" src="engine/game.js?v=7"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.2/nipplejs.min.js"></script>
+  <script type="module" src="engine/game.js?v=8"></script>
 </body>
 </html>

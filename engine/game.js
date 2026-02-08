@@ -7,7 +7,7 @@ import { initMortarSystem, updateMortarProjectiles, clearMortarProjectiles } fro
 import { initWaveRunner, updateWaveRunner, startWave, resetWaveRunner } from './waveRunner.js';
 import { checkCollisions, checkPitFalls, updateEffectGhosts, clearEffectGhosts } from './physics.js';
 import { initAoeTelegraph, updateAoeTelegraphs, updatePendingEffects, clearAoeTelegraphs } from './aoeTelegraph.js';
-import { initHUD, updateHUD } from '../ui/hud.js';
+import { initHUD, updateHUD } from '../ui/hud.js?v=2';
 import { initScreens, showGameOver, hideScreens } from '../ui/screens.js';
 import { initDamageNumbers, updateDamageNumbers, clearDamageNumbers } from '../ui/damageNumbers.js';
 import { initTuningPanel } from '../ui/tuning.js?v=4';
