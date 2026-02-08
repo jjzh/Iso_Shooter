@@ -273,8 +273,8 @@ export function updateInput() {
   // Merge keyboard + touch button hold (gamepad sets it in pollGamepad)
   inputState.ultimateHeld = !!keys['KeyE'] || _touchUltHeld;
 
-  // Mouse → world position on y=0 plane (only if not overridden by gamepad/touch)
-  if ((!usingGamepad || !gamepadAimActive) && !touchAimActive) {
+  // Mouse → world position on y=0 plane (only if not overridden by gamepad/touch/ability drag)
+  if ((!usingGamepad || !gamepadAimActive) && !touchAimActive && !_abilityAimActive) {
     const worldPos = screenToWorld(inputState.mouseNDC.x, inputState.mouseNDC.y);
     inputState.aimWorldPos.x = worldPos.x;
     inputState.aimWorldPos.y = worldPos.y;
@@ -301,3 +301,23 @@ let _touchUltHeld = false;
 export function triggerDash() { inputState.dash = true; }
 export function triggerUltimate() { inputState.ultimate = true; }
 export function setUltimateHeld(held) { _touchUltHeld = held; }
+
+// Drag-to-aim: set aim world position from screen-space drag direction
+let _abilityAimActive = false; // true while a mobile button drag is overriding aim
+export function setAimFromScreenDrag(screenX, screenY) {
+  _abilityAimActive = true;
+  const aimDirX = screenX * ISO_RIGHT_X + screenY * ISO_UP_X;
+  const aimDirZ = screenX * ISO_RIGHT_Z + screenY * ISO_UP_Z;
+
+  const pp = getPlayerPos();
+  const aimDist = 10;
+  inputState.aimWorldPos.x = pp.x + aimDirX * aimDist;
+  inputState.aimWorldPos.y = 0;
+  inputState.aimWorldPos.z = pp.z + aimDirZ * aimDist;
+}
+
+// Override movement direction for dash drag-to-aim
+let _abilityDirOverride = null;
+export function setAbilityDirOverride(x, z) { _abilityDirOverride = { x, z }; }
+export function clearAbilityDirOverride() { _abilityDirOverride = null; _abilityAimActive = false; }
+export function getAbilityDirOverride() { return _abilityDirOverride; }

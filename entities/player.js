@@ -2,6 +2,7 @@ import { PLAYER } from '../config/player.js';
 import { ABILITIES } from '../config/abilities.js';
 import { screenShake, getScene } from '../engine/renderer.js';
 import { fireProjectile } from './projectile.js';
+import { getAbilityDirOverride, clearAbilityDirOverride } from '../engine/input.js';
 
 const THREE = window.THREE;
 
@@ -189,10 +190,14 @@ function startDash(inputState, gameState) {
   dashDistance = cfg.distance;
   dashStartPos.copy(playerPos);
 
-  // Direction source
+  // Direction source — drag-to-aim override takes priority (mobile buttons)
+  const override = getAbilityDirOverride();
   const hasMovement = Math.abs(inputState.moveX) > 0.01 || Math.abs(inputState.moveZ) > 0.01;
 
-  if (cfg.directionSource === 'movement' && hasMovement) {
+  if (override) {
+    dashDir.set(override.x, 0, override.z).normalize();
+    clearAbilityDirOverride();
+  } else if (cfg.directionSource === 'movement' && hasMovement) {
     dashDir.set(inputState.moveX, 0, inputState.moveZ).normalize();
   } else if (cfg.directionSource === 'aim') {
     dashDir.set(

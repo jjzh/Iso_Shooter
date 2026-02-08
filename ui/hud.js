@@ -1,6 +1,9 @@
 import { ABILITIES } from '../config/abilities.js';
 import { PLAYER } from '../config/player.js';
-import { triggerDash, triggerUltimate, setUltimateHeld } from '../engine/input.js';
+import {
+  triggerDash, triggerUltimate, setUltimateHeld,
+  setAimFromScreenDrag, setAbilityDirOverride, clearAbilityDirOverride
+} from '../engine/input.js';
 
 let healthBar, healthText, waveIndicator, currencyCount, abilityBar;
 
@@ -34,30 +37,130 @@ export function initHUD() {
   }
 }
 
+// Drag-to-aim constants
+const DRAG_THRESHOLD = 15;  // px — distinguish tap from drag
+const DRAG_MAX_RADIUS = 80; // px — full deflection range
+
+// Isometric basis vectors (duplicated from input.js for screen→world mapping)
+const INV_SQRT2 = 1 / Math.SQRT2;
+const ISO_RIGHT_X = INV_SQRT2;
+const ISO_RIGHT_Z = -INV_SQRT2;
+const ISO_UP_X = -INV_SQRT2;
+const ISO_UP_Z = -INV_SQRT2;
+
 function initMobileButtons() {
   mobileBtnDash = document.getElementById('mobile-btn-dash');
   mobileBtnUlt = document.getElementById('mobile-btn-ultimate');
   if (!mobileBtnDash || !mobileBtnUlt) return;
 
-  // Dash — single tap
-  mobileBtnDash.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    triggerDash();
+  // --- Dash: drag-to-aim, release to fire ---
+  setupDragToAim(mobileBtnDash, {
+    onDragStart: () => { /* don't trigger yet — wait for release */ },
+    onDragMove: (normX, normY) => {
+      // Compute isometric world direction from screen drag
+      const isoX = normX * ISO_RIGHT_X + normY * ISO_UP_X;
+      const isoZ = normX * ISO_RIGHT_Z + normY * ISO_UP_Z;
+      setAbilityDirOverride(isoX, isoZ);
+      setAimFromScreenDrag(normX, normY);
+    },
+    onRelease: (wasDrag) => {
+      triggerDash();
+      if (!wasDrag) clearAbilityDirOverride();
+      // If wasDrag, override is already set and startDash will consume it
+    },
+    onCancel: () => {
+      clearAbilityDirOverride();
+    },
   });
 
-  // Ultimate — hold to charge, release to fire
-  mobileBtnUlt.addEventListener('touchstart', (e) => {
+  // --- Ultimate: drag-to-aim, charge while held ---
+  setupDragToAim(mobileBtnUlt, {
+    onDragStart: () => {
+      triggerUltimate();
+      setUltimateHeld(true);
+    },
+    onDragMove: (normX, normY) => {
+      setAimFromScreenDrag(normX, normY);
+    },
+    onRelease: () => {
+      setUltimateHeld(false);
+      clearAbilityDirOverride();
+    },
+    onCancel: () => {
+      setUltimateHeld(false);
+      clearAbilityDirOverride();
+    },
+  });
+}
+
+/**
+ * Generic drag-to-aim handler for a mobile ability button.
+ * Touch down → drag to aim → release to fire.
+ * Callbacks:
+ *   onDragStart() — called once when touch begins
+ *   onDragMove(normX, normY) — called each touchmove when past threshold
+ *     normX: -1..1 screen-right, normY: -1..1 screen-up
+ *   onRelease(wasDrag) — called on touchend (wasDrag = true if threshold exceeded)
+ *   onCancel() — called on touchcancel
+ */
+function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel }) {
+  let touchId = null;
+  let startX = 0, startY = 0;
+  let isDragging = false;
+
+  btnEl.addEventListener('touchstart', (e) => {
     e.preventDefault();
-    triggerUltimate();
-    setUltimateHeld(true);
+    if (touchId !== null) return; // already tracking a touch
+    const touch = e.changedTouches[0];
+    touchId = touch.identifier;
+    startX = touch.clientX;
+    startY = touch.clientY;
+    isDragging = false;
+    onDragStart();
   });
-  mobileBtnUlt.addEventListener('touchend', (e) => {
-    e.preventDefault();
-    setUltimateHeld(false);
+
+  // Listen on window so drag can extend beyond button bounds
+  window.addEventListener('touchmove', (e) => {
+    if (touchId === null) return;
+    const touch = findTouch(e.changedTouches, touchId);
+    if (!touch) return;
+
+    const dx = touch.clientX - startX;
+    const dy = touch.clientY - startY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist > DRAG_THRESHOLD) {
+      isDragging = true;
+      // Normalize to -1..1 range, clamped by max radius
+      const clampedDist = Math.min(dist, DRAG_MAX_RADIUS);
+      const normX = (dx / dist) * (clampedDist / DRAG_MAX_RADIUS);
+      const normY = (-dy / dist) * (clampedDist / DRAG_MAX_RADIUS); // invert Y (screen down = negative)
+      onDragMove(normX, normY);
+    }
+  }, { passive: true });
+
+  window.addEventListener('touchend', (e) => {
+    if (touchId === null) return;
+    const touch = findTouch(e.changedTouches, touchId);
+    if (!touch) return;
+    touchId = null;
+    onRelease(isDragging);
   });
-  mobileBtnUlt.addEventListener('touchcancel', () => {
-    setUltimateHeld(false);
+
+  window.addEventListener('touchcancel', (e) => {
+    if (touchId === null) return;
+    const touch = findTouch(e.changedTouches, touchId);
+    if (!touch) return;
+    touchId = null;
+    onCancel();
   });
+}
+
+function findTouch(touchList, id) {
+  for (let i = 0; i < touchList.length; i++) {
+    if (touchList[i].identifier === id) return touchList[i];
+  }
+  return null;
 }
 
 export function updateHUD(gameState) {
