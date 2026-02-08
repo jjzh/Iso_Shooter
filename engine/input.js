@@ -321,3 +321,38 @@ let _abilityDirOverride = null;
 export function setAbilityDirOverride(x, z) { _abilityDirOverride = { x, z }; }
 export function clearAbilityDirOverride() { _abilityDirOverride = null; _abilityAimActive = false; }
 export function getAbilityDirOverride() { return _abilityDirOverride; }
+
+/**
+ * Mobile auto-aim: if on a touch device and the right joystick / ability drag
+ * is NOT active, aim at the closest enemy automatically.
+ * Called from game loop after updateInput(), before updatePlayer().
+ */
+export function autoAimClosestEnemy(enemies) {
+  // Only on touch devices, and only when no manual aim is active
+  if (!touchActive) return;
+  if (touchAimActive || _abilityAimActive) return;
+
+  if (!enemies || enemies.length === 0) return;
+
+  const pp = getPlayerPos();
+  let closest = null;
+  let closestDist = Infinity;
+
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
+    if (e.fellInPit || e.health <= 0) continue;
+    const dx = e.pos.x - pp.x;
+    const dz = e.pos.z - pp.z;
+    const dist = dx * dx + dz * dz; // squared distance is fine for comparison
+    if (dist < closestDist) {
+      closestDist = dist;
+      closest = e;
+    }
+  }
+
+  if (closest) {
+    inputState.aimWorldPos.x = closest.pos.x;
+    inputState.aimWorldPos.y = 0;
+    inputState.aimWorldPos.z = closest.pos.z;
+  }
+}

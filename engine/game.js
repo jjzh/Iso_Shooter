@@ -1,5 +1,5 @@
 import { initRenderer, updateCamera, getScene, getRendererInstance, getCamera } from './renderer.js';
-import { initInput, updateInput, consumeInput, getInputState } from './input.js';
+import { initInput, updateInput, consumeInput, getInputState, autoAimClosestEnemy } from './input.js';
 import { createPlayer, updatePlayer, getPlayerPos, resetPlayer } from '../entities/player.js';
 import { initProjectilePool, updateProjectiles, releaseAllProjectiles } from '../entities/projectile.js';
 import { initEnemySystem, updateEnemies, clearEnemies } from '../entities/enemy.js';
@@ -56,6 +56,7 @@ function gameLoop(timestamp) {
 
   // 1. Input
   updateInput();
+  autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
 
   // 2. Player
