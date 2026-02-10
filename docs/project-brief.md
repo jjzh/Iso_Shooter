@@ -250,18 +250,18 @@ const gameState = {
 ## Scope Tiers
 
 ### Must-Ship (MVP — aim to finish in first ~12 hours)
-1. ✅ WASD movement with isometric mapping
-2. ✅ Mouse aim + auto-fire
-3. ✅ 3 enemy types with distinct behaviors (rush, kite, tank)
-4. ✅ 3 waves with escalating composition
-5. ✅ 1 boss with at least 2 phases
-6. ✅ Player health + health drops from enemies
-7. ✅ Currency drops (visual only — just a counter, no spending yet)
-8. ✅ 2-3 abilities with cooldowns
-9. ✅ HUD (health, abilities, wave counter, currency)
-10. ✅ Game over screen + restart
-11. ✅ Victory screen on boss kill
-12. ✅ Hit feedback (flash, knockback, screen shake)
+1. WASD movement with isometric mapping
+2. Mouse aim + auto-fire
+3. 3 enemy types with distinct behaviors (rush, kite, tank)
+4. 3 waves with escalating composition
+5. 1 boss with at least 2 phases
+6. Player health + health drops from enemies
+7. Currency drops (visual only — just a counter, no spending yet)
+8. 2-3 abilities with cooldowns
+9. HUD (health, abilities, wave counter, currency)
+10. Game over screen + restart
+11. Victory screen on boss kill
+12. Hit feedback (flash, knockback, screen shake)
 
 ### Stretch Goals (if time remains)
 13. Mistral AI integration — between waves, send player performance data (clear time, health remaining, abilities used, enemies killed by type) to Mistral API and have it adjust next wave composition dynamically. This is the hackathon's "AI hook." Mistral endpoint: `https://api.mistral.ai/v1/chat/completions`. Model: `mistral-large-latest`. Credits available with code at `https://mistral-credits-app-production.up.railway.app/h/supercell-game-hack/` (password: GamingHack). The prompt to Mistral should describe available enemy types and ask it to return a JSON wave config.
@@ -302,8 +302,6 @@ const gameState = {
     └── mistral.js        # (Stretch) Mistral API integration for adaptive waves
 ```
 
-Use ES modules (`<script type="module">`) so files can import from each other. No bundler — the browser handles module loading natively.
-
 ## Working Agreements
 
 ### For the Designer (tuning gameplay)
@@ -315,11 +313,8 @@ Own everything in `/engine/`, `/entities/`, and `/ui/`. The game loop in `game.j
 ### Git Workflow
 Both working on `main` (no time for branch workflows at a hackathon). Communicate before editing the same file. Config files and engine files should have zero overlap, so conflicts should be rare.
 
-## Starting Point
-There is an existing prototype (`prototype.html`) with working isometric camera, Three.js scene, and movement. Use it as a reference for the camera angle and isometric input mapping, but build the real project with the proper file structure above. Don't try to evolve the single-file prototype — start fresh with the modular structure.
-
 ## Key Technical Notes
-- **Isometric input mapping:** Screen-space input must be rotated into isometric world space. The camera faces along (-1, -1, -1). Screen-right maps to world vector (1, 0, -1) normalized. Screen-up maps to world vector (-1, 0, -1) normalized. This is already solved in the prototype — port it.
+- **Isometric input mapping:** Screen-space input must be rotated into isometric world space. The camera faces along (-1, -1, -1). Screen-right maps to world vector (1, 0, -1) normalized. Screen-up maps to world vector (-1, 0, -1) normalized.
 - **No pathfinding.** Enemies move directly toward their target. This is a deliberate scope decision.
 - **Collision = distance checks.** `if (distanceBetween(a, b) < a.radius + b.radius)` is sufficient. No physics engine.
 - **Object pooling from the start.** Don't create/destroy Three.js meshes at runtime. Pre-allocate and reuse.
