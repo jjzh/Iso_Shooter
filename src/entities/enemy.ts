@@ -1,33 +1,31 @@
-import { ENEMY_TYPES } from '../config/enemies.js';
-import { getCollisionBounds, getPitBounds } from '../config/arena.js';
-import { applyAoeRectEffect, isInRotatedRect, applyAoeEffect } from '../engine/aoeTelegraph.js';
-import { getPlayerPos, isPlayerInvincible } from './player.js';
-import { screenShake } from '../engine/renderer.js';
-import { spawnDamageNumber } from '../ui/damageNumbers.js';
-import { fireMortarProjectile, getIceEffects } from './mortarProjectile.js';
+import { ENEMY_TYPES } from '../config/enemies';
+import { getCollisionBounds, getPitBounds } from '../config/arena';
+import { applyAoeRectEffect, isInRotatedRect, applyAoeEffect } from '../engine/aoeTelegraph';
+import { getPlayerPos, isPlayerInvincible } from './player';
+import { screenShake } from '../engine/renderer';
+import { spawnDamageNumber } from '../ui/damageNumbers';
+import { fireMortarProjectile, getIceEffects } from './mortarProjectile';
 
-const THREE = window.THREE;
-
-let sceneRef;
+let sceneRef: any;
 
 // Shared shield geometry (created once)
-let shieldGeo;
+let shieldGeo: any;
 
 // Shared body/head geometry per enemy type (keyed by typeName)
-const _bodyGeoCache = {};
-const _headGeoCache = {};
+const _bodyGeoCache: Record<string, any> = {};
+const _headGeoCache: Record<string, any> = {};
 
 // Shared mortar fill circle geometry
-let _mortarFillGeoShared = null;
+let _mortarFillGeoShared: any = null;
 
 // Shared death telegraph fill geometry
-let _deathFillGeoShared = null;
+let _deathFillGeoShared: any = null;
 
-export function initEnemySystem(scene) {
+export function initEnemySystem(scene: any) {
   sceneRef = scene;
 }
 
-function createShieldMesh(cfg) {
+function createShieldMesh(cfg: any) {
   const shieldCfg = cfg.shield;
   const radius = cfg.size.radius * 1.8;
   if (!shieldGeo) shieldGeo = new THREE.SphereGeometry(1, 16, 12); // unit sphere, scaled per enemy
@@ -45,7 +43,7 @@ function createShieldMesh(cfg) {
   return mesh;
 }
 
-export function spawnEnemy(typeName, position, gameState) {
+export function spawnEnemy(typeName: string, position: any, gameState: any) {
   const cfg = ENEMY_TYPES[typeName];
   if (!cfg) return null;
 
@@ -84,7 +82,7 @@ export function spawnEnemy(typeName, position, gameState) {
   group.position.copy(position);
   sceneRef.add(group);
 
-  const enemy = {
+  const enemy: any = {
     mesh: group,
     bodyMesh,
     headMesh,
@@ -104,7 +102,7 @@ export function spawnEnemy(typeName, position, gameState) {
     // Shield
     shieldHealth: 0,
     shieldActive: false,
-    shieldMesh: null,
+    shieldMesh: null as any,
     // Slow debuff
     slowTimer: 0,
     slowMult: 1,               // speed multiplier while slowed (e.g., 0.5 = half speed)
@@ -117,8 +115,8 @@ export function spawnEnemy(typeName, position, gameState) {
     mortarPhase: 'idle',       // 'idle' | 'aiming' | 'cooldown'
     mortarTimer: 0,
     mortarTarget: { x: 0, z: 0 }, // aimed landing position
-    mortarArcLine: null,       // THREE.Line for aim arc preview
-    mortarGroundCircle: null,  // THREE.Mesh for persistent ground circle
+    mortarArcLine: null as any,       // THREE.Line for aim arc preview
+    mortarGroundCircle: null as any,  // THREE.Mesh for persistent ground circle
     // Pit / edge-slide
     wasDeflected: false,       // true when movement was deflected by collision (edge-sliding)
     fellInPit: false,          // true when killed by falling into a pit
@@ -148,7 +146,7 @@ export function spawnEnemy(typeName, position, gameState) {
   return enemy;
 }
 
-export function spawnTestGroup(gameState) {
+export function spawnTestGroup(gameState: any) {
   // Larger group for longer sessions
   const spawns = [
     // Goblins — scattered around arena
@@ -171,13 +169,13 @@ export function spawnTestGroup(gameState) {
     { type: 'skeletonArcher', x: 14, z: -10 },
     { type: 'skeletonArcher', x: 0, z: -16 },
     // Mortar Imps — lobbed AoE
-    { type: 'mortarImp', x: 10, z: -14 },
-    { type: 'mortarImp', x: -10, z: 14 },
-    { type: 'mortarImp', x: -16, z: -10 },
+    { type: 'iceMortarImp', x: 10, z: -14 },
+    { type: 'iceMortarImp', x: -10, z: 14 },
+    { type: 'iceMortarImp', x: -16, z: -10 },
     // Golems — fewer but threatening
-    { type: 'crystalGolem', x: 0, z: 15 },
-    { type: 'crystalGolem', x: -15, z: -5 },
-    { type: 'crystalGolem', x: 15, z: -5 },
+    { type: 'stoneGolem', x: 0, z: 15 },
+    { type: 'stoneGolem', x: -15, z: -5 },
+    { type: 'stoneGolem', x: 15, z: -5 },
   ];
 
   for (const s of spawns) {
@@ -189,14 +187,14 @@ export function spawnTestGroup(gameState) {
 const _toPlayer = new THREE.Vector3();
 
 // Cached collision bounds (loaded once)
-let _collisionBounds = null;
-let _pitBoundsCache = null;
+let _collisionBounds: any = null;
+let _pitBoundsCache: any = null;
 
 /**
  * Check if position (x,z) is inside any pit (with margin).
  * Returns the pit AABB if inside, or null.
  */
-function pitAt(x, z, margin) {
+function pitAt(x: number, z: number, margin: number) {
   if (!_pitBoundsCache) _pitBoundsCache = getPitBounds();
   for (const pit of _pitBoundsCache) {
     if (x > pit.minX - margin && x < pit.maxX + margin &&
@@ -213,7 +211,7 @@ function pitAt(x, z, margin) {
  * sideways (perpendicular to the original direction, choosing the side away
  * from the pit center). Returns adjusted { dx, dz }.
  */
-function pitAwareDir(x, z, dx, dz, lookahead) {
+function pitAwareDir(x: number, z: number, dx: number, dz: number, lookahead: number) {
   const ahead = pitAt(x + dx * lookahead, z + dz * lookahead, 0.5);
   if (!ahead) return { dx, dz }; // no pit ahead — go straight
 
@@ -221,7 +219,7 @@ function pitAwareDir(x, z, dx, dz, lookahead) {
   const pcx = (ahead.minX + ahead.maxX) / 2;
   const pcz = (ahead.minZ + ahead.maxZ) / 2;
 
-  // Two perpendicular options: rotate ±90°
+  // Two perpendicular options: rotate +/-90deg
   // Option A: (dz, -dx)   Option B: (-dz, dx)
   // Pick the one whose lookahead is further from pit center
   const ax = x + dz * lookahead, az = z + (-dx) * lookahead;
@@ -247,14 +245,14 @@ function pitAwareDir(x, z, dx, dz, lookahead) {
  * Returns the distance, or maxDist if nothing is hit.
  * Uses slab method for ray-AABB intersection on the XZ plane.
  */
-function raycastTerrainDist(ox, oz, dx, dz, maxDist) {
+function raycastTerrainDist(ox: number, oz: number, dx: number, dz: number, maxDist: number) {
   if (!_collisionBounds) _collisionBounds = getCollisionBounds();
 
   let closest = maxDist;
 
   for (const box of _collisionBounds) {
     // Slab method on X axis
-    let tmin, tmax;
+    let tmin: number, tmax: number;
     if (Math.abs(dx) < 1e-8) {
       // Ray parallel to X — check if origin is within X slab
       if (ox < box.minX || ox > box.maxX) continue;
@@ -293,7 +291,7 @@ function raycastTerrainDist(ox, oz, dx, dz, maxDist) {
   return closest;
 }
 
-export function updateEnemies(dt, playerPos, gameState) {
+export function updateEnemies(dt: number, playerPos: any, gameState: any) {
   for (let i = gameState.enemies.length - 1; i >= 0; i--) {
     const enemy = gameState.enemies[i];
 
@@ -347,12 +345,13 @@ export function updateEnemies(dt, playerPos, gameState) {
     if (enemy.shieldActive && enemy.shieldMesh) {
       const shieldCfg = enemy.config.shield;
       const ratio = enemy.shieldHealth / shieldCfg.maxHealth; // 1.0 = full, 0.0 = broken
+
       const baseOpacity = shieldCfg.opacity || 0.35;
 
       // Opacity fades as shield depletes
       let opacity = baseOpacity * (0.3 + 0.7 * ratio); // never fully invisible while active
 
-      // Color shifts cyan → red as shield weakens
+      // Color shifts cyan -> red as shield weakens
       const r = Math.round(0x44 + (0xff - 0x44) * (1 - ratio));
       const g = Math.round(0xcc * ratio);
       const b = Math.round(0xff * ratio);
@@ -456,7 +455,7 @@ export function updateEnemies(dt, playerPos, gameState) {
   }
 }
 
-function behaviorRush(enemy, playerPos, dt) {
+function behaviorRush(enemy: any, playerPos: any, dt: number) {
   // Skip normal movement during leap (handled by updateLeap)
   if (enemy.isLeaping) return;
 
@@ -505,7 +504,7 @@ function behaviorRush(enemy, playerPos, dt) {
 
 // --- Pit Leap (goblin arc jump over pits) ---
 
-function startPitLeap(enemy, playerPos, leapCfg) {
+function startPitLeap(enemy: any, playerPos: any, leapCfg: any) {
   // Direction toward player
   const dx = playerPos.x - enemy.pos.x;
   const dz = playerPos.z - enemy.pos.z;
@@ -546,7 +545,7 @@ function startPitLeap(enemy, playerPos, leapCfg) {
 
 }
 
-function updateLeap(enemy, dt) {
+function updateLeap(enemy: any, dt: number) {
   enemy.leapElapsed += dt;
   const t = Math.min(enemy.leapElapsed / enemy.leapDuration, 1);
 
@@ -574,7 +573,7 @@ function updateLeap(enemy, dt) {
   }
 }
 
-function behaviorKite(enemy, playerPos, dt, gameState) {
+function behaviorKite(enemy: any, playerPos: any, dt: number, gameState: any) {
   _toPlayer.subVectors(playerPos, enemy.pos);
   _toPlayer.y = 0;
   const dist = _toPlayer.length();
@@ -659,7 +658,7 @@ function behaviorKite(enemy, playerPos, dt, gameState) {
         lingerDurationMs: lingerMs,
         color: color,
         damage: dmg,
-        enemyDamageFn: (e) => {
+        enemyDamageFn: (e: any) => {
           // Friendly fire — damages other enemies
           e.health -= dmg;
           // Apply slow debuff
@@ -668,7 +667,7 @@ function behaviorKite(enemy, playerPos, dt, gameState) {
           slowEnemy(e, slowDur, slowMul);
           spawnDamageNumber(e.pos.x, e.pos.z, 'SLOWED', '#cc88ff');
         },
-        playerDamageFn: (cx, cz, w, h, rot) => {
+        playerDamageFn: (cx: number, cz: number, w: number, h: number, rot: number) => {
           // Check if player is in the rect at fire time
           if (isPlayerInvincible()) return;
           const pp = getPlayerPos();
@@ -698,7 +697,7 @@ function behaviorKite(enemy, playerPos, dt, gameState) {
 }
 
 
-function behaviorMortar(enemy, playerPos, dt, gameState) {
+function behaviorMortar(enemy: any, playerPos: any, dt: number, gameState: any) {
   _toPlayer.subVectors(playerPos, enemy.pos);
   _toPlayer.y = 0;
   const dist = _toPlayer.length();
@@ -779,9 +778,9 @@ function behaviorMortar(enemy, playerPos, dt, gameState) {
     if (enemy.mortarGroundCircle) {
       const gc = enemy.mortarGroundCircle;
       const aimDuration = mortar.aimDuration || 1200;
-      const aimProgress = 1 - (enemy.mortarTimer / aimDuration); // 0→1 over aim phase
+      const aimProgress = 1 - (enemy.mortarTimer / aimDuration); // 0->1 over aim phase
 
-      // Scale-in animation: circleStartScale → 1.0 over circleScaleTime (easeOutQuad)
+      // Scale-in animation: circleStartScale -> 1.0 over circleScaleTime (easeOutQuad)
       gc.scaleElapsed += dt;
       const scaleT = Math.min(gc.scaleElapsed / gc.scaleDuration, 1);
       const eased = 1 - (1 - scaleT) * (1 - scaleT); // easeOutQuad
@@ -834,9 +833,9 @@ function behaviorMortar(enemy, playerPos, dt, gameState) {
 // --- Mortar arc line helpers ---
 
 const ARC_SEGMENTS = 20;
-let _arcLineGeo = null;
+let _arcLineGeo: any = null;
 
-function createMortarArcLine(enemy) {
+function createMortarArcLine(enemy: any) {
   if (!_arcLineGeo) {
     const positions = new Float32Array((ARC_SEGMENTS + 1) * 3);
     _arcLineGeo = new THREE.BufferGeometry();
@@ -863,7 +862,7 @@ function createMortarArcLine(enemy) {
   updateMortarArcLine(enemy);
 }
 
-function updateMortarArcLine(enemy) {
+function updateMortarArcLine(enemy: any) {
   if (!enemy.mortarArcLine) return;
   const mortar = enemy.config.mortar || {};
   const sx = enemy.pos.x;
@@ -891,7 +890,7 @@ function updateMortarArcLine(enemy) {
   enemy.mortarArcLine.material.opacity = pulse;
 }
 
-function removeMortarArcLine(enemy) {
+function removeMortarArcLine(enemy: any) {
   if (enemy.mortarArcLine) {
     enemy.mortarArcLine.geometry.dispose();
     enemy.mortarArcLine.material.dispose();
@@ -902,9 +901,9 @@ function removeMortarArcLine(enemy) {
 
 // --- Mortar ground circle (persistent through aim + flight) ---
 
-let _circleGeo = null;
+let _circleGeo: any = null;
 
-function createMortarGroundCircle(enemy) {
+function createMortarGroundCircle(enemy: any) {
   const mortar = enemy.config.mortar || {};
   const radius = mortar.blastRadius || 2.5;
   const color = mortar.color || 0xff6622;
@@ -956,11 +955,11 @@ function createMortarGroundCircle(enemy) {
     targetRadius: radius,
     circleStartScale,
     scaleElapsed: 0,                              // tracks time for scale-in animation
-    scaleDuration: (mortar.circleScaleTime || 200) / 1000, // convert ms → seconds
+    scaleDuration: (mortar.circleScaleTime || 200) / 1000, // convert ms -> seconds
   };
 }
 
-function removeMortarGroundCircle(enemy) {
+function removeMortarGroundCircle(enemy: any) {
   if (enemy.mortarGroundCircle) {
     const gc = enemy.mortarGroundCircle;
     gc.ringMat.dispose();
@@ -973,9 +972,9 @@ function removeMortarGroundCircle(enemy) {
 
 // --- Death telegraph circle (expanding ring before golem explosion) ---
 
-let _deathCircleGeo = null;
+let _deathCircleGeo: any = null;
 
-function createDeathTelegraph(enemy) {
+function createDeathTelegraph(enemy: any) {
   const cfg = enemy.config.deathExplosion;
   const radius = cfg.radius;
   const color = cfg.color;
@@ -1026,7 +1025,7 @@ function createDeathTelegraph(enemy) {
   };
 }
 
-function updateDeathTelegraph(enemy, dt) {
+function updateDeathTelegraph(enemy: any, _dt: number) {
   const tg = enemy.deathTelegraph;
   if (!tg) return;
 
@@ -1048,7 +1047,7 @@ function updateDeathTelegraph(enemy, dt) {
   tg.fillMat.opacity = 0.12 + 0.08 * t;
 }
 
-function removeDeathTelegraph(enemy) {
+function removeDeathTelegraph(enemy: any) {
   const tg = enemy.deathTelegraph;
   if (!tg) return;
   tg.ringMat.dispose();
@@ -1060,7 +1059,7 @@ function removeDeathTelegraph(enemy) {
 
 // --- Death explosion (crystal golem etc.) ---
 
-function onDeathExplosion(enemy, gameState) {
+function onDeathExplosion(enemy: any, gameState: any) {
   const cfg = enemy.config.deathExplosion;
   const x = enemy.pos.x;
   const z = enemy.pos.z;
@@ -1080,7 +1079,7 @@ function onDeathExplosion(enemy, gameState) {
     durationMs: cfg.ringDuration || 400,
     color: cfg.color,
     label: cfg.damage + '',
-    effectFn: (e) => {
+    effectFn: (e: any) => {
       e.health -= cfg.damage;
       if (cfg.stunDuration > 0) {
         stunEnemy(e, cfg.stunDuration);
@@ -1106,7 +1105,7 @@ function onDeathExplosion(enemy, gameState) {
   }
 }
 
-function behaviorTank(enemy, playerPos, dt) {
+function behaviorTank(enemy: any, playerPos: any, dt: number) {
   const tank = enemy.config.tank || {};
   _toPlayer.subVectors(playerPos, enemy.pos);
   _toPlayer.y = 0;
@@ -1166,12 +1165,12 @@ function behaviorTank(enemy, playerPos, dt) {
   }
 }
 
-export function slowEnemy(enemy, durationMs, mult) {
+export function slowEnemy(enemy: any, durationMs: number, mult: number) {
   enemy.slowTimer = durationMs;
   enemy.slowMult = mult;
 }
 
-export function stunEnemy(enemy, durationMs) {
+export function stunEnemy(enemy: any, durationMs: number) {
   enemy.stunTimer = durationMs;
   // Cancel any active charge
   enemy.isCharging = false;
@@ -1187,7 +1186,7 @@ export function stunEnemy(enemy, durationMs) {
   }
 }
 
-export function stunEnemiesInRadius(centerPos, radius, durationMs, gameState) {
+export function stunEnemiesInRadius(centerPos: any, radius: number, durationMs: number, gameState: any) {
   const r2 = radius * radius;
   for (const enemy of gameState.enemies) {
     const dx = enemy.pos.x - centerPos.x;
@@ -1198,7 +1197,7 @@ export function stunEnemiesInRadius(centerPos, radius, durationMs, gameState) {
   }
 }
 
-export function clearEnemies(gameState) {
+export function clearEnemies(gameState: any) {
   for (const enemy of gameState.enemies) {
     // Clean up shield mesh if present
     if (enemy.shieldMesh) {

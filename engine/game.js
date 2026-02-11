@@ -3,7 +3,7 @@ import { initInput, updateInput, consumeInput, getInputState, autoAimClosestEnem
 import { createPlayer, updatePlayer, getPlayerPos, resetPlayer } from '../entities/player.js';
 import { initProjectilePool, updateProjectiles, releaseAllProjectiles } from '../entities/projectile.js';
 import { initEnemySystem, updateEnemies, clearEnemies } from '../entities/enemy.js';
-import { initMortarSystem, updateMortarProjectiles, clearMortarProjectiles } from '../entities/mortarProjectile.js';
+import { initMortarSystem, updateMortarProjectiles, clearMortarProjectiles, updateIcePatches, clearIcePatches } from '../entities/mortarProjectile.js';
 import { initWaveRunner, updateWaveRunner, startWave, resetWaveRunner } from './waveRunner.js';
 import { checkCollisions, checkPitFalls, updateEffectGhosts, clearEffectGhosts } from './physics.js';
 import { initAoeTelegraph, updateAoeTelegraphs, updatePendingEffects, clearAoeTelegraphs } from './aoeTelegraph.js';
@@ -92,6 +92,9 @@ function gameLoop(timestamp) {
   // 8. Mortar projectiles (in-flight arcs)
   updateMortarProjectiles(dt);
 
+  // 8b. Ice patches (persistent ground effects)
+  updateIcePatches(dt);
+
   // 9. Check for game over (set by physics)
   if (gameState.phase === 'gameOver') {
     showGameOver(gameState);
@@ -137,6 +140,7 @@ function restart() {
   clearDamageNumbers();
   clearAoeTelegraphs();
   clearMortarProjectiles();
+  clearIcePatches();
   clearEffectGhosts();
   resetWaveRunner();
 

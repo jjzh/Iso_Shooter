@@ -1,13 +1,11 @@
-import { PLAYER } from '../config/player.js';
-import { ABILITIES } from '../config/abilities.js';
-import { screenShake, getScene } from '../engine/renderer.js';
-import { fireProjectile } from './projectile.js';
-import { getAbilityDirOverride, clearAbilityDirOverride } from '../engine/input.js';
-import { getIceEffects } from './mortarProjectile.js';
+import { PLAYER } from '../config/player';
+import { ABILITIES } from '../config/abilities';
+import { screenShake, getScene } from '../engine/renderer';
+import { fireProjectile } from './projectile';
+import { getAbilityDirOverride, clearAbilityDirOverride } from '../engine/input';
+import { getIceEffects } from './mortarProjectile';
 
-const THREE = window.THREE;
-
-let playerGroup, body, head, aimIndicator;
+let playerGroup: any, body: any, head: any, aimIndicator: any;
 const playerPos = new THREE.Vector3(0, 0, 0);
 let bobPhase = 0;
 let lastFireTime = 0;
@@ -23,32 +21,32 @@ let isInvincible = false;
 let endLagTimer = 0;
 
 // Afterimages
-const afterimages = [];
+const afterimages: any[] = [];
 
 // Push event (consumed by physics each frame)
-let pushEvent = null;
+let pushEvent: any = null;
 
 // Charge state
 let isCharging = false;
 let chargeTimer = 0;
 let chargeAimAngle = 0;
-let chargeTelegraphGroup = null;
-let chargeFillMesh = null;
-let chargeBorderMesh = null;
-let chargeBorderGeo = null;
+let chargeTelegraphGroup: any = null;
+let chargeFillMesh: any = null;
+let chargeBorderMesh: any = null;
+let chargeBorderGeo: any = null;
 
 // Reusable vector for auto-fire direction
 const _fireDir = new THREE.Vector3();
 
 // Shared geometry for player afterimages
-let _playerGhostBodyGeo = null;
-let _playerGhostHeadGeo = null;
+let _playerGhostBodyGeo: any = null;
+let _playerGhostHeadGeo: any = null;
 
 // Original emissive colors
 const BODY_EMISSIVE = 0x22aa66;
 const HEAD_EMISSIVE = 0x33bb88;
 
-export function createPlayer(scene) {
+export function createPlayer(scene: any) {
   playerGroup = new THREE.Group();
 
   body = new THREE.Mesh(
@@ -89,7 +87,7 @@ export function createPlayer(scene) {
   return playerGroup;
 }
 
-export function updatePlayer(inputState, dt, gameState) {
+export function updatePlayer(inputState: any, dt: number, gameState: any) {
   const now = performance.now();
 
   // Tick ability cooldowns
@@ -177,7 +175,7 @@ export function updatePlayer(inputState, dt, gameState) {
   updateAfterimages(dt);
 }
 
-function aimAtCursor(inputState) {
+function aimAtCursor(inputState: any) {
   const dx = inputState.aimWorldPos.x - playerPos.x;
   const dz = inputState.aimWorldPos.z - playerPos.z;
   if (dx * dx + dz * dz > 0.01) {
@@ -186,7 +184,7 @@ function aimAtCursor(inputState) {
 }
 
 // === DASH SYSTEM ===
-function startDash(inputState, gameState) {
+function startDash(inputState: any, gameState: any) {
   const cfg = ABILITIES.dash;
   isDashing = true;
   dashTimer = 0;
@@ -227,13 +225,13 @@ function startDash(inputState, gameState) {
   }
 }
 
-function updateDash(dt, gameState) {
+function updateDash(dt: number, gameState: any) {
   const cfg = ABILITIES.dash;
   dashTimer += dt * 1000;
   const t = Math.min(dashTimer / dashDuration, 1.0);
 
   // Easing
-  let easedT;
+  let easedT: number;
   switch (cfg.curve) {
     case 'easeOut':   easedT = 1 - (1 - t) * (1 - t); break;
     case 'easeIn':    easedT = t * t; break;
@@ -271,7 +269,7 @@ function updateDash(dt, gameState) {
   }
 }
 
-function spawnAfterimage(cfg) {
+function spawnAfterimage(cfg: any) {
   const scene = getScene();
   const ghost = new THREE.Group();
 
@@ -309,14 +307,14 @@ function spawnAfterimage(cfg) {
   afterimages.push({ mesh: ghost, life: 0, maxLife: cfg.afterimageFadeDuration });
 }
 
-function updateAfterimages(dt) {
+function updateAfterimages(dt: number) {
   const scene = getScene();
   for (let i = afterimages.length - 1; i >= 0; i--) {
     const ai = afterimages[i];
     ai.life += dt * 1000;
     const fade = Math.max(0, 1 - ai.life / ai.maxLife);
 
-    ai.mesh.children.forEach(child => {
+    ai.mesh.children.forEach((child: any) => {
       if (child.material) child.material.opacity = fade * 0.5;
     });
 
@@ -328,7 +326,7 @@ function updateAfterimages(dt) {
 }
 
 // === CHARGE PUSH SYSTEM ===
-function startCharge(inputState, gameState) {
+function startCharge(inputState: any, gameState: any) {
   const cfg = ABILITIES.ultimate;
   isCharging = true;
   chargeTimer = 0;
@@ -336,7 +334,7 @@ function startCharge(inputState, gameState) {
   gameState.abilities.ultimate.chargeT = 0;
 
   // Calculate initial aim angle toward cursor
-  // atan2(dx, dz) so that sin(angle)=dx/len, cos(angle)=dz/len → local +Z extends toward cursor
+  // atan2(dx, dz) so that sin(angle)=dx/len, cos(angle)=dz/len -> local +Z extends toward cursor
   const dx = inputState.aimWorldPos.x - playerPos.x;
   const dz = inputState.aimWorldPos.z - playerPos.z;
   chargeAimAngle = Math.atan2(dx, dz);
@@ -351,7 +349,7 @@ function startCharge(inputState, gameState) {
   head.material.emissiveIntensity = 0.7;
 }
 
-function createChargeTelegraph(cfg) {
+function createChargeTelegraph(cfg: any) {
   const scene = getScene();
 
   chargeTelegraphGroup = new THREE.Group();
@@ -394,7 +392,7 @@ function createChargeTelegraph(cfg) {
   scene.add(chargeTelegraphGroup);
 }
 
-function updateCharge(inputState, dt, gameState) {
+function updateCharge(inputState: any, dt: number, gameState: any) {
   const cfg = ABILITIES.ultimate;
   chargeTimer += dt * 1000;
   const chargeT = Math.min(chargeTimer / cfg.chargeTimeMs, 1);
@@ -444,13 +442,13 @@ function updateCharge(inputState, dt, gameState) {
   }
 }
 
-function fireChargePush(chargeT, gameState) {
+function fireChargePush(chargeT: number, gameState: any) {
   const cfg = ABILITIES.ultimate;
   const currentLength = cfg.minLength + (cfg.maxLength - cfg.minLength) * chargeT;
   const force = cfg.minKnockback + (cfg.maxKnockback - cfg.minKnockback) * chargeT;
 
   // Rectangle center = player position + half length toward cursor
-  // chargeAimAngle = atan2(dx, dz), so sin(angle) = dx/len, cos(angle) = dz/len → toward cursor
+  // chargeAimAngle = atan2(dx, dz), so sin(angle) = dx/len, cos(angle) = dz/len -> toward cursor
   const halfLen = currentLength / 2;
   const dirX = Math.sin(chargeAimAngle);
   const dirZ = Math.cos(chargeAimAngle);

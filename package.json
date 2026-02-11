@@ -7,6 +7,9 @@
     "doc": "docs"
   },
   "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js"
   },
@@ -26,6 +29,9 @@
     "puppeteer": "^24.37.2"
   },
   "devDependencies": {
-    "playwright": "^1.58.2"
+    "@types/three": "^0.182.0",
+    "esbuild": "^0.27.3",
+    "playwright": "^1.58.2",
+    "typescript": "^5.9.3"
   }
 }

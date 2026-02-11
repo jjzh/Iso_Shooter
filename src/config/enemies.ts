@@ -1,0 +1,129 @@
+import { EnemyConfig } from '../types/index';
+
+export const ENEMY_TYPES: Record<string, EnemyConfig> = {
+  goblin: {
+    name: "Goblin",
+    health: 30,
+    speed: 2.45,
+    damage: 10,
+    attackRange: 1.5,
+    attackRate: 800,
+    behavior: "rush",
+    knockbackResist: 0,
+    color: 16729190,
+    emissive: 16720452,
+    size: { radius: 0.3, height: 0.8 },
+    drops: { currency: { min: 1, max: 3 }, healthChance: 0.1 },
+    rush: { stopDistance: 0.5 },
+    pitLeap: {
+      edgeTimeRequired: 1500,
+      leapSpeed: 7,
+      arcHeight: 2,
+      cooldown: 4000
+    }
+  },
+  skeletonArcher: {
+    name: "Skeleton Archer",
+    health: 20,
+    speed: 1.4,
+    damage: 15,
+    attackRange: 12,
+    attackRate: 2500,
+    behavior: "kite",
+    knockbackResist: 0.1,
+    color: 11176191,
+    emissive: 8930508,
+    size: { radius: 0.25, height: 1 },
+    drops: { currency: { min: 2, max: 4 }, healthChance: 0.05 },
+    kite: { preferredRangeMult: 0.7, retreatBuffer: 1, advanceBuffer: 3 },
+    sniper: {
+      telegraphDuration: 800,
+      shotWidth: 1.2,
+      shotLength: 14,
+      damage: 15,
+      color: 11158783,
+      lingerDuration: 200,
+      slowDuration: 1000,
+      slowMult: 0.5
+    }
+  },
+  iceMortarImp: {
+    name: "Ice Mortar Imp",
+    health: 25,
+    speed: 1.6,
+    damage: 12,
+    attackRange: 15.5,
+    attackRate: 3000,
+    behavior: "mortar",
+    knockbackResist: 0.1,
+    color: 4513279,
+    emissive: 13391104,
+    size: { radius: 0.3, height: 0.9 },
+    drops: { currency: { min: 2, max: 5 }, healthChance: 0.08 },
+    kite: { preferredRangeMult: 0.65, retreatBuffer: 1.5, advanceBuffer: 3 },
+    mortar: {
+      aimDuration: 900,
+      projectileSpeed: 11,
+      arcHeight: 6,
+      blastRadius: 2.5,
+      damage: 18,
+      color: 5765887,
+      inaccuracy: 1.5,
+      slowDuration: 800,
+      slowMult: 0.6,
+      explosionDuration: 300,
+      circleStartScale: 0.25,
+      circleScaleTime: 800,
+      icePatch: {
+        enabled: true,
+        duration: 2000,
+        color: 8454143,
+        speedMult: 2.0,
+        knockbackMult: 2.0,
+        affectsPlayer: true,
+        affectsEnemies: true
+      }
+    }
+  },
+  stoneGolem: {
+    name: "Stone Golem",
+    health: 80,
+    speed: 1.05,
+    damage: 25,
+    attackRange: 2,
+    attackRate: 1200,
+    behavior: "tank",
+    knockbackResist: 0.6,
+    color: 16746547,
+    emissive: 2263244,
+    size: { radius: 0.5, height: 1.4 },
+    drops: { currency: { min: 3, max: 6 }, healthChance: 0.2 },
+    tank: {
+      chargeSpeedMult: 3,
+      chargeDuration: 500,
+      chargeCooldownMin: 3000,
+      chargeCooldownMax: 5000,
+      chargeMinDist: 2,
+      chargeMaxDist: 10,
+      chargeDamageMult: 1.5,
+      telegraphDuration: 300
+    },
+    shield: {
+      maxHealth: 40,
+      stunRadius: 5,
+      stunDuration: 1500,
+      breakRingDuration: 400,
+      color: 8974079,
+      emissive: 4508927,
+      opacity: 0.35
+    },
+    deathExplosion: {
+      radius: 4,
+      damage: 20,
+      color: 4513279,
+      ringDuration: 400,
+      stunDuration: 0,
+      telegraphDuration: 1200
+    }
+  },
+};

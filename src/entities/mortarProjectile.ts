@@ -2,50 +2,31 @@
 // Each projectile travels along a parabolic arc, then explodes on landing.
 // Ice Mortar Imps leave behind ice patches that affect movement and knockback.
 
-import { applyAoeEffect } from '../engine/aoeTelegraph.js';
-import { getPlayerPos, isPlayerInvincible } from './player.js';
-import { slowEnemy } from './enemy.js';
-import { screenShake } from '../engine/renderer.js';
-import { spawnDamageNumber } from '../ui/damageNumbers.js';
+import { applyAoeEffect } from '../engine/aoeTelegraph';
+import { getPlayerPos, isPlayerInvincible } from './player';
+import { slowEnemy } from './enemy';
+import { screenShake } from '../engine/renderer';
+import { spawnDamageNumber } from '../ui/damageNumbers';
 
-const THREE = window.THREE;
-
-let sceneRef;
+let sceneRef: any;
 
 // Active mortar projectiles in flight
-const activeMortars = [];
+const activeMortars: any[] = [];
 
 // Active ice patches on the ground
-const activeIcePatches = [];
+const activeIcePatches: any[] = [];
 
 // Shared geometry (created once)
-let shellGeo;
+let shellGeo: any;
 
-export function initMortarSystem(scene) {
+export function initMortarSystem(scene: any) {
   sceneRef = scene;
 }
 
 /**
  * Fire a mortar projectile along a parabolic arc.
- *
- * @param {Object} opts
- * @param {number} opts.startX - Launch X position
- * @param {number} opts.startZ - Launch Z position
- * @param {number} opts.targetX - Landing X position
- * @param {number} opts.targetZ - Landing Z position
- * @param {number} opts.arcHeight - Peak height of arc (units)
- * @param {number} opts.speed - Travel speed along arc (u/s)
- * @param {number} opts.color - Projectile/explosion color (hex)
- * @param {number} opts.blastRadius - AoE damage radius on impact
- * @param {number} opts.damage - Damage dealt on impact
- * @param {number} opts.slowDuration - Slow duration applied to targets
- * @param {number} opts.slowMult - Slow multiplier applied to targets
- * @param {number} opts.explosionDuration - How long the explosion ring lasts
- * @param {Object} opts.gameState - Game state for enemy iteration
- * @param {Object} opts.sourceEnemy - The enemy that fired (excluded from self-damage)
- * @param {Object} [opts.groundCircle] - Persistent ground circle mesh (handed off from aim phase)
  */
-export function fireMortarProjectile(opts) {
+export function fireMortarProjectile(opts: any) {
   if (!shellGeo) {
     shellGeo = new THREE.SphereGeometry(0.15, 6, 4);
   }
@@ -79,13 +60,13 @@ export function fireMortarProjectile(opts) {
   const groundDist = Math.sqrt(dx * dx + dz * dz);
 
   // Approximate arc length (parabolic arc is longer than ground distance)
-  // Using a simple approximation: arcLen ≈ groundDist + 2*arcHeight²/groundDist
+  // Using a simple approximation: arcLen ~ groundDist + 2*arcHeight^2/groundDist
   const arcLen = groundDist > 0.1
     ? groundDist + 2 * opts.arcHeight * opts.arcHeight / groundDist
     : opts.arcHeight * 2;
   const flightTime = arcLen / opts.speed;
 
-  const mortar = {
+  const mortar: any = {
     mesh,
     trail,
     trailGeo,
@@ -119,7 +100,7 @@ export function fireMortarProjectile(opts) {
  * Update all in-flight mortar projectiles.
  * Call this every frame from the game loop.
  */
-export function updateMortarProjectiles(dt) {
+export function updateMortarProjectiles(dt: number) {
   for (let i = activeMortars.length - 1; i >= 0; i--) {
     const m = activeMortars[i];
     m.elapsed += dt;
@@ -154,16 +135,16 @@ export function updateMortarProjectiles(dt) {
     // Trail fades as projectile progresses
     m.trailMat.opacity = 0.5 * (1 - t * 0.5);
 
-    // Update ground circle opacity — ramps from 0.3 → 0.9 as projectile approaches
+    // Update ground circle opacity — ramps from 0.3 -> 0.9 as projectile approaches
     if (m.groundCircle) {
       const gc = m.groundCircle;
-      // Ring: 0.3 at launch → 0.9 at impact (never below 0.3)
+      // Ring: 0.3 at launch -> 0.9 at impact (never below 0.3)
       const ringOpacity = 0.3 + 0.6 * t;
-      // Fill: 0.08 at launch → 0.35 at impact
+      // Fill: 0.08 at launch -> 0.35 at impact
       const fillOpacity = 0.08 + 0.27 * t;
       // Pulse border for urgency
-      const pulse = 0.85 + 0.15 * Math.sin(performance.now() * (0.006 + 0.012 * t));
-      gc.ringMat.opacity = ringOpacity * pulse;
+      const gcPulse = 0.85 + 0.15 * Math.sin(performance.now() * (0.006 + 0.012 * t));
+      gc.ringMat.opacity = ringOpacity * gcPulse;
       gc.fillMat.opacity = fillOpacity;
     }
 
@@ -179,7 +160,7 @@ export function updateMortarProjectiles(dt) {
 /**
  * Handle mortar impact — AoE damage + slow + visual.
  */
-function onMortarImpact(m) {
+function onMortarImpact(m: any) {
   const tx = m.targetX;
   const tz = m.targetZ;
 
@@ -194,7 +175,7 @@ function onMortarImpact(m) {
     durationMs: m.explosionDuration,
     color: m.color,
     label: 'SLOWED',
-    effectFn: (e) => {
+    effectFn: (e: any) => {
       e.health -= m.damage;
       slowEnemy(e, m.slowDuration, m.slowMult);
     },
@@ -226,7 +207,7 @@ function onMortarImpact(m) {
 /**
  * Create a persistent ice patch on the ground.
  */
-function createIcePatch(x, z, radius, config) {
+function createIcePatch(x: number, z: number, radius: number, config: any) {
   // Create visual ice patch (flat circle on ground)
   const geo = new THREE.CircleGeometry(radius, 32);
   geo.rotateX(-Math.PI / 2); // lay flat
@@ -265,7 +246,7 @@ function createIcePatch(x, z, radius, config) {
 /**
  * Update all ice patches — handle duration and fading.
  */
-export function updateIcePatches(dt) {
+export function updateIcePatches(dt: number) {
   for (let i = activeIcePatches.length - 1; i >= 0; i--) {
     const patch = activeIcePatches[i];
     patch.elapsed += dt * 1000;
@@ -290,7 +271,7 @@ export function updateIcePatches(dt) {
  * Check if a position is on any ice patch.
  * Returns the ice patch config if on ice, null otherwise.
  */
-export function getIcePatchAt(x, z) {
+export function getIcePatchAt(x: number, z: number) {
   for (const patch of activeIcePatches) {
     const dx = x - patch.x;
     const dz = z - patch.z;
@@ -304,12 +285,8 @@ export function getIcePatchAt(x, z) {
 
 /**
  * Get ice effect multipliers for an entity at position.
- * @param {number} x - X position
- * @param {number} z - Z position
- * @param {boolean} isPlayer - Whether this is the player
- * @returns {{ speedMult: number, knockbackMult: number }} Multipliers (1.0 if not on ice)
  */
-export function getIceEffects(x, z, isPlayer) {
+export function getIceEffects(x: number, z: number, isPlayer: boolean) {
   const patch = getIcePatchAt(x, z);
   if (!patch) {
     return { speedMult: 1.0, knockbackMult: 1.0 };
@@ -332,7 +309,7 @@ export function getIceEffects(x, z, isPlayer) {
 /**
  * Clean up a mortar projectile's visual resources.
  */
-function removeMortar(m) {
+function removeMortar(m: any) {
   m.mat.dispose();
   sceneRef.remove(m.mesh);
   m.trailGeo.dispose();
