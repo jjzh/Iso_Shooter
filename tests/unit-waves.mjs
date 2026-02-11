@@ -44,11 +44,11 @@ test('Wave 1 has 6 goblins', () => {
   assertEquals(goblins.length, 6, 'goblin count');
 });
 
-test('Wave 1 has 2 mortarImps', () => {
+test('Wave 1 has 2 iceMortarImps', () => {
   const wave1 = WAVES.find(w => w.wave === 1);
   const allSpawns = wave1.groups.flatMap(g => g.spawns);
-  const mortarImps = allSpawns.filter(s => s.type === 'mortarImp');
-  assertEquals(mortarImps.length, 2, 'mortarImp count');
+  const iceMortarImps = allSpawns.filter(s => s.type === 'iceMortarImp');
+  assertEquals(iceMortarImps.length, 2, 'iceMortarImp count');
 });
 
 test('Wave 1 has 8 total enemies', () => {

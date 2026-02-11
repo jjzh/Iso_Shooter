@@ -15,8 +15,8 @@ export const WAVES = [
           { type: 'goblin', x: 5, z: 2 },
           { type: 'goblin', x: 11, z: 0 },
           { type: 'goblin', x: 0, z: 5 },
-          { type: 'mortarImp', x: 7, z: -11 },
-          { type: 'mortarImp', x: -10, z: 9 },
+          { type: 'iceMortarImp', x: 7, z: -11 },
+          { type: 'iceMortarImp', x: -10, z: 9 },
         ],
       },
       {
@@ -43,11 +43,11 @@ export const WAVES = [
         stagger: 150,
         spawns: [
           { type: 'goblin', x: 14, z: 0 },
-          { type: 'crystalGolem', x: 12, z: 2 },
+          { type: 'stoneGolem', x: 12, z: 2 },
           { type: 'goblin', x: 12, z: -2 },
           { type: 'goblin', x: -14, z: 0 },
           { type: 'goblin', x: -12, z: 2 },
-          { type: 'crystalGolem', x: -12, z: -1 },
+          { type: 'stoneGolem', x: -12, z: -1 },
           { type: 'goblin', x: 6, z: -7 },
           { type: 'goblin', x: -6, z: 6 },
         ],
@@ -101,9 +101,9 @@ export const WAVES = [
         telegraphDuration: 2500,
         stagger: 500,
         spawns: [
-          { type: 'crystalGolem', x: 0, z: 15 },
-          { type: 'crystalGolem', x: -15, z: -5 },
-          { type: 'crystalGolem', x: 15, z: -5 },
+          { type: 'stoneGolem', x: 0, z: 15 },
+          { type: 'stoneGolem', x: -15, z: -5 },
+          { type: 'stoneGolem', x: 15, z: -5 },
         ],
       },
       {
@@ -112,10 +112,10 @@ export const WAVES = [
         telegraphDuration: 1500,
         stagger: 200,
         spawns: [
-          { type: 'mortarImp', x: -13, z: 0 },
-          { type: 'mortarImp', x: -3, z: -12 },
-          { type: 'mortarImp', x: 12, z: 1 },
-          { type: 'mortarImp', x: -5, z: 11 },
+          { type: 'iceMortarImp', x: -13, z: 0 },
+          { type: 'iceMortarImp', x: -3, z: -12 },
+          { type: 'iceMortarImp', x: 12, z: 1 },
+          { type: 'iceMortarImp', x: -5, z: 11 },
         ],
       },
     ]

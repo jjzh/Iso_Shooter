@@ -69,8 +69,8 @@ export const ENEMY_TYPES = {
           "slowMult": 0.5
       }
   },
-  mortarImp: {
-      "name": "Mortar Imp",
+  iceMortarImp: {
+      "name": "Ice Mortar Imp",
       "health": 25,
       "speed": 1.6,
       "damage": 12,
@@ -78,7 +78,7 @@ export const ENEMY_TYPES = {
       "attackRate": 3000,
       "behavior": "mortar",
       "knockbackResist": 0.1,
-      "color": 16746547,
+      "color": 4513279,
       "emissive": 13391104,
       "size": {
           "radius": 0.3,
@@ -102,17 +102,26 @@ export const ENEMY_TYPES = {
           "arcHeight": 6,
           "blastRadius": 2.5,
           "damage": 18,
-          "color": 16737826,
+          "color": 5765887,
           "inaccuracy": 1.5,
           "slowDuration": 800,
           "slowMult": 0.6,
           "explosionDuration": 300,
           "circleStartScale": 0.25,
-          "circleScaleTime": 800
+          "circleScaleTime": 800,
+          "icePatch": {
+              "enabled": true,
+              "duration": 2000,
+              "color": 8454143,
+              "speedMult": 2.0,
+              "knockbackMult": 2.0,
+              "affectsPlayer": true,
+              "affectsEnemies": true
+          }
       }
   },
-  crystalGolem: {
-      "name": "Crystal Golem",
+  stoneGolem: {
+      "name": "Stone Golem",
       "health": 80,
       "speed": 1.05,
       "damage": 25,
@@ -120,7 +129,7 @@ export const ENEMY_TYPES = {
       "attackRate": 1200,
       "behavior": "tank",
       "knockbackResist": 0.6,
-      "color": 4513279,
+      "color": 16746547,
       "emissive": 2263244,
       "size": {
           "radius": 0.5,
