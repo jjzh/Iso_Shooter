@@ -54,11 +54,14 @@ async function verify() {
     await page.setViewport({ width: 1280, height: 720 });
 
     // Collect console messages
+    // Filter out generic "Failed to load resource" - we capture HTTP errors with more detail separately
     page.on('console', msg => {
       const type = msg.type();
       const text = msg.text();
 
       if (type === 'error') {
+        // Skip generic resource errors (we capture these with URLs via response handler)
+        if (text.includes('Failed to load resource')) return;
         results.consoleErrors.push(text);
       } else if (type === 'warning') {
         results.consoleWarnings.push(text);
@@ -68,6 +71,21 @@ async function verify() {
     // Collect page errors
     page.on('pageerror', error => {
       results.consoleErrors.push(error.message);
+    });
+
+    // Collect failed network requests (404s, etc.)
+    page.on('requestfailed', request => {
+      const failure = request.failure();
+      const url = request.url();
+      results.consoleErrors.push(`Network failed: ${url} (${failure?.errorText || 'unknown'})`);
+    });
+
+    // Also catch HTTP errors (404, 500, etc.) that don't fail the request itself
+    // Ignore favicon.ico - browsers always request it and it's harmless if missing
+    page.on('response', response => {
+      if (response.status() >= 400 && !response.url().endsWith('favicon.ico')) {
+        results.consoleErrors.push(`HTTP ${response.status()}: ${response.url()}`);
+      }
     });
 
     // Navigate to the game

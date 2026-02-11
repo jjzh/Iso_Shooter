@@ -696,8 +696,14 @@ function onArenaChanged() {
 }
 
 // ─── Arena Presets ───
+// Note: Arena save/load requires a backend server. On static hosting (GitHub Pages,
+// npx serve), these functions no-op silently. Set window.ARENA_BACKEND = true if
+// you're running a backend that supports /arenas endpoints.
+
+const hasArenaBackend = () => window.ARENA_BACKEND === true;
 
 async function fetchPresetList() {
+  if (!hasArenaBackend()) return [];
   try {
     const res = await fetch('/arenas');
     if (!res.ok) return [];
@@ -721,7 +727,7 @@ async function refreshPresetDropdown() {
 }
 
 async function loadPreset(name) {
-  if (!name) return;
+  if (!name || !hasArenaBackend()) return;
   try {
     const res = await fetch(`/arenas/load?name=${encodeURIComponent(name)}`);
     if (!res.ok) throw new Error(res.statusText);
@@ -749,7 +755,7 @@ async function loadPreset(name) {
 }
 
 async function savePreset(name) {
-  if (!name) return;
+  if (!name || !hasArenaBackend()) return;
   try {
     const res = await fetch('/arenas/save', {
       method: 'POST',
@@ -765,7 +771,7 @@ async function savePreset(name) {
 }
 
 async function deletePreset(name) {
-  if (!name) return;
+  if (!name || !hasArenaBackend()) return;
   try {
     const res = await fetch('/arenas/delete', {
       method: 'POST',

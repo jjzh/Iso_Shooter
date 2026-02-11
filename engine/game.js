@@ -177,3 +177,13 @@ function init() {
 }
 
 init();
+
+// =============================================================================
+// DEBUG: Expose game state for verification scripts (localhost only)
+// TODO(production): Remove or disable this block before deploying to production
+// Decision documented in CLAUDE_project.md
+// =============================================================================
+if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+  window.gameState = gameState;
+  window.getPlayerPos = getPlayerPos;
+}
