@@ -34,7 +34,7 @@ export const ABILITIES = {
   ultimate: {
     name: 'Force Push',
     key: 'E',
-    cooldown: 0,
+    cooldown: 5000,
     // Charge
     chargeTimeMs: 1500,       // time to reach max charge
     // Rectangle
