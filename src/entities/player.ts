@@ -4,6 +4,7 @@ import { screenShake, getScene } from '../engine/renderer';
 import { fireProjectile } from './projectile';
 import { getAbilityDirOverride, clearAbilityDirOverride } from '../engine/input';
 import { getIceEffects } from './mortarProjectile';
+import { emit } from '../engine/events';
 import { createPlayerRig, getGhostGeometries } from './playerRig';
 import type { PlayerRig } from './playerRig';
 import { createAnimatorState, updateAnimation, resetAnimatorState } from './playerAnimator';
@@ -231,6 +232,8 @@ function startDash(inputState: any, gameState: any) {
   if (cfg.screenShakeOnStart > 0) {
     screenShake(cfg.screenShakeOnStart, 80);
   }
+
+  emit({ type: 'playerDash', direction: { x: dashDir.x, z: dashDir.z }, position: { x: playerPos.x, z: playerPos.z } });
 }
 
 function updateDash(dt: number, gameState: any) {
@@ -274,6 +277,7 @@ function updateDash(dt: number, gameState: any) {
     isDashing = false;
     isInvincible = false;
     endLagTimer = cfg.endLag;
+    emit({ type: 'playerDashEnd' });
   }
 }
 
@@ -488,6 +492,8 @@ function fireChargePush(chargeT: number, gameState: any) {
 
   // Screen shake scales with charge
   screenShake(2 + chargeT * 3, 120);
+
+  emit({ type: 'chargeFired', chargeT, direction: { x: dirX, z: dirZ }, position: { x: playerPos.x, z: playerPos.z } });
 }
 
 function removeChargeTelegraph() {

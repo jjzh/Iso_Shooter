@@ -420,8 +420,8 @@ function initProjectilePool(scene2) {
 }
 function fireProjectile(origin, direction, config, isEnemy) {
   if (isEnemy === void 0) isEnemy = false;
-  const pool2 = isEnemy ? enemyPool : playerPool;
-  const p = pool2.acquire();
+  const pool3 = isEnemy ? enemyPool : playerPool;
+  const p = pool3.acquire();
   p.mesh.position.set(origin.x, 0.8, origin.z);
   p.dir.copy(direction).normalize();
   p.speed = config.speed;
@@ -439,15 +439,15 @@ function fireProjectile(origin, direction, config, isEnemy) {
 }
 function updateProjectiles(dt) {
   const maxLife = 2;
-  for (const pool2 of [playerPool, enemyPool]) {
-    const active2 = pool2.getActive();
+  for (const pool3 of [playerPool, enemyPool]) {
+    const active2 = pool3.getActive();
     for (let i = active2.length - 1; i >= 0; i--) {
       const p = active2[i];
       p.mesh.position.x += p.dir.x * p.speed * dt;
       p.mesh.position.z += p.dir.z * p.speed * dt;
       p.life += dt;
       if (p.life > maxLife) {
-        pool2.release(p);
+        pool3.release(p);
       }
     }
   }
@@ -1265,6 +1265,24 @@ function updateHitReaction(state, meshGroup, dt) {
   }
 }
 
+// src/engine/events.ts
+var listeners = /* @__PURE__ */ new Map();
+function emit(event) {
+  const set = listeners.get(event.type);
+  if (!set) return;
+  for (const fn of set) {
+    fn(event);
+  }
+}
+function on(type, callback) {
+  let set = listeners.get(type);
+  if (!set) {
+    set = /* @__PURE__ */ new Set();
+    listeners.set(type, set);
+  }
+  set.add(callback);
+}
+
 // src/entities/enemy.ts
 var sceneRef3;
 var shieldGeo;
@@ -1566,6 +1584,7 @@ function updateEnemies(dt, playerPos2, gameState2) {
       if (deathCfg && !enemy.fellInPit) {
         onDeathExplosion(enemy, gameState2);
       }
+      emit({ type: "enemyDied", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
       if (enemy.shieldMesh) {
         enemy.shieldMesh.geometry.dispose();
         enemy.shieldMesh.material.dispose();
@@ -2742,6 +2761,8 @@ function resetJointsToNeutral(joints) {
   joints.shinR.rotation.set(0, 0, 0);
   joints.hip.rotation.x = 0;
   joints.hip.rotation.z = 0;
+  joints.hip.position.y = 0.5;
+  joints.torso.position.y = 0.22;
 }
 function applyIdle(joints, anim) {
   const t = anim.time;
@@ -3025,6 +3046,7 @@ function startDash(inputState2, gameState2) {
   if (cfg.screenShakeOnStart > 0) {
     screenShake(cfg.screenShakeOnStart, 80);
   }
+  emit({ type: "playerDash", direction: { x: dashDir.x, z: dashDir.z }, position: { x: playerPos.x, z: playerPos.z } });
 }
 function updateDash(dt, gameState2) {
   const cfg = ABILITIES.dash;
@@ -3062,6 +3084,7 @@ function updateDash(dt, gameState2) {
     isDashing = false;
     isInvincible = false;
     endLagTimer = cfg.endLag;
+    emit({ type: "playerDashEnd" });
   }
 }
 function spawnAfterimage(cfg) {
@@ -3210,6 +3233,7 @@ function fireChargePush(chargeT, gameState2) {
   gameState2.abilities.ultimate.cooldownRemaining = cfg.cooldown;
   restoreDefaultEmissive();
   screenShake(2 + chargeT * 3, 120);
+  emit({ type: "chargeFired", chargeT, direction: { x: dirX, z: dirZ }, position: { x: playerPos.x, z: playerPos.z } });
 }
 function removeChargeTelegraph() {
   if (chargeTelegraphGroup) {
@@ -3790,6 +3814,7 @@ function updateWaveRunner(dt, gameState2) {
       if (waveState.announceTimer <= 0) {
         hideAnnounce();
         waveState.status = "running";
+        emit({ type: "waveBegan", waveIndex: waveState.waveIndex });
         initGroupRuntimes();
       }
       break;
@@ -3803,6 +3828,7 @@ function updateWaveRunner(dt, gameState2) {
       if (allGroupsDone && gameState2.enemies.length === 0) {
         waveState.status = "cleared";
         waveState.clearPauseTimer = 2e3;
+        emit({ type: "waveCleared", waveIndex: waveState.waveIndex });
         showAnnounce("Wave cleared!");
       }
       break;
@@ -4076,6 +4102,7 @@ function checkPitFalls(gameState2) {
       gameState2.playerHealth = 0;
       gameState2.phase = "gameOver";
       screenShake(5, 200);
+      emit({ type: "pitFall", position: { x: playerPos2.x, z: playerPos2.z }, isPlayer: true });
       spawnDamageNumber(playerPos2.x, playerPos2.z, "FELL!", "#ff4466");
     }
   }
@@ -4084,6 +4111,7 @@ function checkPitFalls(gameState2) {
     if (enemy.isLeaping) continue;
     if (pointInPit(enemy.pos.x, enemy.pos.z)) {
       spawnPitFallGhost(enemy);
+      emit({ type: "pitFall", position: { x: enemy.pos.x, z: enemy.pos.z }, isPlayer: false });
       createAoeRing(enemy.pos.x, enemy.pos.z, 2.5, 500, 8930559);
       enemy.health = 0;
       enemy.fellInPit = true;
@@ -4134,6 +4162,7 @@ function onShieldBreak(enemy, gameState2) {
     gameState: gameState2,
     excludeEnemy: enemy
   });
+  emit({ type: "shieldBreak", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
   enemy.knockbackResist = 0;
   if (enemy.bodyMesh) {
     enemy.bodyMesh.material.transparent = true;
@@ -4178,6 +4207,7 @@ function checkCollisions(gameState2) {
         const wasShielded = enemy.shieldActive;
         applyDamageToEnemy(enemy, p.damage, gameState2);
         releaseProjectile(p);
+        emit({ type: "enemyHit", enemy, damage: p.damage, position: { x: enemy.pos.x, z: enemy.pos.z }, wasShielded });
         const dmgColor = wasShielded ? "#88eeff" : "#44ff88";
         spawnDamageNumber(enemy.pos.x, enemy.pos.z, p.damage, dmgColor);
         enemy.flashTimer = 80;
@@ -4204,6 +4234,7 @@ function checkCollisions(gameState2) {
         gameState2.playerHealth -= p.damage;
         releaseProjectile(p);
         screenShake(3, 100);
+        emit({ type: "playerHit", damage: p.damage, position: { x: playerPos2.x, z: playerPos2.z } });
         spawnDamageNumber(playerPos2.x, playerPos2.z, p.damage, "#ff4466");
         if (gameState2.playerHealth <= 0) {
           gameState2.playerHealth = 0;
@@ -4230,6 +4261,7 @@ function checkCollisions(gameState2) {
           gameState2.playerHealth -= dmg;
           enemy.lastAttackTime = now;
           screenShake(enemy.isCharging ? 5 : 2, enemy.isCharging ? 150 : 80);
+          emit({ type: "playerHit", damage: dmg, position: { x: playerPos2.x, z: playerPos2.z } });
           spawnDamageNumber(playerPos2.x, playerPos2.z, dmg, "#ff4466");
           if (gameState2.playerHealth <= 0) {
             gameState2.playerHealth = 0;
@@ -4266,6 +4298,7 @@ function checkCollisions(gameState2) {
         enemy.pos.z += dirZ * kbDist;
         enemy.mesh.position.copy(enemy.pos);
         spawnPushGhosts(enemy, oldX, oldZ, enemy.pos.x, enemy.pos.z);
+        emit({ type: "enemyPushed", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
         enemy.flashTimer = 100;
         enemy.bodyMesh.material.emissive.setHex(4521898);
         if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(4521898);
@@ -4526,6 +4559,243 @@ function hideScreens() {
   gameOverScreen.classList.add("hidden");
 }
 
+// src/engine/audio.ts
+var AUDIO_CONFIG = {
+  masterVolume: 0.3,
+  hitVolume: 0.4,
+  deathVolume: 0.5,
+  dashVolume: 0.25,
+  shieldBreakVolume: 0.6,
+  chargeVolume: 0.35,
+  waveClearVolume: 0.4,
+  playerHitVolume: 0.5,
+  enabled: true
+};
+var ctx2 = null;
+var masterGain = null;
+var initialized = false;
+function initAudio() {
+  if (initialized) return;
+  try {
+    ctx2 = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = ctx2.createGain();
+    masterGain.gain.value = AUDIO_CONFIG.masterVolume;
+    masterGain.connect(ctx2.destination);
+    initialized = true;
+    wireEventBus();
+  } catch (e) {
+    console.warn("[audio] Web Audio API not available:", e);
+  }
+}
+function resumeAudio() {
+  if (ctx2 && ctx2.state === "suspended") {
+    ctx2.resume();
+  }
+}
+function setMasterVolume(v) {
+  AUDIO_CONFIG.masterVolume = v;
+  if (masterGain) {
+    masterGain.gain.value = v;
+  }
+}
+function createNoiseBuffer(duration) {
+  if (!ctx2) return new AudioBuffer({ length: 1, sampleRate: 44100 });
+  const length = Math.floor(ctx2.sampleRate * duration);
+  const buffer = ctx2.createBuffer(1, length, ctx2.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  return buffer;
+}
+function playHit(intensity = 1) {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const vol = AUDIO_CONFIG.hitVolume * Math.min(intensity, 2);
+  const duration = 0.06 + intensity * 0.02;
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration);
+  const noiseGain = ctx2.createGain();
+  noiseGain.gain.setValueAtTime(vol * 0.6, now);
+  noiseGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  const noiseFilter = ctx2.createBiquadFilter();
+  noiseFilter.type = "highpass";
+  noiseFilter.frequency.value = 2e3 + intensity * 500;
+  noise.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+  const osc = ctx2.createOscillator();
+  osc.type = "square";
+  osc.frequency.setValueAtTime(200 + intensity * 80, now);
+  osc.frequency.exponentialRampToValueAtTime(80, now + duration);
+  const oscGain = ctx2.createGain();
+  oscGain.gain.setValueAtTime(vol * 0.3, now);
+  oscGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+}
+function playDeath() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.2;
+  const osc = ctx2.createOscillator();
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(400, now);
+  osc.frequency.exponentialRampToValueAtTime(60, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.deathVolume * 0.4, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.7);
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.deathVolume * 0.2, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.7);
+  noise.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playDash() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.15;
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(800, now);
+  filter.frequency.exponentialRampToValueAtTime(3e3, now + duration * 0.3);
+  filter.frequency.exponentialRampToValueAtTime(400, now + duration);
+  filter.Q.value = 2;
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.dashVolume, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playShieldBreak() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.3;
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = 1200;
+  filter.Q.value = 8;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.shieldBreakVolume * 0.5, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+  const osc = ctx2.createOscillator();
+  osc.type = "triangle";
+  osc.frequency.value = 880;
+  const oscGain = ctx2.createGain();
+  oscGain.gain.setValueAtTime(AUDIO_CONFIG.shieldBreakVolume * 0.3, now);
+  oscGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.8);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+}
+function playChargeFire(chargeT) {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.15 + chargeT * 0.1;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(80 + chargeT * 40, now);
+  osc.frequency.exponentialRampToValueAtTime(30, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.chargeVolume * (0.5 + chargeT * 0.5), now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.chargeVolume * 0.3 * chargeT, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.6);
+  noise.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playWaveClear() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const notes = [523, 659, 784];
+  const noteLen = 0.12;
+  notes.forEach((freq, i) => {
+    const osc = ctx2.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    const gain = ctx2.createGain();
+    const start = now + i * 0.08;
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(AUDIO_CONFIG.waveClearVolume * 0.3, start + 0.01);
+    gain.gain.exponentialRampToValueAtTime(1e-3, start + noteLen);
+    osc.connect(gain);
+    gain.connect(masterGain);
+    osc.start(start);
+    osc.stop(start + noteLen);
+  });
+}
+function playPlayerHit() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.08;
+  const osc = ctx2.createOscillator();
+  osc.type = "square";
+  osc.frequency.value = 150;
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.playerHitVolume * 0.3, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration);
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.playerHitVolume * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  noise.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function wireEventBus() {
+  on("enemyHit", (e) => {
+    if (e.type === "enemyHit") playHit(e.damage / 15);
+  });
+  on("enemyDied", () => playDeath());
+  on("playerHit", () => playPlayerHit());
+  on("playerDash", () => playDash());
+  on("shieldBreak", () => playShieldBreak());
+  on("chargeFired", (e) => {
+    if (e.type === "chargeFired") playChargeFire(e.chargeT);
+  });
+  on("waveCleared", () => playWaveClear());
+}
+
 // src/config/boss.ts
 var BOSS = {
   name: "The Warden",
@@ -4641,9 +4911,10 @@ function collectDiffs(params, prefix, defObj, curObj, pathPrefix) {
 }
 
 // src/ui/tuning.ts
-var SLIDERS = [
+var SECTIONS = [
+  // ── Combat ──
   {
-    group: "Projectiles (Self)",
+    section: "Projectiles",
     items: [
       {
         label: "Fire Rate",
@@ -4652,7 +4923,6 @@ var SLIDERS = [
         min: 50,
         max: 1e3,
         step: 10,
-        suffix: "ms",
         invert: true,
         unit: "ms",
         tip: "Time between player auto-shots. Lower = faster firing."
@@ -4664,7 +4934,6 @@ var SLIDERS = [
         min: 4,
         max: 40,
         step: 1,
-        suffix: "",
         unit: "u/s",
         tip: "Player projectile travel speed in units per second."
       },
@@ -4675,14 +4944,13 @@ var SLIDERS = [
         min: 0.04,
         max: 0.5,
         step: 0.02,
-        suffix: "",
         unit: "u",
         tip: "Player projectile collision radius in world units."
       }
     ]
   },
   {
-    group: "Self",
+    section: "Player",
     items: [
       {
         label: "Move Speed",
@@ -4691,14 +4959,13 @@ var SLIDERS = [
         min: 2,
         max: 16,
         step: 0.5,
-        suffix: "",
         unit: "u/s",
         tip: "Player movement speed in units per second."
       }
     ]
   },
   {
-    group: "Enemies",
+    section: "Enemies",
     items: [
       {
         label: "Speed Mult",
@@ -4707,10 +4974,546 @@ var SLIDERS = [
         min: 0.2,
         max: 4,
         step: 0.1,
-        suffix: "x",
         custom: "enemySpeed",
         unit: "x",
         tip: "Global speed multiplier applied to all enemy types. 1x = default."
+      }
+    ]
+  },
+  // ── Dash / Abilities ──
+  {
+    section: "Dash",
+    collapsed: true,
+    items: [
+      {
+        label: "Cooldown",
+        config: () => ABILITIES.dash,
+        key: "cooldown",
+        min: 500,
+        max: 1e4,
+        step: 100,
+        unit: "ms",
+        tip: "Dash cooldown in milliseconds."
+      },
+      {
+        label: "Duration",
+        config: () => ABILITIES.dash,
+        key: "duration",
+        min: 50,
+        max: 500,
+        step: 10,
+        unit: "ms",
+        tip: "How long the dash lasts."
+      },
+      {
+        label: "Distance",
+        config: () => ABILITIES.dash,
+        key: "distance",
+        min: 1,
+        max: 15,
+        step: 0.5,
+        unit: "u",
+        tip: "Total distance covered by dash."
+      },
+      {
+        label: "End Lag",
+        config: () => ABILITIES.dash,
+        key: "endLag",
+        min: 0,
+        max: 300,
+        step: 10,
+        unit: "ms",
+        tip: "Recovery time after dash where movement is locked."
+      },
+      {
+        label: "Afterimages",
+        config: () => ABILITIES.dash,
+        key: "afterimageCount",
+        min: 0,
+        max: 8,
+        step: 1,
+        unit: "",
+        tip: "Number of ghost afterimages spawned during dash."
+      },
+      {
+        label: "Ghost Fade",
+        config: () => ABILITIES.dash,
+        key: "afterimageFadeDuration",
+        min: 50,
+        max: 1e3,
+        step: 25,
+        unit: "ms",
+        tip: "How long afterimage ghosts take to fade out."
+      },
+      {
+        label: "Shake",
+        config: () => ABILITIES.dash,
+        key: "screenShakeOnStart",
+        min: 0,
+        max: 8,
+        step: 0.5,
+        unit: "",
+        tip: "Screen shake intensity on dash start."
+      }
+    ]
+  },
+  // ── Force Push ──
+  {
+    section: "Force Push",
+    collapsed: true,
+    items: [
+      {
+        label: "Cooldown",
+        config: () => ABILITIES.ultimate,
+        key: "cooldown",
+        min: 1e3,
+        max: 15e3,
+        step: 500,
+        unit: "ms",
+        tip: "Force push cooldown."
+      },
+      {
+        label: "Charge Time",
+        config: () => ABILITIES.ultimate,
+        key: "chargeTimeMs",
+        min: 200,
+        max: 5e3,
+        step: 100,
+        unit: "ms",
+        tip: "Time to fully charge."
+      },
+      {
+        label: "Min Length",
+        config: () => ABILITIES.ultimate,
+        key: "minLength",
+        min: 1,
+        max: 8,
+        step: 0.5,
+        unit: "u",
+        tip: "Uncharged push range."
+      },
+      {
+        label: "Max Length",
+        config: () => ABILITIES.ultimate,
+        key: "maxLength",
+        min: 4,
+        max: 25,
+        step: 1,
+        unit: "u",
+        tip: "Fully charged push range."
+      },
+      {
+        label: "Width",
+        config: () => ABILITIES.ultimate,
+        key: "width",
+        min: 1,
+        max: 10,
+        step: 0.5,
+        unit: "u",
+        tip: "Push zone width."
+      },
+      {
+        label: "Min Knockback",
+        config: () => ABILITIES.ultimate,
+        key: "minKnockback",
+        min: 0.5,
+        max: 5,
+        step: 0.25,
+        unit: "u",
+        tip: "Knockback force at minimum charge."
+      },
+      {
+        label: "Max Knockback",
+        config: () => ABILITIES.ultimate,
+        key: "maxKnockback",
+        min: 2,
+        max: 15,
+        step: 0.5,
+        unit: "u",
+        tip: "Knockback force at full charge."
+      },
+      {
+        label: "Move Mult",
+        config: () => ABILITIES.ultimate,
+        key: "chargeMoveSpeedMult",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "x",
+        tip: "Movement speed multiplier while charging."
+      }
+    ]
+  },
+  // ── Animation ──
+  {
+    section: "Animation \u2014 Run",
+    collapsed: true,
+    items: [
+      {
+        label: "Cycle Rate",
+        config: () => C,
+        key: "runCycleRate",
+        min: 0.1,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Full leg cycles per world unit traveled."
+      },
+      {
+        label: "Stride Angle",
+        config: () => C,
+        key: "strideAngle",
+        min: 0.1,
+        max: 1.5,
+        step: 0.05,
+        unit: "rad",
+        tip: "Thigh swing amplitude in radians."
+      },
+      {
+        label: "Knee Bend",
+        config: () => C,
+        key: "kneeBendMax",
+        min: 0.1,
+        max: 1.5,
+        step: 0.05,
+        unit: "rad",
+        tip: "Maximum forward knee bend."
+      },
+      {
+        label: "Arm Swing",
+        config: () => C,
+        key: "armSwingRatio",
+        min: 0,
+        max: 1.5,
+        step: 0.05,
+        unit: "x",
+        tip: "Arm swing as fraction of leg amplitude."
+      },
+      {
+        label: "Body Bounce",
+        config: () => C,
+        key: "bodyBounceHeight",
+        min: 0,
+        max: 0.1,
+        step: 5e-3,
+        unit: "u",
+        tip: "Vertical bounce per step in world units."
+      },
+      {
+        label: "Lean",
+        config: () => C,
+        key: "forwardLean",
+        min: 0,
+        max: 0.3,
+        step: 0.01,
+        unit: "rad",
+        tip: "Forward lean into movement direction."
+      },
+      {
+        label: "Lean Speed",
+        config: () => C,
+        key: "forwardLeanSpeed",
+        min: 1,
+        max: 20,
+        step: 1,
+        unit: "/s",
+        tip: "How fast lean blends in/out per second."
+      },
+      {
+        label: "Hip Turn",
+        config: () => C,
+        key: "hipTurnSpeed",
+        min: 2,
+        max: 30,
+        step: 1,
+        unit: "rad/s",
+        tip: "How fast legs reorient to movement direction."
+      }
+    ]
+  },
+  {
+    section: "Animation \u2014 Idle",
+    collapsed: true,
+    items: [
+      {
+        label: "Breath Rate",
+        config: () => C,
+        key: "breathRate",
+        min: 0.5,
+        max: 5,
+        step: 0.1,
+        unit: "Hz",
+        tip: "Breathing oscillation speed."
+      },
+      {
+        label: "Breath Amp",
+        config: () => C,
+        key: "breathAmplitude",
+        min: 0,
+        max: 0.06,
+        step: 5e-3,
+        unit: "u",
+        tip: "Vertical breathing displacement."
+      },
+      {
+        label: "Weight Shift",
+        config: () => C,
+        key: "weightShiftRate",
+        min: 0.1,
+        max: 2,
+        step: 0.1,
+        unit: "Hz",
+        tip: "Side-to-side weight shift speed."
+      },
+      {
+        label: "Shift Angle",
+        config: () => C,
+        key: "weightShiftAngle",
+        min: 0,
+        max: 0.15,
+        step: 5e-3,
+        unit: "rad",
+        tip: "Weight shift lean angle."
+      },
+      {
+        label: "Head Drift",
+        config: () => C,
+        key: "headDriftRate",
+        min: 0.1,
+        max: 2,
+        step: 0.1,
+        unit: "Hz",
+        tip: "Head drift oscillation speed."
+      },
+      {
+        label: "Head Angle",
+        config: () => C,
+        key: "headDriftAngle",
+        min: 0,
+        max: 0.1,
+        step: 5e-3,
+        unit: "rad",
+        tip: "Head drift max rotation."
+      },
+      {
+        label: "Arm Droop",
+        config: () => C,
+        key: "idleArmDroop",
+        min: 0,
+        max: 0.5,
+        step: 0.01,
+        unit: "rad",
+        tip: "Slight outward arm droop at idle."
+      }
+    ]
+  },
+  {
+    section: "Animation \u2014 Dash",
+    collapsed: true,
+    items: [
+      {
+        label: "Squash Y",
+        config: () => C,
+        key: "squashScaleY",
+        min: 0.5,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Y scale during dash wind-up (< 1 = squash)."
+      },
+      {
+        label: "Squash XZ",
+        config: () => C,
+        key: "squashScaleXZ",
+        min: 1,
+        max: 1.5,
+        step: 0.05,
+        unit: "",
+        tip: "XZ scale during dash wind-up (> 1 = widen)."
+      },
+      {
+        label: "Stretch Y",
+        config: () => C,
+        key: "stretchScaleY",
+        min: 1,
+        max: 1.5,
+        step: 0.05,
+        unit: "",
+        tip: "Y scale mid-dash (> 1 = elongate)."
+      },
+      {
+        label: "Stretch XZ",
+        config: () => C,
+        key: "stretchScaleXZ",
+        min: 0.5,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "XZ scale mid-dash (< 1 = narrow)."
+      },
+      {
+        label: "Lean Angle",
+        config: () => C,
+        key: "dashLeanAngle",
+        min: 0,
+        max: 0.8,
+        step: 0.02,
+        unit: "rad",
+        tip: "Aggressive forward lean during dash."
+      },
+      {
+        label: "Arm Sweep",
+        config: () => C,
+        key: "dashArmSweep",
+        min: -1.5,
+        max: 0,
+        step: 0.05,
+        unit: "rad",
+        tip: "Arms swept back during dash."
+      },
+      {
+        label: "Leg Lunge",
+        config: () => C,
+        key: "dashLegLunge",
+        min: 0,
+        max: 1.5,
+        step: 0.05,
+        unit: "rad",
+        tip: "Front leg forward extension during dash."
+      },
+      {
+        label: "Leg Trail",
+        config: () => C,
+        key: "dashLegTrail",
+        min: -1.5,
+        max: 0,
+        step: 0.05,
+        unit: "rad",
+        tip: "Back leg trailing behind during dash."
+      }
+    ]
+  },
+  {
+    section: "Animation \u2014 Blends",
+    collapsed: true,
+    items: [
+      {
+        label: "Idle to Run",
+        config: () => C,
+        key: "idleToRunBlend",
+        min: 20,
+        max: 300,
+        step: 10,
+        unit: "ms",
+        tip: "Blend duration from idle to run state."
+      },
+      {
+        label: "Run to Idle",
+        config: () => C,
+        key: "runToIdleBlend",
+        min: 20,
+        max: 300,
+        step: 10,
+        unit: "ms",
+        tip: "Blend duration from run to idle state."
+      },
+      {
+        label: "End Lag Blend",
+        config: () => C,
+        key: "endLagToNormalBlend",
+        min: 20,
+        max: 300,
+        step: 10,
+        unit: "ms",
+        tip: "Blend out of dash end-lag state."
+      }
+    ]
+  },
+  // ── Audio ──
+  {
+    section: "Audio",
+    collapsed: true,
+    items: [
+      {
+        label: "Master Vol",
+        config: () => AUDIO_CONFIG,
+        key: "masterVolume",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        custom: "masterVolume",
+        unit: "",
+        tip: "Overall volume. Applied to AudioContext gain node."
+      },
+      {
+        label: "Hit Vol",
+        config: () => AUDIO_CONFIG,
+        key: "hitVolume",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Enemy hit sound volume."
+      },
+      {
+        label: "Death Vol",
+        config: () => AUDIO_CONFIG,
+        key: "deathVolume",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Enemy death sound volume."
+      },
+      {
+        label: "Dash Vol",
+        config: () => AUDIO_CONFIG,
+        key: "dashVolume",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Dash whoosh volume."
+      },
+      {
+        label: "Shield Vol",
+        config: () => AUDIO_CONFIG,
+        key: "shieldBreakVolume",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Shield break crash volume."
+      },
+      {
+        label: "Charge Vol",
+        config: () => AUDIO_CONFIG,
+        key: "chargeVolume",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Charge fire burst volume."
+      },
+      {
+        label: "Wave Clear",
+        config: () => AUDIO_CONFIG,
+        key: "waveClearVolume",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Wave clear chime volume."
+      },
+      {
+        label: "Player Hit",
+        config: () => AUDIO_CONFIG,
+        key: "playerHitVolume",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Player damage taken sound volume."
       }
     ]
   }
@@ -4728,10 +5531,17 @@ function applyEnemySpeedMultiplier(mult) {
     cfg.speed = originalSpeeds[name] * mult;
   }
 }
+function applyMasterVolume(val) {
+  setMasterVolume(val);
+}
 var panel;
 var isCollapsed = true;
+var sectionCollapsedState = /* @__PURE__ */ new Map();
 function initTuningPanel() {
   captureOriginalSpeeds();
+  for (const sec of SECTIONS) {
+    sectionCollapsedState.set(sec.section, sec.collapsed ?? false);
+  }
   panel = document.createElement("div");
   panel.id = "tuning-panel";
   panel.innerHTML = "";
@@ -4747,14 +5557,28 @@ function initTuningPanel() {
   const content = document.createElement("div");
   content.id = "tuning-content";
   panel.appendChild(content);
-  for (const group of SLIDERS) {
-    const groupEl = document.createElement("div");
-    groupEl.className = "tuning-group";
-    const groupLabel2 = document.createElement("div");
-    groupLabel2.className = "tuning-group-label";
-    groupLabel2.textContent = group.group;
-    groupEl.appendChild(groupLabel2);
-    for (const item of group.items) {
+  for (const section of SECTIONS) {
+    const sectionEl = document.createElement("div");
+    sectionEl.className = "tuning-section";
+    const header = document.createElement("div");
+    header.className = "tuning-section-header";
+    const isSecCollapsed = sectionCollapsedState.get(section.section) ?? false;
+    header.innerHTML = `<span class="tuning-section-arrow">${isSecCollapsed ? "\u25B6" : "\u25BC"}</span> ${section.section}`;
+    const itemsContainer = document.createElement("div");
+    itemsContainer.className = "tuning-section-items";
+    if (isSecCollapsed) {
+      itemsContainer.style.display = "none";
+    }
+    header.addEventListener("click", () => {
+      const collapsed = sectionCollapsedState.get(section.section) ?? false;
+      const newState = !collapsed;
+      sectionCollapsedState.set(section.section, newState);
+      itemsContainer.style.display = newState ? "none" : "";
+      const arrow = header.querySelector(".tuning-section-arrow");
+      arrow.textContent = newState ? "\u25B6" : "\u25BC";
+    });
+    sectionEl.appendChild(header);
+    for (const item of section.items) {
       const row = document.createElement("div");
       row.className = "tuning-row";
       const label = document.createElement("span");
@@ -4767,16 +5591,16 @@ function initTuningPanel() {
       const slider = document.createElement("input");
       slider.type = "range";
       slider.className = "tuning-slider";
-      slider.min = item.min;
-      slider.max = item.max;
-      slider.step = item.step;
+      slider.min = String(item.min);
+      slider.max = String(item.max);
+      slider.step = String(item.step);
       let currentVal;
       if (item.custom === "enemySpeed") {
         currentVal = enemySpeedMultiplier;
       } else {
         currentVal = item.config()[item.key];
       }
-      slider.value = currentVal;
+      slider.value = String(currentVal);
       const valueDisplay = document.createElement("span");
       valueDisplay.className = "tuning-value";
       valueDisplay.textContent = formatValue(currentVal, item);
@@ -4784,6 +5608,8 @@ function initTuningPanel() {
         const val = parseFloat(slider.value);
         if (item.custom === "enemySpeed") {
           applyEnemySpeedMultiplier(val);
+        } else if (item.custom === "masterVolume") {
+          applyMasterVolume(val);
         } else {
           item.config()[item.key] = val;
         }
@@ -4792,9 +5618,10 @@ function initTuningPanel() {
       row.appendChild(label);
       row.appendChild(slider);
       row.appendChild(valueDisplay);
-      groupEl.appendChild(row);
+      itemsContainer.appendChild(row);
     }
-    content.appendChild(groupEl);
+    sectionEl.appendChild(itemsContainer);
+    content.appendChild(sectionEl);
   }
   const copyBtn = document.createElement("div");
   copyBtn.id = "tuning-copy";
@@ -4860,9 +5687,9 @@ function initTuningPanel() {
 }
 function buildCopyText() {
   const lines = [];
-  for (const group of SLIDERS) {
-    lines.push(`${group.group}:`);
-    for (const item of group.items) {
+  for (const section of SECTIONS) {
+    lines.push(`${section.section}:`);
+    for (const item of section.items) {
       let val;
       if (item.custom === "enemySpeed") {
         val = enemySpeedMultiplier;
@@ -4931,33 +5758,67 @@ function injectStyles() {
       background: rgba(10, 10, 26, 0.94);
       border: 1px solid rgba(68, 255, 136, 0.2);
       border-radius: 6px;
-      padding: 16px;
+      padding: 12px;
       backdrop-filter: blur(8px);
+      max-height: calc(100vh - 120px);
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(68, 255, 136, 0.3) transparent;
     }
 
-    .tuning-group {
-      margin-bottom: 14px;
+    #tuning-content::-webkit-scrollbar {
+      width: 6px;
     }
 
-    .tuning-group:last-child {
+    #tuning-content::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    #tuning-content::-webkit-scrollbar-thumb {
+      background: rgba(68, 255, 136, 0.3);
+      border-radius: 3px;
+    }
+
+    .tuning-section {
+      margin-bottom: 4px;
+    }
+
+    .tuning-section:last-of-type {
       margin-bottom: 0;
     }
 
-    .tuning-group-label {
+    .tuning-section-header {
       font-size: 9px;
-      color: rgba(68, 255, 136, 0.6);
+      color: rgba(68, 255, 136, 0.7);
       letter-spacing: 2px;
       text-transform: uppercase;
-      margin-bottom: 8px;
-      padding-bottom: 4px;
+      padding: 6px 4px;
+      cursor: pointer;
+      user-select: none;
       border-bottom: 1px solid rgba(68, 255, 136, 0.1);
+      transition: color 0.15s ease;
+    }
+
+    .tuning-section-header:hover {
+      color: rgba(68, 255, 136, 1);
+    }
+
+    .tuning-section-arrow {
+      font-size: 7px;
+      margin-right: 4px;
+      display: inline-block;
+      width: 10px;
+    }
+
+    .tuning-section-items {
+      padding: 6px 0 4px 0;
     }
 
     .tuning-row {
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin-bottom: 8px;
+      gap: 8px;
+      margin-bottom: 6px;
     }
 
     .tuning-row:last-child {
@@ -4965,21 +5826,21 @@ function injectStyles() {
     }
 
     .tuning-label {
-      font-size: 11px;
-      color: rgba(255, 255, 255, 0.6);
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.55);
       width: 80px;
       flex-shrink: 0;
     }
 
     .tuning-label.has-tooltip {
       cursor: help;
-      text-decoration: underline dotted rgba(255, 255, 255, 0.25);
+      text-decoration: underline dotted rgba(255, 255, 255, 0.2);
       text-underline-offset: 2px;
     }
 
     .tuning-slider {
       flex: 1;
-      height: 4px;
+      height: 3px;
       -webkit-appearance: none;
       appearance: none;
       background: rgba(100, 100, 160, 0.3);
@@ -4991,38 +5852,38 @@ function injectStyles() {
     .tuning-slider::-webkit-slider-thumb {
       -webkit-appearance: none;
       appearance: none;
-      width: 14px;
-      height: 14px;
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
       background: #44ff88;
       cursor: pointer;
       border: none;
-      box-shadow: 0 0 6px rgba(68, 255, 136, 0.4);
+      box-shadow: 0 0 4px rgba(68, 255, 136, 0.4);
     }
 
     .tuning-slider::-moz-range-thumb {
-      width: 14px;
-      height: 14px;
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
       background: #44ff88;
       cursor: pointer;
       border: none;
-      box-shadow: 0 0 6px rgba(68, 255, 136, 0.4);
+      box-shadow: 0 0 4px rgba(68, 255, 136, 0.4);
     }
 
     .tuning-value {
-      font-size: 11px;
-      color: rgba(255, 255, 255, 0.8);
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.7);
       width: 54px;
       text-align: right;
       flex-shrink: 0;
     }
 
     #tuning-copy, #tuning-share {
-      margin-top: 14px;
-      padding: 6px 0;
+      margin-top: 10px;
+      padding: 5px 0;
       text-align: center;
-      font-size: 10px;
+      font-size: 9px;
       letter-spacing: 1px;
       text-transform: uppercase;
       color: rgba(68, 255, 136, 0.7);
@@ -5035,7 +5896,7 @@ function injectStyles() {
     }
 
     #tuning-share {
-      margin-top: 6px;
+      margin-top: 4px;
     }
 
     #tuning-copy:hover, #tuning-share:hover {
@@ -5858,8 +6719,8 @@ function rebuildLevelMarkers() {
     const o = OBSTACLES[i];
     const selected = isObsSelected && levelState.selectedIdx === i;
     const group = new THREE.Group();
-    const boxGeo = new THREE.BoxGeometry(o.w, o.h, o.d);
-    const edgesGeo = new THREE.EdgesGeometry(boxGeo);
+    const boxGeo2 = new THREE.BoxGeometry(o.w, o.h, o.d);
+    const edgesGeo = new THREE.EdgesGeometry(boxGeo2);
     const lineMat = new THREE.LineBasicMaterial({
       color: selected ? 4521864 : 6728447,
       linewidth: 1
@@ -7262,6 +8123,248 @@ function injectStyles2() {
   document.head.appendChild(style);
 }
 
+// src/engine/particles.ts
+var HIT_SPARK = {
+  count: 5,
+  lifetime: 0.25,
+  speed: 6,
+  spread: Math.PI * 0.8,
+  size: 0.06,
+  color: 16777130,
+  fadeOut: true,
+  gravity: 4,
+  shape: "box"
+};
+var DEATH_PUFF = {
+  count: 8,
+  lifetime: 0.4,
+  speed: 3,
+  spread: Math.PI,
+  size: 0.08,
+  color: 16777215,
+  // will be overridden with enemy color
+  fadeOut: true,
+  gravity: 1,
+  shape: "sphere"
+};
+var DASH_TRAIL = {
+  count: 3,
+  lifetime: 0.3,
+  speed: 1.5,
+  spread: Math.PI * 0.3,
+  size: 0.05,
+  color: 4521864,
+  fadeOut: true,
+  gravity: 0,
+  shape: "box"
+};
+var SHIELD_BREAK_BURST = {
+  count: 10,
+  lifetime: 0.35,
+  speed: 8,
+  spread: Math.PI,
+  size: 0.07,
+  color: 8974079,
+  fadeOut: true,
+  gravity: 3,
+  shape: "box"
+};
+var PUSH_BURST = {
+  count: 4,
+  lifetime: 0.2,
+  speed: 5,
+  spread: Math.PI * 0.5,
+  size: 0.05,
+  color: 4521898,
+  fadeOut: true,
+  gravity: 2,
+  shape: "box"
+};
+var CHARGE_BLAST = {
+  count: 12,
+  lifetime: 0.3,
+  speed: 10,
+  spread: Math.PI * 0.4,
+  size: 0.08,
+  color: 4521898,
+  fadeOut: true,
+  gravity: 2,
+  shape: "sphere"
+};
+var POOL_SIZE2 = 80;
+var pool2 = [];
+var sceneRef8 = null;
+var boxGeo = null;
+var sphereGeo = null;
+function initParticles(scene2) {
+  sceneRef8 = scene2;
+  boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  sphereGeo = new THREE.SphereGeometry(0.5, 4, 3);
+  for (let i = 0; i < POOL_SIZE2; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 16777215,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false
+    });
+    const mesh = new THREE.Mesh(boxGeo, mat);
+    mesh.visible = false;
+    scene2.add(mesh);
+    pool2.push({
+      mesh,
+      active: false,
+      life: 0,
+      maxLife: 1,
+      vx: 0,
+      vy: 0,
+      vz: 0,
+      gravity: 0,
+      fadeOut: true,
+      material: mat,
+      baseScale: 1
+    });
+  }
+  wireEventBus2();
+}
+function burst(position, config, direction) {
+  if (!sceneRef8) return;
+  const y = position.y ?? 0.5;
+  for (let i = 0; i < config.count; i++) {
+    const p = acquireParticle();
+    if (!p) break;
+    p.mesh.geometry = config.shape === "sphere" ? sphereGeo : boxGeo;
+    const s = config.size * (0.7 + Math.random() * 0.6);
+    p.mesh.scale.set(s, s, s);
+    p.baseScale = s;
+    p.material.color.setHex(config.color);
+    p.material.opacity = 1;
+    p.mesh.position.set(
+      position.x + (Math.random() - 0.5) * 0.1,
+      y + (Math.random() - 0.5) * 0.1,
+      position.z + (Math.random() - 0.5) * 0.1
+    );
+    let vx, vy, vz;
+    if (direction) {
+      const angle = Math.atan2(direction.x, direction.z) + (Math.random() - 0.5) * config.spread;
+      const elevAngle = (Math.random() - 0.3) * config.spread * 0.5;
+      vx = Math.sin(angle) * Math.cos(elevAngle);
+      vy = Math.sin(elevAngle) + Math.random() * 0.3;
+      vz = Math.cos(angle) * Math.cos(elevAngle);
+    } else {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * config.spread;
+      vx = Math.sin(phi) * Math.cos(theta);
+      vy = Math.cos(phi) * 0.5 + Math.random() * 0.5;
+      vz = Math.sin(phi) * Math.sin(theta);
+    }
+    const speed = config.speed * (0.6 + Math.random() * 0.8);
+    p.vx = vx * speed;
+    p.vy = vy * speed;
+    p.vz = vz * speed;
+    p.gravity = config.gravity;
+    p.fadeOut = config.fadeOut;
+    p.life = 0;
+    p.maxLife = config.lifetime * (0.7 + Math.random() * 0.6);
+    p.active = true;
+    p.mesh.visible = true;
+  }
+}
+function updateParticles(dt) {
+  for (const p of pool2) {
+    if (!p.active) continue;
+    p.life += dt;
+    if (p.life >= p.maxLife) {
+      p.active = false;
+      p.mesh.visible = false;
+      continue;
+    }
+    p.vy -= p.gravity * dt;
+    p.mesh.position.x += p.vx * dt;
+    p.mesh.position.y += p.vy * dt;
+    p.mesh.position.z += p.vz * dt;
+    if (p.mesh.position.y < 0.02) {
+      p.mesh.position.y = 0.02;
+      p.vy = 0;
+      p.vx *= 0.8;
+      p.vz *= 0.8;
+    }
+    if (p.fadeOut) {
+      const t = p.life / p.maxLife;
+      p.material.opacity = 1 - t * t;
+    }
+    const lifeRatio = p.life / p.maxLife;
+    if (lifeRatio > 0.7) {
+      const shrink = 1 - (lifeRatio - 0.7) / 0.3;
+      p.mesh.scale.setScalar(p.baseScale * shrink);
+    }
+  }
+}
+function acquireParticle() {
+  for (const p of pool2) {
+    if (!p.active) return p;
+  }
+  return null;
+}
+function clearParticles() {
+  for (const p of pool2) {
+    p.active = false;
+    p.mesh.visible = false;
+  }
+}
+function wireEventBus2() {
+  on("enemyHit", (e) => {
+    if (e.type === "enemyHit") {
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        HIT_SPARK
+      );
+    }
+  });
+  on("enemyDied", (e) => {
+    if (e.type === "enemyDied") {
+      const color = e.enemy.config?.color ?? DEATH_PUFF.color;
+      burst(
+        { x: e.position.x, y: 0.4, z: e.position.z },
+        { ...DEATH_PUFF, color }
+      );
+    }
+  });
+  on("playerDash", (e) => {
+    if (e.type === "playerDash") {
+      burst(
+        { x: e.position.x, y: 0.4, z: e.position.z },
+        DASH_TRAIL,
+        { x: -e.direction.x, z: -e.direction.z }
+      );
+    }
+  });
+  on("shieldBreak", (e) => {
+    if (e.type === "shieldBreak") {
+      burst(
+        { x: e.position.x, y: 0.6, z: e.position.z },
+        SHIELD_BREAK_BURST
+      );
+    }
+  });
+  on("chargeFired", (e) => {
+    if (e.type === "chargeFired") {
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        { ...CHARGE_BLAST, count: Math.round(6 + e.chargeT * 6) },
+        { x: e.direction.x, z: e.direction.z }
+      );
+    }
+  });
+  on("enemyPushed", (e) => {
+    if (e.type === "enemyPushed") {
+      burst(
+        { x: e.position.x, y: 0.3, z: e.position.z },
+        PUSH_BURST
+      );
+    }
+  });
+}
+
 // src/engine/game.ts
 var gameState = {
   phase: "waiting",
@@ -7307,6 +8410,7 @@ function gameLoop(timestamp) {
   checkCollisions(gameState);
   checkPitFalls(gameState);
   updateEffectGhosts(dt);
+  updateParticles(dt);
   updateAoeTelegraphs(dt);
   updatePendingEffects(dt);
   updateMortarProjectiles(dt);
@@ -7341,6 +8445,7 @@ function restart() {
   clearMortarProjectiles();
   clearIcePatches();
   clearEffectGhosts();
+  clearParticles();
   resetWaveRunner();
   startWave(0, gameState);
 }
@@ -7356,11 +8461,14 @@ function init() {
     initMortarSystem(scene2);
     initAoeTelegraph(scene2);
     initWaveRunner(scene2);
+    initAudio();
+    initParticles(scene2);
     initHUD();
     initDamageNumbers();
     initTuningPanel();
     initSpawnEditor(scene2, gameState);
     initScreens(restart, () => {
+      resumeAudio();
       gameState.phase = "playing";
       document.getElementById("hud").style.visibility = "visible";
       startWave(0, gameState);

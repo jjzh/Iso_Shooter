@@ -3,6 +3,7 @@ import { getPlayerProjectiles, getEnemyProjectiles, releaseProjectile } from '..
 import { stunEnemy } from '../entities/enemy';
 import { getIceEffects } from '../entities/mortarProjectile';
 import { triggerHitReaction } from '../entities/enemyRig';
+import { emit } from './events';
 import { screenShake, getScene } from './renderer';
 import { PLAYER } from '../config/player';
 import { getCollisionBounds, getPitBounds } from '../config/arena';
@@ -230,6 +231,7 @@ export function checkPitFalls(gameState: GameState): void {
       gameState.playerHealth = 0;
       gameState.phase = 'gameOver';
       screenShake(5, 200);
+      emit({ type: 'pitFall', position: { x: playerPos.x, z: playerPos.z }, isPlayer: true });
       spawnDamageNumber(playerPos.x, playerPos.z, 'FELL!', '#ff4466');
     }
   }
@@ -239,6 +241,7 @@ export function checkPitFalls(gameState: GameState): void {
     if ((enemy as any).isLeaping) continue;
     if (pointInPit(enemy.pos.x, enemy.pos.z)) {
       spawnPitFallGhost(enemy);
+      emit({ type: 'pitFall', position: { x: enemy.pos.x, z: enemy.pos.z }, isPlayer: false });
       createAoeRing(enemy.pos.x, enemy.pos.z, 2.5, 500, 0x8844ff);
 
       enemy.health = 0;
@@ -297,6 +300,8 @@ function onShieldBreak(enemy: Enemy, gameState: GameState): void {
     excludeEnemy: enemy,
   });
 
+  emit({ type: 'shieldBreak', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+
   (enemy as any).knockbackResist = 0;
 
   if ((enemy as any).bodyMesh) {
@@ -351,6 +356,8 @@ export function checkCollisions(gameState: GameState): void {
         applyDamageToEnemy(enemy, p.damage, gameState);
         releaseProjectile(p);
 
+        emit({ type: 'enemyHit', enemy, damage: p.damage, position: { x: enemy.pos.x, z: enemy.pos.z }, wasShielded });
+
         const dmgColor = wasShielded ? '#88eeff' : '#44ff88';
         spawnDamageNumber(enemy.pos.x, enemy.pos.z, p.damage, dmgColor);
 
@@ -384,6 +391,7 @@ export function checkCollisions(gameState: GameState): void {
         releaseProjectile(p);
         screenShake(3, 100);
 
+        emit({ type: 'playerHit', damage: p.damage, position: { x: playerPos.x, z: playerPos.z } });
         spawnDamageNumber(playerPos.x, playerPos.z, p.damage, '#ff4466');
 
         if (gameState.playerHealth <= 0) {
@@ -415,6 +423,7 @@ export function checkCollisions(gameState: GameState): void {
           (enemy as any).lastAttackTime = now;
           screenShake((enemy as any).isCharging ? 5 : 2, (enemy as any).isCharging ? 150 : 80);
 
+          emit({ type: 'playerHit', damage: dmg, position: { x: playerPos.x, z: playerPos.z } });
           spawnDamageNumber(playerPos.x, playerPos.z, dmg, '#ff4466');
 
           if (gameState.playerHealth <= 0) {
@@ -447,6 +456,7 @@ export function checkCollisions(gameState: GameState): void {
         (enemy as any).mesh.position.copy(enemy.pos);
 
         spawnPushGhosts(enemy, oldX, oldZ, enemy.pos.x, enemy.pos.z);
+        emit({ type: 'enemyPushed', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
 
         enemy.flashTimer = 100;
         (enemy as any).bodyMesh.material.emissive.setHex(0x44ffaa);

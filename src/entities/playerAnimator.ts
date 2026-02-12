@@ -11,7 +11,7 @@ import type { PlayerJoints } from './playerRig';
 // ─── Tuning Config ───
 // All timing/amplitude constants in one place for easy iteration.
 
-const C = {
+export const C = {
   // Run cycle
   runCycleRate: 0.4,           // full leg cycles per world unit traveled
   strideAngle: 0.6,           // radians (~35°) thigh swing amplitude
@@ -246,6 +246,10 @@ function resetJointsToNeutral(joints: PlayerJoints) {
   // Don't reset hip.rotation.y — set separately for upper/lower body split
   joints.hip.rotation.x = 0;
   joints.hip.rotation.z = 0;
+
+  // Reset positions to rig defaults (prevents cumulative drift from += animations)
+  joints.hip.position.y = 0.5;       // P.hipY from playerRig.ts
+  joints.torso.position.y = 0.22;    // P.torsoY from playerRig.ts
 }
 
 // ─── Idle Pose ───

@@ -6,6 +6,7 @@ import { screenShake } from '../engine/renderer';
 import { spawnDamageNumber } from '../ui/damageNumbers';
 import { fireMortarProjectile, getIceEffects } from './mortarProjectile';
 import { buildEnemyModel, createHitReaction, triggerHitReaction, updateHitReaction } from './enemyRig';
+import { emit } from '../engine/events';
 
 let sceneRef: any;
 
@@ -415,6 +416,8 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
       if (deathCfg && !enemy.fellInPit) {
         onDeathExplosion(enemy, gameState);
       }
+
+      emit({ type: 'enemyDied', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
 
       // Clean up shield mesh
       if (enemy.shieldMesh) {

@@ -12,6 +12,8 @@ import { initScreens, showGameOver, hideScreens } from '../ui/screens';
 import { initDamageNumbers, updateDamageNumbers, clearDamageNumbers } from '../ui/damageNumbers';
 import { initTuningPanel } from '../ui/tuning';
 import { initSpawnEditor, checkEditorToggle, updateSpawnEditor, isEditorActive } from '../ui/spawnEditor';
+import { initAudio, resumeAudio } from './audio';
+import { initParticles, updateParticles, clearParticles } from './particles';
 import { PLAYER } from '../config/player';
 import { applyUrlParams, snapshotDefaults } from './urlParams';
 import { GameState } from '../types/index';
@@ -84,6 +86,9 @@ function gameLoop(timestamp: number): void {
   // 6c. Effect ghosts
   updateEffectGhosts(dt);
 
+  // 6d. Particles
+  updateParticles(dt);
+
   // 7. AoE telegraphs
   updateAoeTelegraphs(dt);
   updatePendingEffects(dt);
@@ -139,6 +144,7 @@ function restart(): void {
   clearMortarProjectiles();
   clearIcePatches();
   clearEffectGhosts();
+  clearParticles();
   resetWaveRunner();
 
   startWave(0, gameState);
@@ -158,11 +164,14 @@ function init(): void {
     initMortarSystem(scene);
     initAoeTelegraph(scene);
     initWaveRunner(scene);
+    initAudio();
+    initParticles(scene);
     initHUD();
     initDamageNumbers();
     initTuningPanel();
     initSpawnEditor(scene, gameState);
     initScreens(restart, () => {
+      resumeAudio(); // AudioContext requires user gesture to start
       gameState.phase = 'playing';
       document.getElementById('hud')!.style.visibility = 'visible';
       startWave(0, gameState);

@@ -10,7 +10,8 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "start": "node server.js"
   },
   "repository": {
@@ -32,6 +33,7 @@
     "@types/three": "^0.182.0",
     "esbuild": "^0.27.3",
     "playwright": "^1.58.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }

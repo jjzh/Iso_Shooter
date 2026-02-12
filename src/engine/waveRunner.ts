@@ -4,6 +4,7 @@
 import { WAVES } from '../config/waves';
 import { spawnEnemy } from '../entities/enemy';
 import { initTelegraph, createTelegraph, updateTelegraph, removeTelegraph } from './telegraph';
+import { emit } from './events';
 
 let sceneRef: any;
 
@@ -59,6 +60,7 @@ export function updateWaveRunner(dt: number, gameState: any) {
       if (waveState.announceTimer <= 0) {
         hideAnnounce();
         waveState.status = 'running';
+        emit({ type: 'waveBegan', waveIndex: waveState.waveIndex });
         initGroupRuntimes();
       }
       break;
@@ -76,6 +78,7 @@ export function updateWaveRunner(dt: number, gameState: any) {
       if (allGroupsDone && gameState.enemies.length === 0) {
         waveState.status = 'cleared';
         waveState.clearPauseTimer = 2000;
+        emit({ type: 'waveCleared', waveIndex: waveState.waveIndex });
         showAnnounce('Wave cleared!');
       }
       break;

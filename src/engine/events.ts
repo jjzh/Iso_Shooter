@@ -1,0 +1,56 @@
+// Event Bus — lightweight pub/sub for game events
+// Systems emit events at key moments (damage, death, dash, etc.)
+// Other systems subscribe to react (audio, particles, screen effects)
+// Existing side effects (damage numbers, screen shake) are NOT migrated —
+// the bus is additive. New systems subscribe; old ones stay as-is.
+
+// ─── Event Types ───
+
+export type GameEvent =
+  | { type: 'enemyHit'; enemy: any; damage: number; position: { x: number; z: number }; wasShielded: boolean }
+  | { type: 'enemyDied'; enemy: any; position: { x: number; z: number } }
+  | { type: 'playerHit'; damage: number; position: { x: number; z: number } }
+  | { type: 'playerDash'; direction: { x: number; z: number }; position: { x: number; z: number } }
+  | { type: 'playerDashEnd' }
+  | { type: 'waveCleared'; waveIndex: number }
+  | { type: 'waveBegan'; waveIndex: number }
+  | { type: 'shieldBreak'; enemy: any; position: { x: number; z: number } }
+  | { type: 'chargeFired'; chargeT: number; direction: { x: number; z: number }; position: { x: number; z: number } }
+  | { type: 'enemyPushed'; enemy: any; position: { x: number; z: number } }
+  | { type: 'pitFall'; position: { x: number; z: number }; isPlayer: boolean };
+
+// ─── Bus Implementation ───
+
+type EventType = GameEvent['type'];
+type ListenerFn = (event: GameEvent) => void;
+
+const listeners: Map<EventType, Set<ListenerFn>> = new Map();
+
+export function emit(event: GameEvent): void {
+  const set = listeners.get(event.type);
+  if (!set) return;
+  for (const fn of set) {
+    fn(event);
+  }
+}
+
+export function on(type: EventType, callback: ListenerFn): void {
+  let set = listeners.get(type);
+  if (!set) {
+    set = new Set();
+    listeners.set(type, set);
+  }
+  set.add(callback);
+}
+
+export function off(type: EventType, callback: ListenerFn): void {
+  const set = listeners.get(type);
+  if (set) {
+    set.delete(callback);
+  }
+}
+
+// Clear all listeners — call on game reset if needed
+export function clearAllListeners(): void {
+  listeners.clear();
+}
