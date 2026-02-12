@@ -4,10 +4,15 @@ import { screenShake, getScene } from '../engine/renderer';
 import { fireProjectile } from './projectile';
 import { getAbilityDirOverride, clearAbilityDirOverride } from '../engine/input';
 import { getIceEffects } from './mortarProjectile';
+import { createPlayerRig, getGhostGeometries } from './playerRig';
+import type { PlayerRig } from './playerRig';
+import { createAnimatorState, updateAnimation, resetAnimatorState } from './playerAnimator';
+import type { AnimatorState } from './playerAnimator';
 
-let playerGroup: any, body: any, head: any, aimIndicator: any;
+let playerGroup: any, aimIndicator: any;
+let rig: PlayerRig;
+let animState: AnimatorState;
 const playerPos = new THREE.Vector3(0, 0, 0);
-let bobPhase = 0;
 let lastFireTime = 0;
 
 // Dash state
@@ -38,39 +43,27 @@ let chargeBorderGeo: any = null;
 // Reusable vector for auto-fire direction
 const _fireDir = new THREE.Vector3();
 
-// Shared geometry for player afterimages
-let _playerGhostBodyGeo: any = null;
-let _playerGhostHeadGeo: any = null;
+// Original emissive colors (used for charge glow reset)
+const DEFAULT_EMISSIVE = 0x22aa66;
+const DEFAULT_EMISSIVE_INTENSITY = 0.4;
 
-// Original emissive colors
-const BODY_EMISSIVE = 0x22aa66;
-const HEAD_EMISSIVE = 0x33bb88;
+function restoreDefaultEmissive() {
+  if (!rig) return;
+  for (const mat of rig.materials) {
+    mat.emissive.setHex(DEFAULT_EMISSIVE);
+    mat.emissiveIntensity = DEFAULT_EMISSIVE_INTENSITY;
+  }
+}
 
 export function createPlayer(scene: any) {
   playerGroup = new THREE.Group();
 
-  body = new THREE.Mesh(
-    new THREE.CylinderGeometry(PLAYER.size.radius, PLAYER.size.radius + 0.05, PLAYER.size.height * 0.6, 8),
-    new THREE.MeshStandardMaterial({
-      color: 0x44cc88,
-      emissive: BODY_EMISSIVE,
-      emissiveIntensity: 0.4
-    })
-  );
-  body.position.y = 0.7;
-  playerGroup.add(body);
+  // Build bipedal rig (joint hierarchy + box-limb meshes)
+  rig = createPlayerRig(playerGroup);
+  animState = createAnimatorState();
 
-  head = new THREE.Mesh(
-    new THREE.SphereGeometry(PLAYER.size.radius * 0.85, 8, 6),
-    new THREE.MeshStandardMaterial({
-      color: 0x55ddaa,
-      emissive: HEAD_EMISSIVE,
-      emissiveIntensity: 0.5
-    })
-  );
-  head.position.y = 1.45;
-  playerGroup.add(head);
-
+  // Aim indicator — attached to playerGroup directly (not rig)
+  // so squash/stretch doesn't affect it
   aimIndicator = new THREE.Mesh(
     new THREE.ConeGeometry(0.12, 0.6, 4),
     new THREE.MeshStandardMaterial({
@@ -107,6 +100,10 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     endLagTimer -= dt * 1000;
     // During end lag, don't process movement or abilities
     playerGroup.position.copy(playerPos);
+    aimAtCursor(inputState);
+    updateAnimation(rig.joints, animState, dt,
+      { moveX: 0, moveZ: 0 }, playerGroup.rotation.y,
+      false, true, 0);
     updateAfterimages(dt);
     return;
   }
@@ -119,6 +116,9 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     // Aim still tracks cursor during dash
     aimAtCursor(inputState);
 
+    updateAnimation(rig.joints, animState, dt,
+      { moveX: inputState.moveX, moveZ: inputState.moveZ }, playerGroup.rotation.y,
+      true, false, Math.min(dashTimer / dashDuration, 1));
     updateAfterimages(dt);
     return;
   }
@@ -142,10 +142,6 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     playerPos.x += inputState.moveX * PLAYER.speed * speedMod * dt;
     playerPos.z += inputState.moveZ * PLAYER.speed * speedMod * dt;
 
-    // Bob animation
-    bobPhase += dt * 12;
-    body.position.y = 0.7 + Math.sin(bobPhase) * 0.05;
-    head.position.y = 1.45 + Math.sin(bobPhase) * 0.07;
   }
 
   // Arena clamp
@@ -156,6 +152,18 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
 
   // === AIM ===
   aimAtCursor(inputState);
+
+  // === PROCEDURAL ANIMATION ===
+  updateAnimation(
+    rig.joints,
+    animState,
+    dt,
+    { moveX: inputState.moveX, moveZ: inputState.moveZ },
+    playerGroup.rotation.y,
+    isDashing,
+    endLagTimer > 0,
+    isDashing ? Math.min(dashTimer / dashDuration, 1) : 0
+  );
 
   // === AUTO-FIRE ===
   const dashCfg = ABILITIES.dash;
@@ -273,31 +281,29 @@ function spawnAfterimage(cfg: any) {
   const scene = getScene();
   const ghost = new THREE.Group();
 
-  // Simplified ghost — body and head silhouettes (shared geometry)
-  if (!_playerGhostBodyGeo) {
-    _playerGhostBodyGeo = new THREE.CylinderGeometry(PLAYER.size.radius, PLAYER.size.radius + 0.05, PLAYER.size.height * 0.6, 6);
-    _playerGhostHeadGeo = new THREE.SphereGeometry(PLAYER.size.radius * 0.85, 6, 4);
-  }
-  const ghostBody = new THREE.Mesh(
-    _playerGhostBodyGeo,
-    new THREE.MeshBasicMaterial({
-      color: cfg.ghostColor,
-      transparent: true,
-      opacity: 0.5
-    })
-  );
-  ghostBody.position.y = 0.7;
-  ghost.add(ghostBody);
+  // Update world matrices so we can sample joint positions
+  playerGroup.updateMatrixWorld(true);
 
-  const ghostHead = new THREE.Mesh(
-    _playerGhostHeadGeo,
-    new THREE.MeshBasicMaterial({
-      color: cfg.ghostColor,
-      transparent: true,
-      opacity: 0.5
-    })
-  );
-  ghostHead.position.y = 1.45;
+  // Simplified ghost — torso + head silhouettes from rig world positions
+  const geos = getGhostGeometries();
+  const ghostMat = new THREE.MeshBasicMaterial({
+    color: cfg.ghostColor,
+    transparent: true,
+    opacity: 0.5,
+  });
+
+  // Torso ghost at rig torso's world position
+  const torsoWorld = new THREE.Vector3();
+  rig.joints.torso.getWorldPosition(torsoWorld);
+  const ghostTorso = new THREE.Mesh(geos.torso, ghostMat.clone());
+  ghostTorso.position.copy(torsoWorld).sub(playerPos);
+  ghost.add(ghostTorso);
+
+  // Head ghost at rig head's world position
+  const headWorld = new THREE.Vector3();
+  rig.joints.head.getWorldPosition(headWorld);
+  const ghostHead = new THREE.Mesh(geos.head, ghostMat.clone());
+  ghostHead.position.copy(headWorld).sub(playerPos);
   ghost.add(ghostHead);
 
   ghost.position.copy(playerPos);
@@ -343,10 +349,10 @@ function startCharge(inputState: any, gameState: any) {
   createChargeTelegraph(cfg);
 
   // Visual feedback — player glows while charging
-  body.material.emissive.setHex(0x44ffaa);
-  head.material.emissive.setHex(0x66ffcc);
-  body.material.emissiveIntensity = 0.6;
-  head.material.emissiveIntensity = 0.7;
+  for (const mat of rig.materials) {
+    mat.emissive.setHex(0x44ffaa);
+    mat.emissiveIntensity = 0.6;
+  }
 }
 
 function createChargeTelegraph(cfg: any) {
@@ -433,8 +439,9 @@ function updateCharge(inputState: any, dt: number, gameState: any) {
   }
 
   // Player glow intensifies with charge
-  body.material.emissiveIntensity = 0.6 + chargeT * 0.4;
-  head.material.emissiveIntensity = 0.7 + chargeT * 0.3;
+  for (const mat of rig.materials) {
+    mat.emissiveIntensity = 0.6 + chargeT * 0.4;
+  }
 
   // Auto-fire at max charge OR release key (100ms grace period prevents instant-fire)
   if (chargeT >= 1 || (chargeTimer > 100 && !inputState.ultimateHeld)) {
@@ -477,10 +484,7 @@ function fireChargePush(chargeT: number, gameState: any) {
   gameState.abilities.ultimate.cooldownRemaining = cfg.cooldown;
 
   // Restore player visuals
-  body.material.emissive.setHex(BODY_EMISSIVE);
-  head.material.emissive.setHex(HEAD_EMISSIVE);
-  body.material.emissiveIntensity = 0.4;
-  head.material.emissiveIntensity = 0.5;
+  restoreDefaultEmissive();
 
   // Screen shake scales with charge
   screenShake(2 + chargeT * 3, 120);
@@ -529,10 +533,8 @@ export function resetPlayer() {
   chargeTimer = 0;
   pushEvent = null;
   removeChargeTelegraph();
-  body.material.emissive.setHex(BODY_EMISSIVE);
-  head.material.emissive.setHex(HEAD_EMISSIVE);
-  body.material.emissiveIntensity = 0.4;
-  head.material.emissiveIntensity = 0.5;
+  restoreDefaultEmissive();
+  resetAnimatorState(animState);
 
   // Clean up afterimages
   const scene = getScene();

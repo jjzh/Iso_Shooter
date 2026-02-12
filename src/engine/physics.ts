@@ -2,6 +2,7 @@ import { getPlayerPos, isPlayerInvincible, isPlayerDashing, consumePushEvent } f
 import { getPlayerProjectiles, getEnemyProjectiles, releaseProjectile } from '../entities/projectile';
 import { stunEnemy } from '../entities/enemy';
 import { getIceEffects } from '../entities/mortarProjectile';
+import { triggerHitReaction } from '../entities/enemyRig';
 import { screenShake, getScene } from './renderer';
 import { PLAYER } from '../config/player';
 import { getCollisionBounds, getPitBounds } from '../config/arena';
@@ -263,6 +264,10 @@ function applyDamageToEnemy(enemy: Enemy, damage: number, gameState: GameState):
     }
   } else {
     enemy.health -= damage;
+  }
+  // Trigger squash/bounce hit reaction
+  if ((enemy as any).hitReaction) {
+    triggerHitReaction((enemy as any).hitReaction);
   }
 }
 

@@ -948,11 +948,326 @@ var ENEMY_TYPES = {
   }
 };
 
+// src/entities/enemyRig.ts
+var SILHOUETTES = {
+  goblin: {
+    headScale: 1.2,
+    // big exaggerated head — dominant feature
+    torsoW: 0.55,
+    torsoH: 0.3,
+    torsoD: 0.5,
+    armW: 0.28,
+    armLen: 0.42,
+    // long-ish dangling arms
+    legW: 0.3,
+    legLen: 0.28,
+    // short stubby legs
+    legSpread: 0.3,
+    hipY: 0.35,
+    limbDarken: 0.15,
+    headBrighten: 0.1,
+    extras: ["snout", "ears"]
+  },
+  skeletonArcher: {
+    headScale: 0.7,
+    // small skull
+    torsoW: 0.38,
+    torsoH: 0.42,
+    torsoD: 0.3,
+    // narrow tall
+    armW: 0.18,
+    armLen: 0.38,
+    legW: 0.2,
+    legLen: 0.45,
+    legSpread: 0.22,
+    hipY: 0.45,
+    limbDarken: 0.1,
+    headBrighten: 0.05,
+    extras: ["bow", "ribs"]
+  },
+  iceMortarImp: {
+    headScale: 0.9,
+    torsoW: 0.55,
+    torsoH: 0.28,
+    torsoD: 0.5,
+    // wide round body, scaled down
+    armW: 0.18,
+    armLen: 0.2,
+    // stubby arms
+    legW: 0.22,
+    legLen: 0.2,
+    // tiny legs
+    legSpread: 0.25,
+    hipY: 0.28,
+    limbDarken: 0.1,
+    headBrighten: 0.15,
+    extras: ["hat"]
+  },
+  stoneGolem: {
+    headScale: 0.5,
+    // tiny head sunk in shoulders
+    torsoW: 0.7,
+    torsoH: 0.4,
+    torsoD: 0.6,
+    // massive (golem already has large cfg.size)
+    armW: 0.38,
+    armLen: 0.45,
+    // thick heavy arms
+    legW: 0.38,
+    legLen: 0.38,
+    // thick legs
+    legSpread: 0.32,
+    hipY: 0.4,
+    limbDarken: 0.1,
+    headBrighten: 0.05,
+    extras: ["shoulders"]
+  }
+};
+var DEFAULT_SILHOUETTE = {
+  headScale: 0.9,
+  torsoW: 0.5,
+  torsoH: 0.35,
+  torsoD: 0.45,
+  armW: 0.25,
+  armLen: 0.35,
+  legW: 0.28,
+  legLen: 0.35,
+  legSpread: 0.25,
+  hipY: 0.4,
+  limbDarken: 0.1,
+  headBrighten: 0.1,
+  extras: []
+};
+function darkenColor(color, amount) {
+  const r = Math.max(0, (color >> 16 & 255) * (1 - amount)) | 0;
+  const g = Math.max(0, (color >> 8 & 255) * (1 - amount)) | 0;
+  const b = Math.max(0, (color & 255) * (1 - amount)) | 0;
+  return r << 16 | g << 8 | b;
+}
+function brightenColor(color, amount) {
+  const r = Math.min(255, (color >> 16 & 255) * (1 + amount)) | 0;
+  const g = Math.min(255, (color >> 8 & 255) * (1 + amount)) | 0;
+  const b = Math.min(255, (color & 255) * (1 + amount)) | 0;
+  return r << 16 | g << 8 | b;
+}
+function buildEnemyModel(typeName, cfg, group) {
+  const sil = SILHOUETTES[typeName] || DEFAULT_SILHOUETTE;
+  const r = cfg.size.radius;
+  const h = cfg.size.height;
+  const allMeshes = [];
+  const allMaterials = [];
+  function addMesh(geo, color, emissive, emissiveI, parent, x = 0, y = 0, z = 0) {
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      emissive,
+      emissiveIntensity: emissiveI
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    parent.add(mesh);
+    allMeshes.push(mesh);
+    allMaterials.push(mat);
+    return mesh;
+  }
+  const bodyColor = cfg.color;
+  const bodyEmissive = cfg.emissive;
+  const headColor = brightenColor(bodyColor, sil.headBrighten);
+  const headEmissive = brightenColor(bodyEmissive, sil.headBrighten);
+  const limbColor = darkenColor(bodyColor, sil.limbDarken);
+  const limbEmissive = darkenColor(bodyEmissive, sil.limbDarken);
+  const hipY = h * sil.hipY;
+  const torsoW = r * 2 * sil.torsoW;
+  const torsoH = h * sil.torsoH;
+  const torsoD = r * 2 * sil.torsoD;
+  const torsoY = hipY + torsoH / 2 + r * 0.05;
+  const torsoGeo = new THREE.BoxGeometry(torsoW, torsoH, torsoD);
+  const bodyMesh = addMesh(torsoGeo, bodyColor, bodyEmissive, 0.5, group, 0, torsoY, 0);
+  const headRadius = r * sil.headScale * 0.7;
+  const headY = torsoY + torsoH / 2 + headRadius * 0.8;
+  const headGeo = new THREE.SphereGeometry(headRadius, 8, 6);
+  const headMesh = addMesh(headGeo, headColor, headEmissive, 0.6, group, 0, headY, 0);
+  const shoulderY = torsoY + torsoH * 0.3;
+  const armW = r * sil.armW;
+  const armLen = h * sil.armLen;
+  const armGeo = new THREE.BoxGeometry(armW, armLen, armW);
+  addMesh(
+    armGeo,
+    limbColor,
+    limbEmissive,
+    0.4,
+    group,
+    -(torsoW / 2 + armW / 2),
+    shoulderY - armLen / 2,
+    0
+  );
+  addMesh(
+    armGeo,
+    limbColor,
+    limbEmissive,
+    0.4,
+    group,
+    torsoW / 2 + armW / 2,
+    shoulderY - armLen / 2,
+    0
+  );
+  const legW = r * sil.legW;
+  const legLen = h * sil.legLen;
+  const legSpread = r * sil.legSpread;
+  const legGeo = new THREE.BoxGeometry(legW, legLen, legW);
+  addMesh(
+    legGeo,
+    limbColor,
+    limbEmissive,
+    0.4,
+    group,
+    -legSpread,
+    hipY - legLen / 2,
+    0
+  );
+  addMesh(
+    legGeo,
+    limbColor,
+    limbEmissive,
+    0.4,
+    group,
+    legSpread,
+    hipY - legLen / 2,
+    0
+  );
+  if (sil.extras.includes("snout")) {
+    const snoutGeo = new THREE.ConeGeometry(headRadius * 0.35, headRadius * 0.7, 5);
+    const snout = addMesh(
+      snoutGeo,
+      headColor,
+      headEmissive,
+      0.5,
+      group,
+      0,
+      headY - headRadius * 0.15,
+      -(headRadius + headRadius * 0.15)
+    );
+    snout.rotation.x = -Math.PI / 2;
+  }
+  if (sil.extras.includes("ears")) {
+    const earGeo = new THREE.ConeGeometry(headRadius * 0.25, headRadius * 0.7, 4);
+    const earL = addMesh(
+      earGeo,
+      headColor,
+      headEmissive,
+      0.5,
+      group,
+      -(headRadius + headRadius * 0.1),
+      headY + headRadius * 0.3,
+      0
+    );
+    earL.rotation.z = Math.PI / 2 + 0.4;
+    const earR = addMesh(
+      earGeo,
+      headColor,
+      headEmissive,
+      0.5,
+      group,
+      headRadius + headRadius * 0.1,
+      headY + headRadius * 0.3,
+      0
+    );
+    earR.rotation.z = -(Math.PI / 2 + 0.4);
+  }
+  if (sil.extras.includes("bow")) {
+    const bowGeo = new THREE.BoxGeometry(armW * 0.4, h * 0.35, armW * 0.8);
+    addMesh(
+      bowGeo,
+      darkenColor(bodyColor, 0.4),
+      darkenColor(bodyEmissive, 0.4),
+      0.3,
+      group,
+      -(torsoW / 2 + armW * 1.5),
+      shoulderY - armLen * 0.4,
+      -r * 0.4
+    );
+  }
+  if (sil.extras.includes("ribs")) {
+    const ribColor = brightenColor(bodyColor, 0.15);
+    const ribEmissive = brightenColor(bodyEmissive, 0.1);
+    for (let i = 0; i < 3; i++) {
+      const ribGeo = new THREE.BoxGeometry(torsoW * 1.15, h * 0.012, torsoD * 0.6);
+      const ribY = torsoY + torsoH * (0.25 - i * 0.25);
+      addMesh(ribGeo, ribColor, ribEmissive, 0.3, group, 0, ribY, 0);
+    }
+  }
+  if (sil.extras.includes("hat")) {
+    const hatGeo = new THREE.ConeGeometry(headRadius * 0.9, h * 0.28, 6);
+    const hat = addMesh(
+      hatGeo,
+      darkenColor(bodyColor, 0.25),
+      darkenColor(bodyEmissive, 0.25),
+      0.4,
+      group,
+      0,
+      headY + headRadius * 0.6 + h * 0.1,
+      0
+    );
+    hat.rotation.z = 0.15;
+  }
+  if (sil.extras.includes("shoulders")) {
+    const shW = torsoW * 0.4;
+    const shH = torsoH * 0.25;
+    const shGeo = new THREE.BoxGeometry(shW, shH, shW);
+    addMesh(
+      shGeo,
+      darkenColor(bodyColor, 0.1),
+      darkenColor(bodyEmissive, 0.1),
+      0.35,
+      group,
+      -(torsoW / 2 + shW * 0.1),
+      shoulderY + shH * 0.5,
+      0
+    );
+    addMesh(
+      shGeo,
+      darkenColor(bodyColor, 0.1),
+      darkenColor(bodyEmissive, 0.1),
+      0.35,
+      group,
+      torsoW / 2 + shW * 0.1,
+      shoulderY + shH * 0.5,
+      0
+    );
+  }
+  return { bodyMesh, headMesh, allMeshes, allMaterials };
+}
+function createHitReaction() {
+  return { active: false, timer: 0, duration: 0.12 };
+}
+function triggerHitReaction(state) {
+  state.active = true;
+  state.timer = 0;
+}
+function updateHitReaction(state, meshGroup, dt) {
+  if (!state.active) return;
+  state.timer += dt;
+  const t = Math.min(state.timer / state.duration, 1);
+  if (t < 0.3) {
+    const squashT = t / 0.3;
+    meshGroup.scale.set(1 + 0.12 * squashT, 1 - 0.15 * squashT, 1 + 0.12 * squashT);
+  } else {
+    const bounceT = (t - 0.3) / 0.7;
+    const ease = 1 - Math.pow(1 - bounceT, 3);
+    const overshoot = bounceT < 0.5 ? 1.06 : 1 + 0.06 * (1 - (bounceT - 0.5) * 2);
+    const scaleY = 1 - 0.15 + (overshoot - (1 - 0.15)) * ease;
+    const scaleXZ = 1 + 0.12 + (1 - (1 + 0.12)) * ease;
+    meshGroup.scale.set(scaleXZ, scaleY, scaleXZ);
+  }
+  if (t >= 1) {
+    state.active = false;
+    meshGroup.scale.set(1, 1, 1);
+  }
+}
+
 // src/entities/enemy.ts
 var sceneRef3;
 var shieldGeo;
-var _bodyGeoCache = {};
-var _headGeoCache = {};
 var _mortarFillGeoShared = null;
 var _deathFillGeoShared = null;
 function initEnemySystem(scene2) {
@@ -979,32 +1294,9 @@ function spawnEnemy(typeName, position, gameState2) {
   const cfg = ENEMY_TYPES[typeName];
   if (!cfg) return null;
   const group = new THREE.Group();
-  if (!_bodyGeoCache[typeName]) {
-    _bodyGeoCache[typeName] = new THREE.CylinderGeometry(cfg.size.radius, cfg.size.radius, cfg.size.height * 0.6, 6);
-  }
-  const bodyMesh = new THREE.Mesh(
-    _bodyGeoCache[typeName],
-    new THREE.MeshStandardMaterial({
-      color: cfg.color,
-      emissive: cfg.emissive,
-      emissiveIntensity: 0.5
-    })
-  );
-  bodyMesh.position.y = cfg.size.height * 0.3;
-  group.add(bodyMesh);
-  if (!_headGeoCache[typeName]) {
-    _headGeoCache[typeName] = new THREE.SphereGeometry(cfg.size.radius * 0.7, 6, 4);
-  }
-  const headMesh = new THREE.Mesh(
-    _headGeoCache[typeName],
-    new THREE.MeshStandardMaterial({
-      color: cfg.color,
-      emissive: cfg.emissive,
-      emissiveIntensity: 0.6
-    })
-  );
-  headMesh.position.y = cfg.size.height * 0.75;
-  group.add(headMesh);
+  const model = buildEnemyModel(typeName, cfg, group);
+  const bodyMesh = model.bodyMesh;
+  const headMesh = model.headMesh;
   group.position.copy(position);
   sceneRef3.add(group);
   const enemy = {
@@ -1069,8 +1361,11 @@ function spawnEnemy(typeName, position, gameState2) {
     leapTargetX: 0,
     leapTargetZ: 0,
     leapArcHeight: 0,
-    leapCooldown: 0
+    leapCooldown: 0,
     // ms until next leap allowed
+    // Hit reaction (squash/bounce)
+    hitReaction: createHitReaction(),
+    allMaterials: model.allMaterials
   };
   if (cfg.shield && cfg.shield.maxHealth > 0) {
     enemy.shieldHealth = cfg.shield.maxHealth;
@@ -1192,6 +1487,9 @@ function updateEnemies(dt, playerPos2, gameState2) {
         enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
         if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
       }
+    }
+    if (enemy.hitReaction && enemy.hitReaction.active) {
+      updateHitReaction(enemy.hitReaction, enemy.mesh, dt);
     }
     if (enemy.slowTimer > 0) {
       enemy.slowTimer -= dt * 1e3;
@@ -2092,13 +2390,469 @@ function clearIcePatches() {
   activeIcePatches.length = 0;
 }
 
+// src/entities/playerRig.ts
+var P = {
+  // Overall scale reference
+  scale: 0.9,
+  // global multiplier if everything feels too big/small
+  // Hip (root of legs + torso)
+  hipY: 0.5,
+  // Torso
+  torsoWidth: 0.28,
+  torsoHeight: 0.32,
+  torsoDepth: 0.18,
+  torsoY: 0.22,
+  // above hip
+  // Head
+  headRadius: 0.16,
+  headY: 0.3,
+  // above torso
+  // Arms
+  shoulderOffsetX: 0.19,
+  shoulderY: 0.22,
+  // relative to torso (near top of torso)
+  upperArmWidth: 0.08,
+  upperArmHeight: 0.2,
+  upperArmDepth: 0.08,
+  upperArmY: -0.12,
+  // hangs down from shoulder
+  elbowY: -0.2,
+  // relative to upper arm
+  lowerArmWidth: 0.07,
+  lowerArmHeight: 0.18,
+  lowerArmDepth: 0.07,
+  lowerArmY: -0.1,
+  // hangs down from elbow
+  // Legs
+  legOffsetX: 0.09,
+  thighWidth: 0.1,
+  thighHeight: 0.24,
+  thighDepth: 0.1,
+  thighY: -0.14,
+  // hangs down from hip
+  kneeY: -0.24,
+  // relative to thigh
+  shinWidth: 0.08,
+  shinHeight: 0.22,
+  shinDepth: 0.08,
+  shinY: -0.12
+  // hangs down from knee
+};
+var COLORS = {
+  torso: { color: 4508808, emissive: 2271846, emissiveIntensity: 0.4 },
+  head: { color: 5627306, emissive: 3390344, emissiveIntensity: 0.5 },
+  arm: { color: 3848314, emissive: 2005344, emissiveIntensity: 0.35 },
+  leg: { color: 3716469, emissive: 1873496, emissiveIntensity: 0.35 }
+};
+var _torsoGeo = null;
+var _headGeo = null;
+var _upperArmGeo = null;
+var _lowerArmGeo = null;
+var _thighGeo = null;
+var _shinGeo = null;
+function ensureGeometry() {
+  if (_torsoGeo) return;
+  _torsoGeo = new THREE.BoxGeometry(P.torsoWidth, P.torsoHeight, P.torsoDepth);
+  _headGeo = new THREE.SphereGeometry(P.headRadius, 8, 6);
+  _upperArmGeo = new THREE.BoxGeometry(P.upperArmWidth, P.upperArmHeight, P.upperArmDepth);
+  _lowerArmGeo = new THREE.BoxGeometry(P.lowerArmWidth, P.lowerArmHeight, P.lowerArmDepth);
+  _thighGeo = new THREE.BoxGeometry(P.thighWidth, P.thighHeight, P.thighDepth);
+  _shinGeo = new THREE.BoxGeometry(P.shinWidth, P.shinHeight, P.shinDepth);
+}
+function makeMat(palette) {
+  return new THREE.MeshStandardMaterial({
+    color: palette.color,
+    emissive: palette.emissive,
+    emissiveIntensity: palette.emissiveIntensity
+  });
+}
+function createPlayerRig(parentGroup) {
+  ensureGeometry();
+  const meshes = [];
+  const materials = [];
+  function addMesh(geo, palette, parent, x = 0, y = 0, z = 0) {
+    const mat = makeMat(palette);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    parent.add(mesh);
+    meshes.push(mesh);
+    materials.push(mat);
+    return mesh;
+  }
+  const rigRoot = new THREE.Group();
+  rigRoot.scale.setScalar(P.scale);
+  parentGroup.add(rigRoot);
+  const hip = new THREE.Group();
+  hip.position.y = P.hipY;
+  rigRoot.add(hip);
+  const torso = new THREE.Group();
+  torso.position.y = P.torsoY;
+  hip.add(torso);
+  addMesh(_torsoGeo, COLORS.torso, torso, 0, P.torsoHeight / 2, 0);
+  const head = new THREE.Group();
+  head.position.y = P.torsoHeight + P.headY * 0.5;
+  torso.add(head);
+  addMesh(_headGeo, COLORS.head, head, 0, 0, 0);
+  const shoulderL = new THREE.Group();
+  shoulderL.position.set(-P.shoulderOffsetX, P.shoulderY, 0);
+  torso.add(shoulderL);
+  const upperArmL = new THREE.Group();
+  shoulderL.add(upperArmL);
+  addMesh(_upperArmGeo, COLORS.arm, upperArmL, 0, P.upperArmY, 0);
+  const lowerArmL = new THREE.Group();
+  lowerArmL.position.y = P.elbowY;
+  upperArmL.add(lowerArmL);
+  addMesh(_lowerArmGeo, COLORS.arm, lowerArmL, 0, P.lowerArmY, 0);
+  const shoulderR = new THREE.Group();
+  shoulderR.position.set(P.shoulderOffsetX, P.shoulderY, 0);
+  torso.add(shoulderR);
+  const upperArmR = new THREE.Group();
+  shoulderR.add(upperArmR);
+  addMesh(_upperArmGeo, COLORS.arm, upperArmR, 0, P.upperArmY, 0);
+  const lowerArmR = new THREE.Group();
+  lowerArmR.position.y = P.elbowY;
+  upperArmR.add(lowerArmR);
+  addMesh(_lowerArmGeo, COLORS.arm, lowerArmR, 0, P.lowerArmY, 0);
+  const thighL = new THREE.Group();
+  thighL.position.set(-P.legOffsetX, 0, 0);
+  hip.add(thighL);
+  addMesh(_thighGeo, COLORS.leg, thighL, 0, P.thighY, 0);
+  const shinL = new THREE.Group();
+  shinL.position.y = P.kneeY;
+  thighL.add(shinL);
+  addMesh(_shinGeo, COLORS.leg, shinL, 0, P.shinY, 0);
+  const thighR = new THREE.Group();
+  thighR.position.set(P.legOffsetX, 0, 0);
+  hip.add(thighR);
+  addMesh(_thighGeo, COLORS.leg, thighR, 0, P.thighY, 0);
+  const shinR = new THREE.Group();
+  shinR.position.y = P.kneeY;
+  thighR.add(shinR);
+  addMesh(_shinGeo, COLORS.leg, shinR, 0, P.shinY, 0);
+  return {
+    joints: {
+      rigRoot,
+      hip,
+      torso,
+      head,
+      shoulderL,
+      upperArmL,
+      lowerArmL,
+      shoulderR,
+      upperArmR,
+      lowerArmR,
+      thighL,
+      shinL,
+      thighR,
+      shinR
+    },
+    meshes,
+    materials
+  };
+}
+var _ghostTorsoGeo = null;
+var _ghostHeadGeo = null;
+function getGhostGeometries() {
+  if (!_ghostTorsoGeo) {
+    _ghostTorsoGeo = new THREE.BoxGeometry(P.torsoWidth * P.scale, P.torsoHeight * P.scale, P.torsoDepth * P.scale);
+    _ghostHeadGeo = new THREE.SphereGeometry(P.headRadius * P.scale, 6, 4);
+  }
+  return { torso: _ghostTorsoGeo, head: _ghostHeadGeo };
+}
+
+// src/entities/playerAnimator.ts
+var C = {
+  // Run cycle
+  runCycleRate: 0.4,
+  // full leg cycles per world unit traveled
+  strideAngle: 0.6,
+  // radians (~35°) thigh swing amplitude
+  kneeBendMax: 0.8,
+  // radians (~45°) maximum forward knee bend
+  armSwingRatio: 0.6,
+  // arm swing as fraction of leg amplitude
+  forearmLag: 0.3,
+  // phase offset for forearm (secondary motion)
+  bodyBounceHeight: 0.03,
+  // world units of vertical bounce per step
+  forwardLean: 0.09,
+  // radians (~5°) lean into movement
+  forwardLeanSpeed: 8,
+  // how fast lean blends in/out (per second)
+  // Idle
+  breathRate: 2,
+  // Hz
+  breathAmplitude: 0.02,
+  // world units
+  weightShiftRate: 0.8,
+  // Hz
+  weightShiftAngle: 0.04,
+  // radians (~2.3°)
+  headDriftRate: 0.5,
+  // Hz
+  headDriftAngle: 0.02,
+  // radians (~1°)
+  idleArmDroop: 0.15,
+  // radians — slight outward droop
+  // Dash squash/stretch
+  squashScaleY: 0.75,
+  squashScaleXZ: 1.15,
+  stretchScaleY: 1.12,
+  stretchScaleXZ: 0.92,
+  dashLeanAngle: 0.26,
+  // radians (~15°) aggressive forward lean
+  dashArmSweep: -0.8,
+  // radians — arms swept back
+  dashLegLunge: 0.7,
+  // radians — front leg forward
+  dashLegTrail: -0.5,
+  // radians — back leg behind
+  // Transitions (ms)
+  idleToRunBlend: 80,
+  runToIdleBlend: 120,
+  endLagToNormalBlend: 60,
+  // Upper/lower body
+  hipTurnSpeed: 15
+  // radians/sec — how fast legs reorient to movement direction
+};
+function createAnimatorState() {
+  return {
+    currentState: "idle",
+    prevState: "idle",
+    stateTimer: 0,
+    blendTimer: 0,
+    blendDuration: 0,
+    runCyclePhase: 0,
+    moveDir: 0,
+    moveDirSmoothed: 0,
+    currentLean: 0,
+    dashDir: 0,
+    dashT: 0,
+    time: 0
+  };
+}
+function resetAnimatorState(anim) {
+  anim.currentState = "idle";
+  anim.prevState = "idle";
+  anim.stateTimer = 0;
+  anim.blendTimer = 0;
+  anim.blendDuration = 0;
+  anim.runCyclePhase = 0;
+  anim.currentLean = 0;
+  anim.dashT = 0;
+  anim.time = 0;
+}
+function easeOutBack(t) {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+function easeOutQuad2(t) {
+  return 1 - (1 - t) * (1 - t);
+}
+function lerpAngle(from, to, t) {
+  let diff = to - from;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return from + diff * t;
+}
+function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, isInEndLag, dashProgress) {
+  anim.time += dt;
+  const isMoving = Math.abs(inputState2.moveX) > 0.01 || Math.abs(inputState2.moveZ) > 0.01;
+  const prevState = anim.currentState;
+  if (isDashing2) {
+    if (anim.currentState !== "dash") {
+      transitionTo(anim, "dash", 0);
+    }
+    anim.dashT = dashProgress;
+  } else if (isInEndLag) {
+    if (anim.currentState !== "endLag") {
+      transitionTo(anim, "endLag", 0);
+    }
+  } else if (isMoving) {
+    if (anim.currentState !== "run") {
+      const blend = anim.currentState === "endLag" ? C.endLagToNormalBlend : C.idleToRunBlend;
+      transitionTo(anim, "run", blend / 1e3);
+    }
+  } else {
+    if (anim.currentState !== "idle") {
+      const blend = anim.currentState === "endLag" ? C.endLagToNormalBlend : C.runToIdleBlend;
+      transitionTo(anim, "idle", blend / 1e3);
+    }
+  }
+  anim.stateTimer += dt;
+  if (anim.blendTimer > 0) {
+    anim.blendTimer = Math.max(0, anim.blendTimer - dt);
+  }
+  if (isMoving) {
+    anim.moveDir = Math.atan2(-inputState2.moveX, -inputState2.moveZ);
+  }
+  anim.moveDirSmoothed = lerpAngle(
+    anim.moveDirSmoothed,
+    anim.moveDir,
+    Math.min(1, C.hipTurnSpeed * dt)
+  );
+  resetJointsToNeutral(joints);
+  switch (anim.currentState) {
+    case "idle":
+      applyIdle(joints, anim);
+      break;
+    case "run":
+      applyRun(joints, anim, dt, inputState2);
+      break;
+    case "dash":
+      applyDash(joints, anim);
+      break;
+    case "endLag":
+      applyEndLag(joints, anim);
+      break;
+  }
+  const hipOffset = anim.moveDirSmoothed - aimAngle;
+  joints.hip.rotation.y = hipOffset;
+  const targetLean = anim.currentState === "run" ? C.forwardLean : 0;
+  anim.currentLean += (targetLean - anim.currentLean) * Math.min(1, C.forwardLeanSpeed * dt);
+  joints.rigRoot.rotation.x = anim.currentLean;
+  if (anim.currentState === "dash") {
+    joints.rigRoot.rotation.x = getDashLean(anim.dashT);
+  }
+}
+function transitionTo(anim, newState, blendDuration) {
+  anim.prevState = anim.currentState;
+  anim.currentState = newState;
+  anim.stateTimer = 0;
+  anim.blendDuration = blendDuration;
+  anim.blendTimer = blendDuration;
+  if (newState === "dash") {
+    anim.dashDir = anim.moveDir;
+    anim.dashT = 0;
+  }
+}
+function resetJointsToNeutral(joints) {
+  joints.rigRoot.rotation.set(0, 0, 0);
+  joints.rigRoot.scale.set(1, 1, 1);
+  joints.torso.rotation.set(0, 0, 0);
+  joints.head.rotation.set(0, 0, 0);
+  joints.upperArmL.rotation.set(0, 0, 0);
+  joints.lowerArmL.rotation.set(0, 0, 0);
+  joints.upperArmR.rotation.set(0, 0, 0);
+  joints.lowerArmR.rotation.set(0, 0, 0);
+  joints.thighL.rotation.set(0, 0, 0);
+  joints.shinL.rotation.set(0, 0, 0);
+  joints.thighR.rotation.set(0, 0, 0);
+  joints.shinR.rotation.set(0, 0, 0);
+  joints.hip.rotation.x = 0;
+  joints.hip.rotation.z = 0;
+}
+function applyIdle(joints, anim) {
+  const t = anim.time;
+  joints.torso.position.y += Math.sin(t * C.breathRate * Math.PI * 2) * C.breathAmplitude;
+  joints.hip.rotation.z = Math.sin(t * C.weightShiftRate * Math.PI * 2) * C.weightShiftAngle;
+  joints.head.rotation.y = Math.sin(t * C.headDriftRate * Math.PI * 2) * C.headDriftAngle;
+  joints.upperArmL.rotation.z = C.idleArmDroop;
+  joints.upperArmR.rotation.z = -C.idleArmDroop;
+  joints.lowerArmL.rotation.x = -0.1;
+  joints.lowerArmR.rotation.x = -0.1;
+}
+function applyRun(joints, anim, dt, input) {
+  const speed = Math.sqrt(input.moveX * input.moveX + input.moveZ * input.moveZ);
+  const distThisFrame = speed * 5 * dt;
+  anim.runCyclePhase = (anim.runCyclePhase + distThisFrame * C.runCycleRate) % 1;
+  const phase = anim.runCyclePhase * Math.PI * 2;
+  const thighSwing = Math.sin(phase) * C.strideAngle;
+  joints.thighL.rotation.x = thighSwing;
+  joints.thighR.rotation.x = -thighSwing;
+  const kneeL = Math.max(0, Math.sin(phase - 0.6)) * C.kneeBendMax;
+  const kneeR = Math.max(0, Math.sin(phase - 0.6 + Math.PI)) * C.kneeBendMax;
+  joints.shinL.rotation.x = -kneeL;
+  joints.shinR.rotation.x = -kneeR;
+  const armSwing = Math.sin(phase) * C.strideAngle * C.armSwingRatio;
+  joints.upperArmL.rotation.x = -armSwing;
+  joints.upperArmR.rotation.x = armSwing;
+  const forearmSwing = Math.sin(phase - C.forearmLag) * C.strideAngle * C.armSwingRatio * 0.5;
+  joints.lowerArmL.rotation.x = -Math.abs(forearmSwing) - 0.15;
+  joints.lowerArmR.rotation.x = -Math.abs(forearmSwing) - 0.15;
+  const bounce = Math.abs(Math.sin(phase * 2)) * C.bodyBounceHeight;
+  joints.hip.position.y = 0.5 + bounce;
+  joints.torso.rotation.y = Math.sin(phase) * 0.06;
+}
+function applyDash(joints, anim) {
+  const t = anim.dashT;
+  if (t < 0.15) {
+    const subT = t / 0.15;
+    const ease = easeOutQuad2(subT);
+    joints.rigRoot.scale.set(
+      1 + (C.squashScaleXZ - 1) * ease,
+      1 + (C.squashScaleY - 1) * ease,
+      1 + (C.squashScaleXZ - 1) * ease
+    );
+    joints.thighL.rotation.x = C.dashLegLunge * ease;
+    joints.thighR.rotation.x = C.dashLegTrail * ease;
+    joints.shinL.rotation.x = -0.3 * ease;
+    joints.shinR.rotation.x = -0.4 * ease;
+    joints.upperArmL.rotation.x = C.dashArmSweep * ease * 0.5;
+    joints.upperArmR.rotation.x = C.dashArmSweep * ease * 0.5;
+  } else if (t < 0.85) {
+    const subT = (t - 0.15) / 0.7;
+    const ease = easeOutQuad2(subT);
+    joints.rigRoot.scale.set(
+      C.stretchScaleXZ,
+      C.stretchScaleY,
+      C.stretchScaleXZ
+    );
+    joints.thighL.rotation.x = 0.4;
+    joints.thighR.rotation.x = -0.3;
+    joints.shinL.rotation.x = -0.5;
+    joints.shinR.rotation.x = -0.2;
+    joints.upperArmL.rotation.x = C.dashArmSweep;
+    joints.upperArmR.rotation.x = C.dashArmSweep;
+    joints.lowerArmL.rotation.x = C.dashArmSweep * 0.4;
+    joints.lowerArmR.rotation.x = C.dashArmSweep * 0.4;
+  } else {
+    const subT = (t - 0.85) / 0.15;
+    const ease = easeOutBack(Math.min(subT, 1));
+    const yScale = C.stretchScaleY + (1 - C.stretchScaleY) * ease;
+    const xzScale = C.stretchScaleXZ + (1 - C.stretchScaleXZ) * ease;
+    joints.rigRoot.scale.set(xzScale, yScale, xzScale);
+    const legSettle = 1 - ease;
+    joints.thighL.rotation.x = 0.3 * legSettle;
+    joints.thighR.rotation.x = -0.2 * legSettle;
+    joints.shinL.rotation.x = -0.3 * legSettle;
+    joints.shinR.rotation.x = -0.1 * legSettle;
+    joints.upperArmL.rotation.x = C.dashArmSweep * (1 - ease);
+    joints.upperArmR.rotation.x = C.dashArmSweep * (1 - ease);
+  }
+}
+function getDashLean(t) {
+  if (t < 0.15) {
+    return C.dashLeanAngle * easeOutQuad2(t / 0.15);
+  } else if (t < 0.85) {
+    return C.dashLeanAngle;
+  } else {
+    const subT = (t - 0.85) / 0.15;
+    return C.dashLeanAngle * (1 - easeOutQuad2(subT));
+  }
+}
+function applyEndLag(joints, anim) {
+  const t = Math.min(anim.stateTimer / 0.05, 1);
+  const ease = easeOutQuad2(t);
+  const scaleY = 1 + (1.05 - 1) * (1 - ease);
+  joints.rigRoot.scale.set(1, scaleY, 1);
+  joints.rigRoot.rotation.x = -0.06 * (1 - ease);
+  const legSpread = 0.25 * (1 - ease);
+  joints.thighL.rotation.x = legSpread;
+  joints.thighR.rotation.x = -legSpread;
+  joints.shinL.rotation.x = -legSpread * 0.5;
+  joints.shinR.rotation.x = -legSpread * 0.5;
+  joints.upperArmL.rotation.x = -0.2 * (1 - ease);
+  joints.upperArmR.rotation.x = -0.2 * (1 - ease);
+}
+
 // src/entities/player.ts
 var playerGroup;
-var body;
-var head;
 var aimIndicator;
+var rig;
+var animState;
 var playerPos = new THREE.Vector3(0, 0, 0);
-var bobPhase = 0;
 var lastFireTime = 0;
 var isDashing = false;
 var dashTimer = 0;
@@ -2118,32 +2872,19 @@ var chargeFillMesh = null;
 var chargeBorderMesh = null;
 var chargeBorderGeo = null;
 var _fireDir = new THREE.Vector3();
-var _playerGhostBodyGeo = null;
-var _playerGhostHeadGeo = null;
-var BODY_EMISSIVE = 2271846;
-var HEAD_EMISSIVE = 3390344;
+var DEFAULT_EMISSIVE = 2271846;
+var DEFAULT_EMISSIVE_INTENSITY = 0.4;
+function restoreDefaultEmissive() {
+  if (!rig) return;
+  for (const mat of rig.materials) {
+    mat.emissive.setHex(DEFAULT_EMISSIVE);
+    mat.emissiveIntensity = DEFAULT_EMISSIVE_INTENSITY;
+  }
+}
 function createPlayer(scene2) {
   playerGroup = new THREE.Group();
-  body = new THREE.Mesh(
-    new THREE.CylinderGeometry(PLAYER.size.radius, PLAYER.size.radius + 0.05, PLAYER.size.height * 0.6, 8),
-    new THREE.MeshStandardMaterial({
-      color: 4508808,
-      emissive: BODY_EMISSIVE,
-      emissiveIntensity: 0.4
-    })
-  );
-  body.position.y = 0.7;
-  playerGroup.add(body);
-  head = new THREE.Mesh(
-    new THREE.SphereGeometry(PLAYER.size.radius * 0.85, 8, 6),
-    new THREE.MeshStandardMaterial({
-      color: 5627306,
-      emissive: HEAD_EMISSIVE,
-      emissiveIntensity: 0.5
-    })
-  );
-  head.position.y = 1.45;
-  playerGroup.add(head);
+  rig = createPlayerRig(playerGroup);
+  animState = createAnimatorState();
   aimIndicator = new THREE.Mesh(
     new THREE.ConeGeometry(0.12, 0.6, 4),
     new THREE.MeshStandardMaterial({
@@ -2171,6 +2912,17 @@ function updatePlayer(inputState2, dt, gameState2) {
   if (endLagTimer > 0) {
     endLagTimer -= dt * 1e3;
     playerGroup.position.copy(playerPos);
+    aimAtCursor(inputState2);
+    updateAnimation(
+      rig.joints,
+      animState,
+      dt,
+      { moveX: 0, moveZ: 0 },
+      playerGroup.rotation.y,
+      false,
+      true,
+      0
+    );
     updateAfterimages(dt);
     return;
   }
@@ -2178,6 +2930,16 @@ function updatePlayer(inputState2, dt, gameState2) {
     updateDash(dt, gameState2);
     playerGroup.position.copy(playerPos);
     aimAtCursor(inputState2);
+    updateAnimation(
+      rig.joints,
+      animState,
+      dt,
+      { moveX: inputState2.moveX, moveZ: inputState2.moveZ },
+      playerGroup.rotation.y,
+      true,
+      false,
+      Math.min(dashTimer / dashDuration, 1)
+    );
     updateAfterimages(dt);
     return;
   }
@@ -2193,14 +2955,21 @@ function updatePlayer(inputState2, dt, gameState2) {
     const speedMod = chargeSlow * iceEffects.speedMult;
     playerPos.x += inputState2.moveX * PLAYER.speed * speedMod * dt;
     playerPos.z += inputState2.moveZ * PLAYER.speed * speedMod * dt;
-    bobPhase += dt * 12;
-    body.position.y = 0.7 + Math.sin(bobPhase) * 0.05;
-    head.position.y = 1.45 + Math.sin(bobPhase) * 0.07;
   }
   playerPos.x = Math.max(-19.5, Math.min(19.5, playerPos.x));
   playerPos.z = Math.max(-19.5, Math.min(19.5, playerPos.z));
   playerGroup.position.copy(playerPos);
   aimAtCursor(inputState2);
+  updateAnimation(
+    rig.joints,
+    animState,
+    dt,
+    { moveX: inputState2.moveX, moveZ: inputState2.moveZ },
+    playerGroup.rotation.y,
+    isDashing,
+    endLagTimer > 0,
+    isDashing ? Math.min(dashTimer / dashDuration, 1) : 0
+  );
   const dashCfg = ABILITIES.dash;
   const canShoot = (!isDashing || dashCfg.canShootDuring) && !isCharging;
   if (canShoot && now - lastFireTime > PLAYER.fireRate) {
@@ -2298,29 +3067,22 @@ function updateDash(dt, gameState2) {
 function spawnAfterimage(cfg) {
   const scene2 = getScene();
   const ghost = new THREE.Group();
-  if (!_playerGhostBodyGeo) {
-    _playerGhostBodyGeo = new THREE.CylinderGeometry(PLAYER.size.radius, PLAYER.size.radius + 0.05, PLAYER.size.height * 0.6, 6);
-    _playerGhostHeadGeo = new THREE.SphereGeometry(PLAYER.size.radius * 0.85, 6, 4);
-  }
-  const ghostBody = new THREE.Mesh(
-    _playerGhostBodyGeo,
-    new THREE.MeshBasicMaterial({
-      color: cfg.ghostColor,
-      transparent: true,
-      opacity: 0.5
-    })
-  );
-  ghostBody.position.y = 0.7;
-  ghost.add(ghostBody);
-  const ghostHead = new THREE.Mesh(
-    _playerGhostHeadGeo,
-    new THREE.MeshBasicMaterial({
-      color: cfg.ghostColor,
-      transparent: true,
-      opacity: 0.5
-    })
-  );
-  ghostHead.position.y = 1.45;
+  playerGroup.updateMatrixWorld(true);
+  const geos = getGhostGeometries();
+  const ghostMat = new THREE.MeshBasicMaterial({
+    color: cfg.ghostColor,
+    transparent: true,
+    opacity: 0.5
+  });
+  const torsoWorld = new THREE.Vector3();
+  rig.joints.torso.getWorldPosition(torsoWorld);
+  const ghostTorso = new THREE.Mesh(geos.torso, ghostMat.clone());
+  ghostTorso.position.copy(torsoWorld).sub(playerPos);
+  ghost.add(ghostTorso);
+  const headWorld = new THREE.Vector3();
+  rig.joints.head.getWorldPosition(headWorld);
+  const ghostHead = new THREE.Mesh(geos.head, ghostMat.clone());
+  ghostHead.position.copy(headWorld).sub(playerPos);
   ghost.add(ghostHead);
   ghost.position.copy(playerPos);
   ghost.rotation.y = playerGroup.rotation.y;
@@ -2352,10 +3114,10 @@ function startCharge(inputState2, gameState2) {
   const dz = inputState2.aimWorldPos.z - playerPos.z;
   chargeAimAngle = Math.atan2(dx, dz);
   createChargeTelegraph(cfg);
-  body.material.emissive.setHex(4521898);
-  head.material.emissive.setHex(6750156);
-  body.material.emissiveIntensity = 0.6;
-  head.material.emissiveIntensity = 0.7;
+  for (const mat of rig.materials) {
+    mat.emissive.setHex(4521898);
+    mat.emissiveIntensity = 0.6;
+  }
 }
 function createChargeTelegraph(cfg) {
   const scene2 = getScene();
@@ -2415,8 +3177,9 @@ function updateCharge(inputState2, dt, gameState2) {
     chargeBorderMesh.material.opacity = pulse;
     chargeFillMesh.material.opacity = cfg.telegraphOpacity + chargeT * 0.2;
   }
-  body.material.emissiveIntensity = 0.6 + chargeT * 0.4;
-  head.material.emissiveIntensity = 0.7 + chargeT * 0.3;
+  for (const mat of rig.materials) {
+    mat.emissiveIntensity = 0.6 + chargeT * 0.4;
+  }
   if (chargeT >= 1 || chargeTimer > 100 && !inputState2.ultimateHeld) {
     fireChargePush(chargeT, gameState2);
   }
@@ -2445,10 +3208,7 @@ function fireChargePush(chargeT, gameState2) {
   gameState2.abilities.ultimate.charging = false;
   gameState2.abilities.ultimate.chargeT = 0;
   gameState2.abilities.ultimate.cooldownRemaining = cfg.cooldown;
-  body.material.emissive.setHex(BODY_EMISSIVE);
-  head.material.emissive.setHex(HEAD_EMISSIVE);
-  body.material.emissiveIntensity = 0.4;
-  head.material.emissiveIntensity = 0.5;
+  restoreDefaultEmissive();
   screenShake(2 + chargeT * 3, 120);
 }
 function removeChargeTelegraph() {
@@ -2495,10 +3255,8 @@ function resetPlayer() {
   chargeTimer = 0;
   pushEvent = null;
   removeChargeTelegraph();
-  body.material.emissive.setHex(BODY_EMISSIVE);
-  head.material.emissive.setHex(HEAD_EMISSIVE);
-  body.material.emissiveIntensity = 0.4;
-  head.material.emissiveIntensity = 0.5;
+  restoreDefaultEmissive();
+  resetAnimatorState(animState);
   const scene2 = getScene();
   for (const ai of afterimages) {
     scene2.remove(ai.mesh);
@@ -3146,25 +3904,25 @@ function invalidateCollisionBounds() {
 }
 var effectGhosts = [];
 var _ghostBodyGeo = null;
-var _ghostHeadGeo = null;
+var _ghostHeadGeo2 = null;
 function createGhostMesh(x, z, radius, height, color) {
   if (!_ghostBodyGeo) {
     _ghostBodyGeo = new THREE.CylinderGeometry(1, 1, 1, 6);
-    _ghostHeadGeo = new THREE.SphereGeometry(1, 6, 4);
+    _ghostHeadGeo2 = new THREE.SphereGeometry(1, 6, 4);
   }
   const group = new THREE.Group();
   const bodyMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4 });
-  const body2 = new THREE.Mesh(_ghostBodyGeo, bodyMat);
+  const body = new THREE.Mesh(_ghostBodyGeo, bodyMat);
   const bodyH = height * 0.6;
-  body2.scale.set(radius, bodyH, radius);
-  body2.position.y = height * 0.3;
-  group.add(body2);
+  body.scale.set(radius, bodyH, radius);
+  body.position.y = height * 0.3;
+  group.add(body);
   const headMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4 });
   const headR = radius * 0.7;
-  const head2 = new THREE.Mesh(_ghostHeadGeo, headMat);
-  head2.scale.set(headR, headR, headR);
-  head2.position.y = height * 0.75;
-  group.add(head2);
+  const head = new THREE.Mesh(_ghostHeadGeo2, headMat);
+  head.scale.set(headR, headR, headR);
+  head.position.y = height * 0.75;
+  group.add(head);
   group.position.set(x, 0, z);
   getScene().add(group);
   return group;
@@ -3349,6 +4107,9 @@ function applyDamageToEnemy(enemy, damage, gameState2) {
     }
   } else {
     enemy.health -= damage;
+  }
+  if (enemy.hitReaction) {
+    triggerHitReaction(enemy.hitReaction);
   }
 }
 function onShieldBreak(enemy, gameState2) {
@@ -5046,9 +5807,9 @@ function rebuildMarkers() {
           clonedMat.emissiveIntensity = 1;
         }
         const mesh = new THREE.Group();
-        const body2 = new THREE.Mesh(markerGeo, clonedMat);
-        body2.position.y = 0.4;
-        mesh.add(body2);
+        const body = new THREE.Mesh(markerGeo, clonedMat);
+        body.position.y = 0.4;
+        mesh.add(body);
         const ringColor = isSelected ? 16777215 : ENEMY_TYPES[spawn.type] ? ENEMY_TYPES[spawn.type].color : 16777215;
         const ringGeo3 = new THREE.RingGeometry(
           isSelected ? 0.55 : 0.5,
@@ -5448,10 +6209,10 @@ function wireEvents() {
     copyToClipboard(text, document.getElementById("se-copy-enemies"));
   });
   document.getElementById("se-tuning-header").addEventListener("click", () => {
-    const body2 = document.getElementById("se-tuning-body");
-    body2.classList.toggle("collapsed");
+    const body = document.getElementById("se-tuning-body");
+    body.classList.toggle("collapsed");
     const header = document.getElementById("se-tuning-header");
-    header.innerHTML = body2.classList.contains("collapsed") ? "Enemy Properties &#x25B6;" : "Enemy Properties &#x25BC;";
+    header.innerHTML = body.classList.contains("collapsed") ? "Enemy Properties &#x25B6;" : "Enemy Properties &#x25BC;";
   });
   document.getElementById("se-preset-load").addEventListener("click", () => {
     const select = document.getElementById("se-preset-select");

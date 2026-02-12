@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Enemy Silhouette Sandbox</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #eee; font-family: system-ui, sans-serif; overflow: hidden; }
+  canvas { display: block; }
+
+  #ui {
+    position: absolute; top: 16px; left: 16px;
+    display: flex; flex-direction: column; gap: 12px;
+    pointer-events: none;
+  }
+  #ui > * { pointer-events: auto; }
+
+  .panel {
+    background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px; padding: 14px 18px;
+    backdrop-filter: blur(8px);
+  }
+
+  h1 { font-size: 16px; margin-bottom: 4px; font-weight: 600; }
+  .subtitle { font-size: 12px; opacity: 0.5; margin-bottom: 10px; }
+
+  .controls { display: flex; flex-direction: column; gap: 8px; }
+  .control-row {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .control-row label {
+    font-size: 12px; width: 100px; flex-shrink: 0;
+    opacity: 0.8;
+  }
+  .control-row input[type="range"] {
+    flex: 1; accent-color: #44cc88; height: 4px;
+  }
+  .control-row .val {
+    font-size: 11px; width: 36px; text-align: right;
+    font-family: monospace; opacity: 0.6;
+  }
+
+  .type-section { margin-top: 6px; }
+  .type-header {
+    font-size: 13px; font-weight: 600; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .type-dot {
+    width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+  }
+  .size-info {
+    font-size: 10px; opacity: 0.4; margin-left: auto; font-family: monospace;
+  }
+
+  .toggle-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .toggle-btn {
+    font-size: 11px; padding: 4px 10px; border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05);
+    color: #eee; cursor: pointer; transition: all 0.15s;
+  }
+  .toggle-btn:hover { background: rgba(255,255,255,0.12); }
+  .toggle-btn.active { background: rgba(68,204,136,0.25); border-color: #44cc88; }
+
+  #exportBtn {
+    font-size: 11px; padding: 6px 14px; border-radius: 4px;
+    border: 1px solid rgba(68,204,136,0.5); background: rgba(68,204,136,0.15);
+    color: #44cc88; cursor: pointer; transition: all 0.15s;
+    margin-top: 8px; width: 100%;
+  }
+  #exportBtn:hover { background: rgba(68,204,136,0.3); }
+  #exportBtn.copied { background: rgba(68,204,136,0.4); border-color: #44cc88; }
+
+  #hint {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; opacity: 0.35; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <div class="panel">
+    <h1>Enemy Silhouette Sandbox</h1>
+    <div class="subtitle">Same math as enemyRig.ts — sliders adjust multipliers directly</div>
+
+    <div class="toggle-row" id="viewToggles">
+      <button class="toggle-btn active" data-view="iso">Game Camera</button>
+      <button class="toggle-btn" data-view="front">Front</button>
+      <button class="toggle-btn" data-view="side">Side</button>
+      <button class="toggle-btn" data-view="free">Free Orbit</button>
+    </div>
+
+    <div class="toggle-row" id="turntableToggle">
+      <button class="toggle-btn active" data-action="turntable">Turntable</button>
+      <button class="toggle-btn" data-action="grid">Grid Overlay</button>
+    </div>
+
+    <div class="subtitle" style="margin-top:8px; margin-bottom:4px;">Focus on:</div>
+    <div class="toggle-row" id="focusToggles">
+      <button class="toggle-btn active" data-focus="all">All</button>
+    </div>
+  </div>
+
+  <div class="panel" id="sliderPanel" style="max-height: 55vh; overflow-y: auto;">
+    <!-- Sliders injected by JS -->
+  </div>
+
+  <div class="panel" style="padding: 8px 18px;">
+    <button id="exportBtn">Copy SILHOUETTES to clipboard</button>
+  </div>
+</div>
+
+<div id="hint">Drag to orbit · Scroll to zoom · Sliders = enemyRig.ts multipliers</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// GAME DATA — copied from src/config/enemies.ts and src/entities/enemyRig.ts
+// These are the SOURCE OF TRUTH values. Update here when they change.
+// ═══════════════════════════════════════════════════════════════════
+
+// From src/config/enemies.ts — the actual in-game size + color for each type
+const GAME_CONFIGS = {
+  goblin:          { radius: 0.3,  height: 0.8,  color: 0xff4466, emissive: 0xff2244 },
+  skeletonArcher:  { radius: 0.25, height: 1.0,  color: 0xaa88ff, emissive: 0x8844cc },
+  iceMortarImp:    { radius: 0.3,  height: 0.9,  color: 0x44ddff, emissive: 0xcc5500 },
+  stoneGolem:      { radius: 0.5,  height: 1.4,  color: 0xff8833, emissive: 0x2288cc },
+};
+
+// From src/entities/enemyRig.ts — multiplier-based silhouette config
+// *** THIS IS WHAT THE SLIDERS EDIT AND THE EXPORT BUTTON COPIES ***
+const SILHOUETTES = {
+  goblin: {
+    headScale: 1.2,
+    torsoW: 0.55, torsoH: 0.30, torsoD: 0.50,
+    armW: 0.28, armLen: 0.42,
+    legW: 0.30, legLen: 0.28,
+    legSpread: 0.30,
+    hipY: 0.35,
+    limbDarken: 0.15,
+    headBrighten: 0.1,
+    extras: ['snout', 'ears'],
+  },
+  skeletonArcher: {
+    headScale: 0.7,
+    torsoW: 0.38, torsoH: 0.42, torsoD: 0.30,
+    armW: 0.18, armLen: 0.38,
+    legW: 0.20, legLen: 0.45,
+    legSpread: 0.22,
+    hipY: 0.45,
+    limbDarken: 0.1,
+    headBrighten: 0.05,
+    extras: ['bow', 'ribs'],
+  },
+  iceMortarImp: {
+    headScale: 0.9,
+    torsoW: 0.55, torsoH: 0.28, torsoD: 0.50,
+    armW: 0.18, armLen: 0.20,
+    legW: 0.22, legLen: 0.20,
+    legSpread: 0.25,
+    hipY: 0.28,
+    limbDarken: 0.1,
+    headBrighten: 0.15,
+    extras: ['hat'],
+  },
+  stoneGolem: {
+    headScale: 0.5,
+    torsoW: 0.70, torsoH: 0.40, torsoD: 0.60,
+    armW: 0.38, armLen: 0.45,
+    legW: 0.38, legLen: 0.38,
+    legSpread: 0.32,
+    hipY: 0.40,
+    limbDarken: 0.1,
+    headBrighten: 0.05,
+    extras: ['shoulders'],
+  },
+};
+
+// Player uses absolute proportions (from playerRig.ts) — not multiplier-based
+const PLAYER_CONFIG = {
+  label: 'Player',
+  scale: 0.9,
+  color: 0x44cc88,
+  emissive: 0x22aa66,
+  headColor: 0x55ddaa,
+  headEmissive: 0x33bb88,
+  limbColor: 0x3ab87a,
+  // Absolute dimensions from playerRig.ts P config
+  hipY: 0.5,
+  torsoW: 0.28, torsoH: 0.32, torsoD: 0.18,
+  headRadius: 0.16,
+  shoulderOffsetX: 0.19, shoulderY: 0.22,
+  upperArmW: 0.08, upperArmH: 0.20,
+  lowerArmW: 0.07, lowerArmH: 0.18,
+  elbowY: -0.20, lowerArmY: -0.10, upperArmY: -0.12,
+  legOffsetX: 0.09,
+  thighW: 0.10, thighH: 0.24,
+  shinW: 0.08, shinH: 0.22,
+  thighY: -0.14, kneeY: -0.24, shinY: -0.12,
+};
+
+// Display metadata
+const LABELS = {
+  goblin: 'Goblin',
+  skeletonArcher: 'Skeleton Archer',
+  iceMortarImp: 'Ice Mortar Imp',
+  stoneGolem: 'Stone Golem',
+  player: 'Player',
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// COLOR UTILITIES — same as enemyRig.ts
+// ═══════════════════════════════════════════════════════════════════
+
+function darkenColor(color, amount) {
+  const r = Math.max(0, ((color >> 16) & 0xff) * (1 - amount)) | 0;
+  const g = Math.max(0, ((color >> 8) & 0xff) * (1 - amount)) | 0;
+  const b = Math.max(0, (color & 0xff) * (1 - amount)) | 0;
+  return (r << 16) | (g << 8) | b;
+}
+
+function brightenColor(color, amount) {
+  const r = Math.min(255, ((color >> 16) & 0xff) * (1 + amount)) | 0;
+  const g = Math.min(255, ((color >> 8) & 0xff) * (1 + amount)) | 0;
+  const b = Math.min(255, (color & 0xff) * (1 + amount)) | 0;
+  return (r << 16) | (g << 8) | b;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SCENE SETUP
+// ═══════════════════════════════════════════════════════════════════
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+
+const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 100);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+// Lighting
+const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+scene.add(ambient);
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(10, 15, 10);
+dirLight.castShadow = true;
+scene.add(dirLight);
+const fillLight = new THREE.DirectionalLight(0x6688cc, 0.3);
+fillLight.position.set(-8, 5, -8);
+scene.add(fillLight);
+
+// Ground plane
+const groundGeo = new THREE.PlaneGeometry(30, 30);
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x252540, roughness: 0.9 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Grid
+const gridHelper = new THREE.GridHelper(20, 20, 0x444466, 0x333355);
+gridHelper.position.y = 0.01;
+gridHelper.visible = false;
+scene.add(gridHelper);
+
+// ═══════════════════════════════════════════════════════════════════
+// BUILD ENEMY MODEL — mirrors buildEnemyModel() from enemyRig.ts exactly
+// ═══════════════════════════════════════════════════════════════════
+
+function buildEnemyFromMultipliers(typeName, sil, gameCfg) {
+  const group = new THREE.Group();
+  const r = gameCfg.radius;
+  const h = gameCfg.height;
+
+  const bodyColor = gameCfg.color;
+  const bodyEmissive = gameCfg.emissive;
+  const headColor = brightenColor(bodyColor, sil.headBrighten);
+  const headEmissive = brightenColor(bodyEmissive, sil.headBrighten);
+  const limbColor = darkenColor(bodyColor, sil.limbDarken);
+  const limbEmissive = darkenColor(bodyEmissive, sil.limbDarken);
+
+  function addMesh(geo, color, emissive, emissiveI, x, y, z) {
+    const mat = new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: emissiveI });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x || 0, y || 0, z || 0);
+    mesh.castShadow = true;
+    group.add(mesh);
+    return mesh;
+  }
+
+  // ─── Core body parts (same math as enemyRig.ts lines 148-184) ───
+
+  const hipY = h * sil.hipY;
+  const torsoW = r * 2 * sil.torsoW;
+  const torsoH = h * sil.torsoH;
+  const torsoD = r * 2 * sil.torsoD;
+  const torsoY = hipY + torsoH / 2 + r * 0.05;
+
+  // Torso
+  const torsoGeo = new THREE.BoxGeometry(torsoW, torsoH, torsoD);
+  addMesh(torsoGeo, bodyColor, bodyEmissive, 0.5, 0, torsoY, 0);
+
+  // Head
+  const headRadius = r * sil.headScale * 0.7;
+  const headY = torsoY + torsoH / 2 + headRadius * 0.8;
+  const headGeo = new THREE.SphereGeometry(headRadius, 8, 6);
+  const headMesh = addMesh(headGeo, headColor, headEmissive, 0.6, 0, headY, 0);
+
+  // Arms
+  const shoulderY = torsoY + torsoH * 0.3;
+  const armW = r * sil.armW;
+  const armLen = h * sil.armLen;
+  const armGeo = new THREE.BoxGeometry(armW, armLen, armW);
+
+  addMesh(armGeo, limbColor, limbEmissive, 0.4,
+    -(torsoW / 2 + armW / 2), shoulderY - armLen / 2, 0);
+  addMesh(armGeo, limbColor, limbEmissive, 0.4,
+    (torsoW / 2 + armW / 2), shoulderY - armLen / 2, 0);
+
+  // Legs
+  const legW = r * sil.legW;
+  const legLen = h * sil.legLen;
+  const legSpread = r * sil.legSpread;
+  const legGeo = new THREE.BoxGeometry(legW, legLen, legW);
+
+  addMesh(legGeo, limbColor, limbEmissive, 0.4,
+    -legSpread, hipY - legLen / 2, 0);
+  addMesh(legGeo, limbColor, limbEmissive, 0.4,
+    legSpread, hipY - legLen / 2, 0);
+
+  // ─── Type-specific extras (same as enemyRig.ts lines 188-239) ───
+
+  if (sil.extras.includes('snout')) {
+    const snoutGeo = new THREE.ConeGeometry(headRadius * 0.35, headRadius * 0.7, 5);
+    const snout = addMesh(snoutGeo, headColor, headEmissive, 0.5,
+      0, headY - headRadius * 0.15, -(headRadius + headRadius * 0.15));
+    snout.rotation.x = -Math.PI / 2;
+  }
+
+  if (sil.extras.includes('ears')) {
+    const earGeo = new THREE.ConeGeometry(headRadius * 0.25, headRadius * 0.7, 4);
+    const earL = addMesh(earGeo, headColor, headEmissive, 0.5,
+      -(headRadius + headRadius * 0.1), headY + headRadius * 0.3, 0);
+    earL.rotation.z = Math.PI / 2 + 0.4;
+    const earR = addMesh(earGeo, headColor, headEmissive, 0.5,
+      (headRadius + headRadius * 0.1), headY + headRadius * 0.3, 0);
+    earR.rotation.z = -(Math.PI / 2 + 0.4);
+  }
+
+  if (sil.extras.includes('bow')) {
+    const bowGeo = new THREE.BoxGeometry(armW * 0.4, h * 0.35, armW * 0.8);
+    addMesh(bowGeo, darkenColor(bodyColor, 0.4), darkenColor(bodyEmissive, 0.4), 0.3,
+      -(torsoW / 2 + armW * 1.5), shoulderY - armLen * 0.4, -r * 0.4);
+  }
+
+  if (sil.extras.includes('ribs')) {
+    const ribColor = brightenColor(bodyColor, 0.15);
+    const ribEmissive2 = brightenColor(bodyEmissive, 0.1);
+    for (let i = 0; i < 3; i++) {
+      const ribGeo = new THREE.BoxGeometry(torsoW * 1.15, h * 0.012, torsoD * 0.6);
+      const ribY2 = torsoY + torsoH * (0.25 - i * 0.25);
+      addMesh(ribGeo, ribColor, ribEmissive2, 0.3, 0, ribY2, 0);
+    }
+  }
+
+  if (sil.extras.includes('hat')) {
+    const hatGeo = new THREE.ConeGeometry(headRadius * 0.9, h * 0.28, 6);
+    const hat = addMesh(hatGeo, darkenColor(bodyColor, 0.25), darkenColor(bodyEmissive, 0.25), 0.4,
+      0, headY + headRadius * 0.6 + h * 0.1, 0);
+    hat.rotation.z = 0.15;
+  }
+
+  if (sil.extras.includes('shoulders')) {
+    const shW = torsoW * 0.4;
+    const shH = torsoH * 0.25;
+    const shGeo = new THREE.BoxGeometry(shW, shH, shW);
+    addMesh(shGeo, darkenColor(bodyColor, 0.1), darkenColor(bodyEmissive, 0.1), 0.35,
+      -(torsoW / 2 + shW * 0.1), shoulderY + shH * 0.5, 0);
+    addMesh(shGeo, darkenColor(bodyColor, 0.1), darkenColor(bodyEmissive, 0.1), 0.35,
+      (torsoW / 2 + shW * 0.1), shoulderY + shH * 0.5, 0);
+  }
+
+  // Label
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'white';
+  ctx.font = 'bold 28px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText(LABELS[typeName], 128, 40);
+  const tex = new THREE.CanvasTexture(canvas);
+  const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.7 });
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.position.y = headY + headRadius + 0.4;
+  sprite.scale.set(1.5, 0.4, 1);
+  group.add(sprite);
+
+  return { group };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BUILD PLAYER MODEL — uses absolute values from playerRig.ts
+// ═══════════════════════════════════════════════════════════════════
+
+function buildPlayerModel() {
+  const group = new THREE.Group();
+  const P = PLAYER_CONFIG;
+  const s = P.scale;
+
+  const matBody = new THREE.MeshStandardMaterial({ color: P.color, emissive: P.emissive, emissiveIntensity: 0.4 });
+  const matHead = new THREE.MeshStandardMaterial({ color: P.headColor, emissive: P.headEmissive, emissiveIntensity: 0.5 });
+  const matLimb = new THREE.MeshStandardMaterial({ color: P.limbColor, emissive: P.emissive, emissiveIntensity: 0.35 });
+
+  function addMesh(geo, mat, x, y, z) {
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x || 0, y || 0, z || 0);
+    mesh.castShadow = true;
+    group.add(mesh);
+    return mesh;
+  }
+
+  // Hip
+  const hipY = P.hipY * s;
+
+  // Torso
+  const torsoGeo = new THREE.BoxGeometry(P.torsoW * s, P.torsoH * s, P.torsoD * s);
+  addMesh(torsoGeo, matBody, 0, hipY + P.torsoH * s / 2 + 0.05 * s, 0);
+
+  // Head
+  const headGeo = new THREE.SphereGeometry(P.headRadius * s, 8, 6);
+  const headY = hipY + P.torsoH * s + P.headRadius * s * 0.5 + 0.05 * s;
+  addMesh(headGeo, matHead, 0, headY, 0);
+
+  // Arms (simplified — single boxes like enemies, not jointed)
+  const armGeo = new THREE.BoxGeometry(P.upperArmW * s, (P.upperArmH + P.lowerArmH) * s * 0.8, P.upperArmW * s);
+  const shoulderY2 = hipY + P.torsoH * s * 0.7 + 0.05 * s;
+  addMesh(armGeo, matLimb, -(P.shoulderOffsetX + P.upperArmW / 2) * s, shoulderY2 - (P.upperArmH + P.lowerArmH) * s * 0.4, 0);
+  addMesh(armGeo, matLimb, (P.shoulderOffsetX + P.upperArmW / 2) * s, shoulderY2 - (P.upperArmH + P.lowerArmH) * s * 0.4, 0);
+
+  // Legs (simplified — single boxes)
+  const legGeo = new THREE.BoxGeometry(P.thighW * s, (P.thighH + P.shinH) * s * 0.8, P.thighW * s);
+  addMesh(legGeo, matLimb, -P.legOffsetX * s, hipY - (P.thighH + P.shinH) * s * 0.4, 0);
+  addMesh(legGeo, matLimb, P.legOffsetX * s, hipY - (P.thighH + P.shinH) * s * 0.4, 0);
+
+  // Label
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'white';
+  ctx.font = 'bold 28px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('Player', 128, 40);
+  const tex = new THREE.CanvasTexture(canvas);
+  const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.7 });
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.position.y = headY + P.headRadius * s + 0.4;
+  sprite.scale.set(1.5, 0.4, 1);
+  group.add(sprite);
+
+  return { group };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PLACE MODELS
+// ═══════════════════════════════════════════════════════════════════
+
+const models = {};
+const spacing = 3.0;
+const keys = ['goblin', 'skeletonArcher', 'player', 'iceMortarImp', 'stoneGolem'];
+const enemyKeys = ['goblin', 'skeletonArcher', 'iceMortarImp', 'stoneGolem'];
+const turntable = new THREE.Group();
+scene.add(turntable);
+
+function buildModelForKey(key) {
+  if (key === 'player') {
+    return buildPlayerModel();
+  }
+  return buildEnemyFromMultipliers(key, SILHOUETTES[key], GAME_CONFIGS[key]);
+}
+
+let xOffset = -(keys.length - 1) * spacing / 2;
+keys.forEach(key => {
+  const model = buildModelForKey(key);
+  model.group.position.x = xOffset;
+  turntable.add(model.group);
+  models[key] = model;
+  xOffset += spacing;
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// FOCUS SYSTEM
+// ═══════════════════════════════════════════════════════════════════
+
+let focusedKey = null;
+
+const focusContainer = document.getElementById('focusToggles');
+keys.forEach(key => {
+  const btn = document.createElement('button');
+  btn.className = 'toggle-btn';
+  btn.dataset.focus = key;
+  btn.textContent = LABELS[key];
+  focusContainer.appendChild(btn);
+});
+
+function setFocus(key) {
+  focusedKey = key;
+
+  keys.forEach(k => {
+    models[k].group.visible = (key === null || key === k);
+  });
+
+  if (key !== null) {
+    turntable.rotation.y = 0;
+    const gcfg = GAME_CONFIGS[key];
+    const modelHeight = gcfg ? gcfg.height * 0.5 : 0.5;
+    orbitTarget.set(models[key].group.position.x, modelHeight, 0);
+    orbitDist = Math.max(2.5, (gcfg ? gcfg.height : 1) * 2.5);
+    orbitAngle.theta = 0.78;
+    orbitAngle.phi = 0.5;
+    orbitEnabled = true;
+    currentView = 'focus';
+  } else {
+    orbitTarget.set(0, 0.8, 0);
+    orbitEnabled = false;
+    setView('iso');
+  }
+
+  document.querySelectorAll('#focusToggles .toggle-btn').forEach(btn => {
+    btn.classList.toggle('active',
+      (key === null && btn.dataset.focus === 'all') ||
+      btn.dataset.focus === key
+    );
+  });
+
+  if (key !== null) {
+    document.querySelectorAll('#viewToggles .toggle-btn').forEach(btn => {
+      btn.classList.remove('active');
+    });
+  }
+
+  updateSliderVisibility();
+}
+
+function updateSliderVisibility() {
+  const sections = sliderPanel.querySelectorAll('.type-section');
+  sections.forEach(section => {
+    const sectionKey = section.dataset.key;
+    section.style.display = (focusedKey === null || focusedKey === sectionKey) ? '' : 'none';
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CAMERA PRESETS
+// ═══════════════════════════════════════════════════════════════════
+
+let currentView = 'iso';
+let orbitEnabled = false;
+const orbitTarget = new THREE.Vector3(0, 0.8, 0);
+
+const VIEWS = {
+  iso:   { pos: [12, 12, 12], target: [0, 0.8, 0] },
+  front: { pos: [0, 1.5, 10], target: [0, 0.8, 0] },
+  side:  { pos: [10, 1.5, 0], target: [0, 0.8, 0] },
+  free:  { pos: [6, 4, 8],    target: [0, 0.8, 0] },
+};
+
+function setView(name) {
+  const v = VIEWS[name];
+  currentView = name;
+  camera.position.set(...v.pos);
+  camera.lookAt(new THREE.Vector3(...v.target));
+  orbitEnabled = (name === 'free');
+  orbitTarget.set(...v.target);
+  if (name === 'free') {
+    orbitDist = 14;
+    orbitAngle.theta = 0.78;
+    orbitAngle.phi = 0.6;
+  }
+  document.querySelectorAll('#viewToggles .toggle-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.view === name);
+  });
+}
+setView('iso');
+
+// ═══════════════════════════════════════════════════════════════════
+// ORBIT CONTROLS
+// ═══════════════════════════════════════════════════════════════════
+
+let isDragging = false;
+let prevMouse = { x: 0, y: 0 };
+let orbitAngle = { theta: 0.78, phi: 0.6 };
+let orbitDist = 14;
+
+renderer.domElement.addEventListener('mousedown', e => {
+  if (!orbitEnabled) return;
+  isDragging = true;
+  prevMouse = { x: e.clientX, y: e.clientY };
+});
+window.addEventListener('mouseup', () => isDragging = false);
+window.addEventListener('mousemove', e => {
+  if (!isDragging || !orbitEnabled) return;
+  const dx = e.clientX - prevMouse.x;
+  const dy = e.clientY - prevMouse.y;
+  orbitAngle.theta -= dx * 0.005;
+  orbitAngle.phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.05, orbitAngle.phi + dy * 0.005));
+  prevMouse = { x: e.clientX, y: e.clientY };
+});
+renderer.domElement.addEventListener('wheel', e => {
+  if (!orbitEnabled) return;
+  e.preventDefault();
+  orbitDist = Math.max(1.5, Math.min(30, orbitDist + e.deltaY * 0.01));
+}, { passive: false });
+
+// ═══════════════════════════════════════════════════════════════════
+// TURNTABLE TOGGLE
+// ═══════════════════════════════════════════════════════════════════
+
+let turntableActive = true;
+
+// ═══════════════════════════════════════════════════════════════════
+// UI: VIEW BUTTONS
+// ═══════════════════════════════════════════════════════════════════
+
+document.querySelectorAll('#viewToggles .toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (focusedKey !== null) setFocus(null);
+    setView(btn.dataset.view);
+  });
+});
+
+document.querySelectorAll('#turntableToggle .toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.action === 'turntable') {
+      turntableActive = !turntableActive;
+      btn.classList.toggle('active', turntableActive);
+    } else if (btn.dataset.action === 'grid') {
+      gridHelper.visible = !gridHelper.visible;
+      btn.classList.toggle('active', gridHelper.visible);
+    }
+  });
+});
+
+// Focus button handlers
+document.querySelectorAll('#focusToggles .toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const key = btn.dataset.focus;
+    if (key === 'all') {
+      setFocus(null);
+    } else {
+      setFocus(focusedKey === key ? null : key);
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// UI: SLIDERS — edit SILHOUETTES multipliers directly
+// ═══════════════════════════════════════════════════════════════════
+
+const sliderPanel = document.getElementById('sliderPanel');
+
+// Slider definitions: key maps to SILHOUETTES property, ranges tuned for multipliers
+const SLIDER_DEFS = [
+  { key: 'headScale',  label: 'Head Scale',    min: 0.2,  max: 2.0,  step: 0.05 },
+  { key: 'torsoW',     label: 'Torso Width',   min: 0.15, max: 1.0,  step: 0.02 },
+  { key: 'torsoH',     label: 'Torso Height',  min: 0.10, max: 0.80, step: 0.02 },
+  { key: 'torsoD',     label: 'Torso Depth',   min: 0.15, max: 1.0,  step: 0.02 },
+  { key: 'armW',       label: 'Arm Width',     min: 0.05, max: 0.60, step: 0.02 },
+  { key: 'armLen',     label: 'Arm Length',     min: 0.10, max: 0.70, step: 0.02 },
+  { key: 'legW',       label: 'Leg Width',     min: 0.05, max: 0.60, step: 0.02 },
+  { key: 'legLen',     label: 'Leg Length',     min: 0.10, max: 0.70, step: 0.02 },
+  { key: 'legSpread',  label: 'Leg Spread',    min: 0.05, max: 0.60, step: 0.02 },
+  { key: 'hipY',       label: 'Hip Height',    min: 0.15, max: 0.65, step: 0.02 },
+];
+
+function createSliders() {
+  sliderPanel.innerHTML = '';
+
+  enemyKeys.forEach(key => {
+    const sil = SILHOUETTES[key];
+    const gcfg = GAME_CONFIGS[key];
+    const section = document.createElement('div');
+    section.className = 'type-section';
+    section.dataset.key = key;
+
+    const header = document.createElement('div');
+    header.className = 'type-header';
+    const dot = document.createElement('span');
+    dot.className = 'type-dot';
+    dot.style.background = '#' + gcfg.color.toString(16).padStart(6, '0');
+    header.appendChild(dot);
+    header.appendChild(document.createTextNode(LABELS[key]));
+
+    // Show the actual cfg.size values for reference
+    const sizeInfo = document.createElement('span');
+    sizeInfo.className = 'size-info';
+    sizeInfo.textContent = `r=${gcfg.radius} h=${gcfg.height}`;
+    header.appendChild(sizeInfo);
+
+    section.appendChild(header);
+
+    const controls = document.createElement('div');
+    controls.className = 'controls';
+
+    SLIDER_DEFS.forEach(def => {
+      const row = document.createElement('div');
+      row.className = 'control-row';
+
+      const label = document.createElement('label');
+      label.textContent = def.label;
+      row.appendChild(label);
+
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = def.min;
+      input.max = def.max;
+      input.step = def.step;
+      input.value = sil[def.key];
+      row.appendChild(input);
+
+      const val = document.createElement('span');
+      val.className = 'val';
+      val.textContent = Number(sil[def.key]).toFixed(2);
+      row.appendChild(val);
+
+      input.addEventListener('input', () => {
+        sil[def.key] = parseFloat(input.value);
+        val.textContent = Number(input.value).toFixed(2);
+        rebuildModel(key);
+      });
+
+      controls.appendChild(row);
+    });
+
+    section.appendChild(controls);
+    sliderPanel.appendChild(section);
+  });
+
+  // Player section (non-editable info, just for reference)
+  const playerSection = document.createElement('div');
+  playerSection.className = 'type-section';
+  playerSection.dataset.key = 'player';
+  const playerHeader = document.createElement('div');
+  playerHeader.className = 'type-header';
+  const playerDot = document.createElement('span');
+  playerDot.className = 'type-dot';
+  playerDot.style.background = '#44cc88';
+  playerHeader.appendChild(playerDot);
+  playerHeader.appendChild(document.createTextNode('Player (reference — edit in playerRig.ts)'));
+  playerSection.appendChild(playerHeader);
+  sliderPanel.appendChild(playerSection);
+}
+
+function rebuildModel(key) {
+  const old = models[key];
+  const posX = old.group.position.x;
+  turntable.remove(old.group);
+
+  old.group.traverse(child => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) {
+      if (child.material.map) child.material.map.dispose();
+      child.material.dispose();
+    }
+  });
+
+  const newModel = buildModelForKey(key);
+  newModel.group.position.x = posX;
+  turntable.add(newModel.group);
+  models[key] = newModel;
+}
+
+createSliders();
+updateSliderVisibility();
+
+// ═══════════════════════════════════════════════════════════════════
+// EXPORT — copy SILHOUETTES as paste-ready TypeScript
+// ═══════════════════════════════════════════════════════════════════
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  let output = 'const SILHOUETTES: Record<string, SilhouetteConfig> = {\n';
+
+  enemyKeys.forEach(key => {
+    const sil = SILHOUETTES[key];
+    output += `  ${key}: {\n`;
+    output += `    headScale: ${sil.headScale},\n`;
+    output += `    torsoW: ${sil.torsoW}, torsoH: ${sil.torsoH}, torsoD: ${sil.torsoD},\n`;
+    output += `    armW: ${sil.armW}, armLen: ${sil.armLen},\n`;
+    output += `    legW: ${sil.legW}, legLen: ${sil.legLen},\n`;
+    output += `    legSpread: ${sil.legSpread},\n`;
+    output += `    hipY: ${sil.hipY},\n`;
+    output += `    limbDarken: ${sil.limbDarken},\n`;
+    output += `    headBrighten: ${sil.headBrighten},\n`;
+    output += `    extras: [${sil.extras.map(e => `'${e}'`).join(', ')}],\n`;
+    output += `  },\n`;
+  });
+
+  output += '};\n';
+
+  navigator.clipboard.writeText(output).then(() => {
+    const btn = document.getElementById('exportBtn');
+    btn.textContent = 'Copied to clipboard!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = 'Copy SILHOUETTES to clipboard';
+      btn.classList.remove('copied');
+    }, 2000);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// ANIMATE
+// ═══════════════════════════════════════════════════════════════════
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  if (turntableActive && focusedKey === null) {
+    turntable.rotation.y += 0.003;
+  }
+
+  if (orbitEnabled) {
+    const targetWorld = orbitTarget.clone();
+    if (focusedKey !== null) {
+      targetWorld.applyMatrix4(turntable.matrixWorld);
+    }
+    camera.position.set(
+      targetWorld.x + orbitDist * Math.sin(orbitAngle.theta) * Math.cos(orbitAngle.phi),
+      targetWorld.y + orbitDist * Math.sin(orbitAngle.phi),
+      targetWorld.z + orbitDist * Math.cos(orbitAngle.theta) * Math.cos(orbitAngle.phi)
+    );
+    camera.lookAt(targetWorld);
+  }
+
+  renderer.render(scene, camera);
+}
+
+animate();
+
+// ═══════════════════════════════════════════════════════════════════
+// RESIZE
+// ═══════════════════════════════════════════════════════════════════
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+</script>
+</body>
+</html>

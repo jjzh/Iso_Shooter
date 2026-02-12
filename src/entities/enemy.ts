@@ -5,15 +5,12 @@ import { getPlayerPos, isPlayerInvincible } from './player';
 import { screenShake } from '../engine/renderer';
 import { spawnDamageNumber } from '../ui/damageNumbers';
 import { fireMortarProjectile, getIceEffects } from './mortarProjectile';
+import { buildEnemyModel, createHitReaction, triggerHitReaction, updateHitReaction } from './enemyRig';
 
 let sceneRef: any;
 
 // Shared shield geometry (created once)
 let shieldGeo: any;
-
-// Shared body/head geometry per enemy type (keyed by typeName)
-const _bodyGeoCache: Record<string, any> = {};
-const _headGeoCache: Record<string, any> = {};
 
 // Shared mortar fill circle geometry
 let _mortarFillGeoShared: any = null;
@@ -49,35 +46,10 @@ export function spawnEnemy(typeName: string, position: any, gameState: any) {
 
   const group = new THREE.Group();
 
-  // Body (shared geometry per type)
-  if (!_bodyGeoCache[typeName]) {
-    _bodyGeoCache[typeName] = new THREE.CylinderGeometry(cfg.size.radius, cfg.size.radius, cfg.size.height * 0.6, 6);
-  }
-  const bodyMesh = new THREE.Mesh(
-    _bodyGeoCache[typeName],
-    new THREE.MeshStandardMaterial({
-      color: cfg.color,
-      emissive: cfg.emissive,
-      emissiveIntensity: 0.5
-    })
-  );
-  bodyMesh.position.y = cfg.size.height * 0.3;
-  group.add(bodyMesh);
-
-  // Head (shared geometry per type)
-  if (!_headGeoCache[typeName]) {
-    _headGeoCache[typeName] = new THREE.SphereGeometry(cfg.size.radius * 0.7, 6, 4);
-  }
-  const headMesh = new THREE.Mesh(
-    _headGeoCache[typeName],
-    new THREE.MeshStandardMaterial({
-      color: cfg.color,
-      emissive: cfg.emissive,
-      emissiveIntensity: 0.6
-    })
-  );
-  headMesh.position.y = cfg.size.height * 0.75;
-  group.add(headMesh);
+  // Build distinctive silhouette from primitives
+  const model = buildEnemyModel(typeName, cfg, group);
+  const bodyMesh = model.bodyMesh;
+  const headMesh = model.headMesh;
 
   group.position.copy(position);
   sceneRef.add(group);
@@ -131,6 +103,9 @@ export function spawnEnemy(typeName: string, position: any, gameState: any) {
     leapTargetZ: 0,
     leapArcHeight: 0,
     leapCooldown: 0,           // ms until next leap allowed
+    // Hit reaction (squash/bounce)
+    hitReaction: createHitReaction(),
+    allMaterials: model.allMaterials,
   };
 
   // Initialize shield if config has one
@@ -330,6 +305,11 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
         enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
         if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
       }
+    }
+
+    // Hit reaction (squash/bounce)
+    if (enemy.hitReaction && enemy.hitReaction.active) {
+      updateHitReaction(enemy.hitReaction, enemy.mesh, dt);
     }
 
     // Slow debuff timer
