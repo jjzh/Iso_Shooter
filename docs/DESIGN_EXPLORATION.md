@@ -119,6 +119,89 @@ This connects directly to the parallel/interleaved run idea below.
 - The companion app is a separate build target (mobile)
 - Balancing the influence between modes so neither feels dominant
 
+### Exogenous Context — Practical Feasibility for Prototyping
+
+**Key insight from Jeff:** You don't need real data to prototype exogenous context. Fake it. Hard-code "it's raining" and "it's nighttime" as presets and see if the mechanical differences change decisions. If they don't, real data won't save the idea.
+
+**Tier list for prototyping:**
+- **Prototype now (zero friction):** Time, session history, player behavior across runs. Also anything you can fake with hard-coded presets.
+- **Prototype soon (one permission):** Geolocation → weather, device orientation
+- **Prototype later (backend needed):** Social graph, friends' runs
+- **Prototype someday (companion app):** Step count, walking route, ambient collection
+
+**The framing that matters for prototyping:** Does the mechanical difference between "preset A" and "preset B" create different player decisions? If yes, then making the data source real (weather API, geolocation) is just an engineering task. If no, the idea is cosmetic.
+
+### Exogenous Context Twist Candidates
+
+**A. "The Shifting Meta" — Time-Based Synergy Rotation**
+Synergy relationships between ability categories rotate on a real-world clock. Not numbers — *interactions* change. Fire+speed combo on Monday, ice+area on Tuesday. Creates a "what's strong today?" check-in loop. Risk: feels arbitrary without diegetic framing.
+
+**B. "Ghost Runs" — Past Self as Encounter Modifier**
+Previous run behavior creates ghost data (where you fought, what you used, how you died). Next run: rooms where you lingered get harder, enemies that killed you appear earlier with a tell (revenge opportunity), unexplored paths get bonus rewards. Pushes you away from comfort zones and toward the unknown. Solves content treadmill AND the Goldilocks problem. Zero-friction (LocalStorage). Can extend to social (friends' ghosts) later.
+
+**C. "Behavioral Drift" — Game Reads and Pushes Against Your Playstyle**
+Multi-run profiling of tendencies (aggressive vs. cautious, ranged vs. melee, dash frequency). Game tilts encounters to challenge your defaults. Framing matters enormously: "enemies learned to fear your dash" (cool) vs. "dash is worse now" (feels bad).
+
+**D. "Weather Runs" — Real-World Weather Modifies the Dungeon**
+Rain = flooded corridors, ice stronger, fire creates steam. Sun = open arenas, enemies aggressive. Night = stealth rooms, limited vision. Most diegetically natural version of exogenous context. Risk: players in constant-weather climates get less variety.
+
+**E. "Local Legends" — Geolocation Shapes Mythology**
+Geographic region influences enemy types, themes, mechanics. Coastal = sea themes, mountain = earth/stone. Creates identity ("I'm a coastal player"). More social/sharing than personal variety.
+
+**F. "Haunted Dungeon" — Friends' Deaths Shape Your World**
+Async multiplayer through ghost data. Friend dies → their death creates an event in your dungeon (obstacle, power-up, or powered-up enemy). Avenge friends for bonus rewards. Dark Souls bloodstains proved this works.
+
+**G. "The Companion Walk" — Ambient Collection Feeds Core Runs**
+Walking through your day collects encounters (route-based). Sit down for a session → those encounters become your dungeon rooms, in the order you choose. Two different genres (ambient collection + action roguelike) feeding each other. Biggest scope.
+
+**Composability:**
+- B + C = "the dungeon remembers you" — past self shapes dungeon AND game reads tendencies
+- A + D = weather *explains* synergy shifts — less arbitrary feeling
+- B + F = solo ghosts first, social ghosts later — same underlying system
+- D + E = "your real world is the game world" full package
+
+### Two Layers of Twist (Key Insight)
+
+**A prototype needs BOTH a gameplay twist AND a generative twist.** The generative twist alone doesn't make the game feel different to play moment-to-moment. The gameplay twist alone doesn't solve the structural/retention problems. They compose.
+
+**Gameplay twist** = what makes the moment-to-moment combat feel different from standard isometric action. This is what makes someone play for 5 minutes and say "that's interesting."
+
+**Generative twist** = what makes the run-to-run structure feel alive. This is what makes someone come back tomorrow.
+
+For prototyping, the generative twist can be faked — hard-coded presets are fine. The gameplay twist has to be real because you're evaluating *feel*.
+
+### Gameplay Twist Candidates
+
+**A. Bullet Time / Near-Miss System**
+Proximity to danger triggers a power state (time slows, you move faster). Meter-based — bullet time drains it, kills refill it. Changes combat rhythm from "dodge away, dart in, dodge away" (Hades) to "lean into danger, exploit power state, chain kills." Lots of knobs for generative context (trigger threshold, meter capacity, abilities during BT, refill rate).
+Reference: Superhot, Katana Zero, My Friend Pedro.
+
+**B. Ricochet / Geometry Combat**
+Projectiles bounce off walls. Direct hits = normal damage, ricochets = bonus damage or special effects. Room geometry becomes part of your weapon — playing billiards with bullets. Every room is a puzzle-within-combat. Generative context changes room geometry properties (ice = reflective, rain = absorptive).
+Reference: Hotline Miami, Peggle, Noita.
+
+**C. Momentum / Combo Velocity**
+Momentum meter builds as you chain actions. Higher momentum = faster movement, more damage, abilities unlock at thresholds. Taking damage or stopping resets to zero. The game is about maintaining flow state. Generative context shifts what maintains/breaks momentum.
+Reference: DMC style meter, Doom Eternal, Tony Hawk combo chains.
+
+**D. Echo / Delayed Clone**
+Actions are recorded and replayed by a ghost 3 seconds later. Always planning two time-states. Setting up crossfires with your past self. So novel that the generative layer can be simple — different echo configs (delay, count, what's copied) create radically different play.
+Reference: Braid, The Swapper, Cursor*10.
+
+**E. Absorb / Redirect**
+Instead of dodging projectiles, absorb them. Absorbed projectiles charge your abilities and change their properties — absorb fire, your next attack is fire-element. You're eating the enemy's kit and throwing it back. Every enemy is a resource, not just an obstacle. Layers onto existing effect system.
+Reference: Kirby copy abilities, Mega Man boss weapons.
+
+### Gameplay × Generative Pairing Matrix
+
+| Gameplay Twist | Best Generative Pairing | Why They Compose |
+|---------------|------------------------|-----------------|
+| Bullet Time | Ghost Runs — past deaths modify trigger thresholds and BT abilities | Previous failures shape your power state. Die to archers → BT triggers easier on projectiles. Learning conversation between runs. |
+| Ricochet | Weather-Shifted Synergies — weather changes room geometry properties | The puzzle-within-combat shifts based on something external. Today's weather = today's geometry meta. |
+| Momentum | Behavioral Drift — game profiles playstyle, shifts what maintains momentum | Always use ranged? Maintaining momentum starts requiring melee. Pushes you out of comfort zone through the system you care most about. |
+| Echo/Clone | Fake it — hard-code daily modifier variations of echo config | Mechanic is already so novel that simple config shifts create radically different play. |
+| Absorb/Redirect | Ghost Runs — enemies you died to have new projectile types = new absorption options | Death creates new tools. Enemy that killed you spawns with unique attack you've never absorbed. Worst run = most interesting toolkit. |
+
 ### The DM Layer
 
 **Core concept:** AI (LLM) as the connective tissue that interprets player context and adapts the game meaningfully. Inspired by how a D&D DM bends rules to accommodate player creativity.
@@ -147,15 +230,53 @@ This connects directly to the parallel/interleaved run idea below.
 
 6. **External context should feel like opportunity, not randomness.** "The weather made new synergies available" (opportunity) vs. "the weather nerfed my build" (punishment). Frame as additive, not subtractive.
 
+7. **A prototype needs both a gameplay twist and a generative twist.** The gameplay twist makes the game feel different moment-to-moment. The generative twist makes the structure feel alive run-to-run. Neither works alone.
+
+8. **Fake the data, test the design.** For generative twists, hard-code presets ("it's raining," "it's nighttime") and test whether the mechanical differences change decisions. If they don't change decisions with fake data, they won't change decisions with real data either. Real APIs are engineering, not design validation.
+
+9. **A good gameplay twist creates knobs for the generative system to turn.** "You have a double jump" has few knobs. "Near-miss bullet time with a meter, refill on kills" has many knobs (threshold, capacity, abilities, refill rate). Prefer twists with high generative surface area.
+
+---
+
+## Phasing Decision (Hades Prototype)
+
+### Phase 1: Genre Scaffolding — "Does the base game feel like an action roguelike?"
+Build the minimum viable action roguelike. No twist yet — just the shell.
+
+**Scope:**
+- Pure melee combat (click-to-attack, replacing auto-fire projectile). Dash remains.
+- One hand-coded room with enclosed arena geometry (reference Hades room screenshots)
+- Room clear detection → transition to second hand-coded room
+- Basic enemy encounters in each room
+- Death → restart
+
+**Decision: hand-coded rooms first, level editor later.** Start with a few rooms referencing Hades room geometry. A level editor is durable cross-prototype infrastructure (not just for Hades) and goes on main eventually, but not the first investment.
+
+**Decision: pure melee to start.** No ranged weapon. Keeps the verb set simple for evaluating feel. Ranged can come back later as a weapon variant.
+
+**"Done" looks like:** One room with melee combat that feels responsive → clear room → transition to second room. Playable in ~1 minute.
+
+### Phase 2: Gameplay Twist — "Does the twist make combat feel different?"
+Layer the chosen gameplay twist on top of the scaffolding. Strongest candidates: Bullet Time, Absorb/Redirect.
+
+**Twist choice is deferred** until Phase 1 feels right. Playing the base game will inform which twist direction is most interesting.
+
+### Phase 3: Generative Structural Twist — "Does the run-to-run structure feel alive?"
+Add the generative layer. Fake the data (hard-coded presets). Test whether the mechanical differences change decisions.
+
+**The generative twist should interact with the gameplay twist's knobs.** This is why Phase 2 has to land first — you need to know what knobs exist before you can design a system that turns them.
+
 ---
 
 ## Open Questions
 
 - Which of the "parallel run" shapes is most prototypable? The within-run genre shift seems smallest in scope.
-- How much exogenous context can a browser game actually access without being creepy or requiring complex permissions?
 - Is the companion app idea worth prototyping separately, or is it too far from the current engine?
 - Can the build convergence problem be addressed purely through exogenous context, or does the item/ability design itself need to be different?
 - What's the minimum viable version of the DM layer? Is it just a rules engine mapping external inputs to game modifiers, or does it need actual LLM inference?
+- Which gameplay twist × generative twist pairing should be the first prototype? Current strongest candidates: Bullet Time + Ghost Runs, Absorb/Redirect + Ghost Runs.
+- For the gameplay twist: does the twist need to replace the existing verb set (dash/shoot/push) or augment it?
+- What does the level editor look like? Should it live on main as shared infrastructure? What's the minimum viable version? (Deferred until after hand-coded rooms prove the concept.)
 
 ---
 
