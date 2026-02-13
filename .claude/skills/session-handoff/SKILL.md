@@ -2,13 +2,19 @@
 name: session-handoff
 description: >
   Maintains the project's HANDOFF.md as a living context bridge between
-  sessions. This skill should activate automatically — whenever Jeff is
-  working on the project and meaningful progress happens (decisions made,
-  features built, problems discovered, questions resolved), update
-  HANDOFF.md so the next session starts with full context. Also activate
-  when Jeff says "wrap up", "I'm done", "handoff", "end of session",
-  "save context", or anything suggesting he's finishing work.
-user-invocable: false
+  sessions. This skill is NOT user-invoked. Claude should activate it
+  automatically in two situations:
+
+  (1) During the session when meaningful progress happens — a design
+  decision was made, a feature was built, a bug was found or fixed,
+  tuning produced notable results, or priorities shifted. The test:
+  would the next session on a different machine need to know this?
+
+  (2) When Jeff signals the session is ending — "wrap up", "I'm done",
+  "let's stop here", "handoff", "end of session", "save context",
+  "that's it for today", "save where we are", or anything suggesting
+  he's finishing work. Do a final HANDOFF.md update before the session
+  closes.
 ---
 
 # Session Handoff

@@ -2,12 +2,26 @@
 name: working-context
 description: >
   Captures how Jeff thinks and works — not what he decided, but how he
-  decides. Activates when Claude notices calibration moments (Jeff corrects
-  a misinterpretation), framework crystallizations (Jeff articulates a
-  reusable principle), or working pattern observations (meta-observations
-  about collaboration style). Maintains living session context documents
-  in docs/ that serve as a translation layer for future Claude sessions.
-user-invocable: false
+  decides. This skill is NOT user-invoked. Claude should activate it
+  automatically when any of these happen during a session:
+
+  (1) Jeff corrects a misinterpretation — "no, that's not what I meant",
+  "the metaphor is more like...", "I meant X not Y", "that's not the
+  right direction", or any time Claude's assumption about Jeff's intent
+  was wrong.
+
+  (2) Jeff articulates a reusable principle — "the way I think about it
+  is...", "my rule of thumb is...", "the principle here is...", "I think
+  the pattern is...", or statements like "genre is scaffolding" that
+  reframe how to approach future decisions.
+
+  (3) Claude observes a working pattern — Jeff switches between
+  exploration and execution modes, gives bundled feedback, describes
+  problems in feel-terms, or shows any recurring collaboration behavior
+  worth documenting for future sessions.
+
+  Outputs to docs/SESSION_CONTEXT_*.md files. See references/ for an
+  example of what good entries look like.
 ---
 
 # Working Context
