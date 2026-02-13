@@ -1,6 +1,6 @@
 import { Obstacle, Pit, AABB } from '../types/index';
 
-export const ARENA_HALF = 20;
+export let ARENA_HALF = 20;
 
 export const OBSTACLES: Obstacle[] = [
   { x: 5, z: 9, w: 2, h: 1.5, d: 3 },
@@ -23,6 +23,14 @@ export const PITS: Pit[] = [
   { x: -0.5, z: -7, w: 8.5, d: 2.5 },
   { x: 8, z: 0, w: 3, d: 9 },
 ];
+
+export function setArenaConfig(obstacles: Obstacle[], pits: Pit[], arenaHalf: number) {
+  OBSTACLES.length = 0;
+  obstacles.forEach(o => OBSTACLES.push(o));
+  PITS.length = 0;
+  pits.forEach(p => PITS.push(p));
+  ARENA_HALF = arenaHalf;
+}
 
 export function getPitBounds(): AABB[] {
   return PITS.map(p => ({

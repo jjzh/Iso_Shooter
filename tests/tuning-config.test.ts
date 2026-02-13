@@ -7,6 +7,7 @@ import { PLAYER } from '../src/config/player';
 import { ABILITIES } from '../src/config/abilities';
 import { C as ANIM } from '../src/entities/playerAnimator';
 import { AUDIO_CONFIG } from '../src/engine/audio';
+import { PHYSICS } from '../src/config/physics';
 
 // ─── Mirrored slider definitions from tuning.ts ───
 // We duplicate the key/config pairs here so the test validates the contract
@@ -41,7 +42,7 @@ const SLIDER_CHECKS: SliderCheck[] = [
   { section: 'Dash', label: 'Shake',        config: ABILITIES.dash, key: 'screenShakeOnStart',   min: 0,    max: 8 },
 
   // Force Push
-  { section: 'Force Push', label: 'Cooldown',      config: ABILITIES.ultimate, key: 'cooldown',          min: 1000, max: 15000 },
+  { section: 'Force Push', label: 'Cooldown',      config: ABILITIES.ultimate, key: 'cooldown',          min: 100, max: 15000 },
   { section: 'Force Push', label: 'Charge Time',   config: ABILITIES.ultimate, key: 'chargeTimeMs',      min: 200,  max: 5000 },
   { section: 'Force Push', label: 'Min Length',     config: ABILITIES.ultimate, key: 'minLength',         min: 1,    max: 8 },
   { section: 'Force Push', label: 'Max Length',     config: ABILITIES.ultimate, key: 'maxLength',         min: 4,    max: 25 },
@@ -83,6 +84,20 @@ const SLIDER_CHECKS: SliderCheck[] = [
   { section: 'Animation — Blends', label: 'Idle to Run',   config: ANIM, key: 'idleToRunBlend',      min: 20, max: 300 },
   { section: 'Animation — Blends', label: 'Run to Idle',   config: ANIM, key: 'runToIdleBlend',      min: 20, max: 300 },
   { section: 'Animation — Blends', label: 'End Lag Blend', config: ANIM, key: 'endLagToNormalBlend', min: 20, max: 300 },
+
+  // Physics
+  { section: 'Physics', label: 'Friction',       config: PHYSICS, key: 'friction',         min: 2,  max: 30 },
+  { section: 'Physics', label: 'Push Instant %', config: PHYSICS, key: 'pushInstantRatio', min: 0,  max: 1 },
+  { section: 'Physics', label: 'Wave Block Rad', config: PHYSICS, key: 'pushWaveBlockRadius', min: 0,  max: 2 },
+  { section: 'Physics', label: 'Slam Min Speed', config: PHYSICS, key: 'wallSlamMinSpeed', min: 0,  max: 10 },
+  { section: 'Physics', label: 'Slam Damage',    config: PHYSICS, key: 'wallSlamDamage',   min: 1,  max: 20 },
+  { section: 'Physics', label: 'Slam Stun',      config: PHYSICS, key: 'wallSlamStun',     min: 0,  max: 1000 },
+  { section: 'Physics', label: 'Slam Bounce',    config: PHYSICS, key: 'wallSlamBounce',   min: 0,  max: 1 },
+  { section: 'Physics', label: 'Slam Shake',     config: PHYSICS, key: 'wallSlamShake',    min: 0,  max: 8 },
+  { section: 'Physics', label: 'Enemy Bounce',   config: PHYSICS, key: 'enemyBounce',      min: 0,  max: 1 },
+  { section: 'Physics', label: 'Impact Min Spd', config: PHYSICS, key: 'impactMinSpeed',   min: 0,  max: 10 },
+  { section: 'Physics', label: 'Impact Damage',  config: PHYSICS, key: 'impactDamage',     min: 1,  max: 20 },
+  { section: 'Physics', label: 'Impact Stun',    config: PHYSICS, key: 'impactStun',       min: 0,  max: 1000 },
 
   // Audio
   { section: 'Audio', label: 'Master Vol',  config: AUDIO_CONFIG, key: 'masterVolume',      min: 0, max: 1 },

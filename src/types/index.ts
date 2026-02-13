@@ -167,6 +167,7 @@ export interface Enemy extends Entity {
   mortarTarget: { x: number; z: number };
   mortarArcLine: any;
   mortarGroundCircle: any;
+  vel: { x: number; z: number };  // knockback velocity (physics system)
   wasDeflected: boolean;
   fellInPit: boolean;
   isLeaping: boolean;
@@ -203,6 +204,7 @@ export interface EnemyConfig {
   attackRange: number;
   attackRate: number;
   knockbackResist: number;
+  mass?: number;            // physics mass (default 1.0) — heavier enemies resist momentum transfer
   behavior: string;
   size: SizeConfig;
   drops: DropsConfig;
@@ -268,6 +270,15 @@ export interface EnemyConfig {
     ringDuration: number;
     stunDuration: number;
     telegraphDuration: number;
+  };
+  melee?: {
+    telegraphDuration: number;
+    attackDuration: number;
+    recoveryDuration: number;
+    lungeDistance?: number;
+    damage: number;
+    hitArc: number;
+    hitRange: number;
   };
   pitLeap?: {
     edgeTimeRequired: number;
@@ -465,6 +476,7 @@ export interface InputState {
   aimWorldPos: Vector3;
   mouseNDC: { x: number; y: number };
   dash: boolean;
+  attack: boolean;
   ultimate: boolean;
   ultimateHeld: boolean;
   toggleEditor: boolean;

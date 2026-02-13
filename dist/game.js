@@ -23,6 +23,13 @@ var PITS = [
   { x: -0.5, z: -7, w: 8.5, d: 2.5 },
   { x: 8, z: 0, w: 3, d: 9 }
 ];
+function setArenaConfig(obstacles, pits, arenaHalf) {
+  OBSTACLES.length = 0;
+  obstacles.forEach((o) => OBSTACLES.push(o));
+  PITS.length = 0;
+  pits.forEach((p) => PITS.push(p));
+  ARENA_HALF = arenaHalf;
+}
 function getPitBounds() {
   return PITS.map((p) => ({
     minX: p.x - p.w / 2,
@@ -300,6 +307,25 @@ var PLAYER = {
   projectile: { speed: 16, damage: 10, color: 4521864, size: 0.2 },
   size: { radius: 0.35, height: 1.2 }
 };
+var MELEE = {
+  damage: 10,
+  range: 2.2,
+  // how far the swing reaches from player center
+  arc: 2.4,
+  // radians (~137°) — generous cone
+  cooldown: 380,
+  // ms between swings
+  knockback: 1.5,
+  // units pushed on hit
+  autoTargetRange: 3,
+  // radius to search for snap-targeting
+  autoTargetArc: 2.8,
+  // radians (~160°) — wide search for auto-target
+  screenShake: 1.5,
+  // shake intensity on hit
+  hitPause: 40
+  // ms of freeze-frame on hit (juice)
+};
 
 // src/config/abilities.ts
 var ABILITIES = {
@@ -327,148 +353,19 @@ var ABILITIES = {
   ultimate: {
     name: "Force Push",
     key: "E",
-    cooldown: 5e3,
+    cooldown: 500,
     chargeTimeMs: 1500,
     minLength: 3,
     maxLength: 12,
     width: 3,
-    minKnockback: 1.5,
-    maxKnockback: 5,
+    minKnockback: 4,
+    maxKnockback: 12,
     color: 4521898,
     telegraphOpacity: 0.3,
     chargeMoveSpeedMult: 0.4,
     description: "Charge a directional push \u2014 hold to extend range"
   }
 };
-
-// src/engine/pools.ts
-var ObjectPool = class {
-  constructor(createFn, initialSize = 50) {
-    this.pool = [];
-    this.active = [];
-    this.createFn = createFn;
-    for (let i = 0; i < initialSize; i++) {
-      const obj = createFn();
-      obj.mesh.visible = false;
-      this.pool.push(obj);
-    }
-  }
-  acquire() {
-    let obj = this.pool.pop();
-    if (!obj) {
-      obj = this.createFn();
-    }
-    obj.mesh.visible = true;
-    this.active.push(obj);
-    return obj;
-  }
-  release(obj) {
-    obj.mesh.visible = false;
-    const idx = this.active.indexOf(obj);
-    if (idx !== -1) {
-      const last = this.active.length - 1;
-      if (idx !== last) this.active[idx] = this.active[last];
-      this.active.length = last;
-    }
-    this.pool.push(obj);
-  }
-  releaseAll() {
-    for (let i = this.active.length - 1; i >= 0; i--) {
-      const obj = this.active[i];
-      obj.mesh.visible = false;
-      this.pool.push(obj);
-    }
-    this.active.length = 0;
-  }
-  getActive() {
-    return this.active;
-  }
-};
-
-// src/entities/projectile.ts
-var playerPool;
-var enemyPool;
-var sceneRef;
-var basePlayerProjSize;
-function initProjectilePool(scene2) {
-  sceneRef = scene2;
-  basePlayerProjSize = PLAYER.projectile.size;
-  const playerProjGeo = new THREE.SphereGeometry(basePlayerProjSize, 6, 4);
-  const playerProjMat = new THREE.MeshStandardMaterial({
-    color: PLAYER.projectile.color,
-    emissive: PLAYER.projectile.color,
-    emissiveIntensity: 0.8
-  });
-  playerPool = new ObjectPool(() => {
-    const mesh = new THREE.Mesh(playerProjGeo, playerProjMat.clone());
-    scene2.add(mesh);
-    return { mesh, dir: new THREE.Vector3(), speed: 0, damage: 0, life: 0, isEnemy: false };
-  }, 80);
-  const enemyProjGeo = new THREE.SphereGeometry(0.1, 6, 4);
-  enemyPool = new ObjectPool(() => {
-    const mesh = new THREE.Mesh(
-      enemyProjGeo,
-      new THREE.MeshStandardMaterial({
-        color: 16729190,
-        emissive: 16720452,
-        emissiveIntensity: 0.8
-      })
-    );
-    scene2.add(mesh);
-    return { mesh, dir: new THREE.Vector3(), speed: 0, damage: 0, life: 0, isEnemy: true };
-  }, 40);
-}
-function fireProjectile(origin, direction, config, isEnemy) {
-  if (isEnemy === void 0) isEnemy = false;
-  const pool3 = isEnemy ? enemyPool : playerPool;
-  const p = pool3.acquire();
-  p.mesh.position.set(origin.x, 0.8, origin.z);
-  p.dir.copy(direction).normalize();
-  p.speed = config.speed;
-  p.damage = config.damage;
-  p.life = 0;
-  if (!isEnemy && basePlayerProjSize) {
-    const s = PLAYER.projectile.size / basePlayerProjSize;
-    p.mesh.scale.set(s, s, s);
-  }
-  if (isEnemy && config.color) {
-    p.mesh.material.color.setHex(config.color);
-    p.mesh.material.emissive.setHex(config.color);
-  }
-  return p;
-}
-function updateProjectiles(dt) {
-  const maxLife = 2;
-  for (const pool3 of [playerPool, enemyPool]) {
-    const active2 = pool3.getActive();
-    for (let i = active2.length - 1; i >= 0; i--) {
-      const p = active2[i];
-      p.mesh.position.x += p.dir.x * p.speed * dt;
-      p.mesh.position.z += p.dir.z * p.speed * dt;
-      p.life += dt;
-      if (p.life > maxLife) {
-        pool3.release(p);
-      }
-    }
-  }
-}
-function getPlayerProjectiles() {
-  return playerPool ? playerPool.getActive() : [];
-}
-function getEnemyProjectiles() {
-  return enemyPool ? enemyPool.getActive() : [];
-}
-function releaseProjectile(p) {
-  if (p.isEnemy) {
-    enemyPool.release(p);
-  } else {
-    playerPool.release(p);
-  }
-}
-function releaseAllProjectiles() {
-  if (playerPool) playerPool.releaseAll();
-  if (enemyPool) enemyPool.releaseAll();
-}
 
 // src/ui/damageNumbers.ts
 var canvas;
@@ -560,16 +457,15 @@ function clearDamageNumbers() {
 }
 
 // src/engine/aoeTelegraph.ts
-var sceneRef2;
+var sceneRef;
 var activeTelegraphs = [];
 var pendingEffects = [];
 var ringGeo;
-var planeGeo;
 function easeOutQuad(t) {
   return t * (2 - t);
 }
 function initAoeTelegraph(scene2) {
-  sceneRef2 = scene2;
+  sceneRef = scene2;
 }
 function createAoeRing(x, z, maxRadius, durationMs, color) {
   if (!ringGeo) {
@@ -586,62 +482,13 @@ function createAoeRing(x, z, maxRadius, durationMs, color) {
   const mesh = new THREE.Mesh(ringGeo, mat);
   mesh.position.set(x, 0.05, z);
   mesh.scale.set(0.01, 0.01, 0.01);
-  sceneRef2.add(mesh);
+  sceneRef.add(mesh);
   const telegraph = {
     type: "ring",
     mesh,
     material: mat,
     center: { x, z },
     maxRadius,
-    duration: durationMs,
-    elapsed: 0,
-    color
-  };
-  activeTelegraphs.push(telegraph);
-  return telegraph;
-}
-function createAoeRect(x, z, width, height, rotation, durationMs, color) {
-  if (!planeGeo) {
-    planeGeo = new THREE.PlaneGeometry(1, 1);
-    planeGeo.rotateX(-Math.PI / 2);
-  }
-  const group = new THREE.Group();
-  group.position.set(x, 0.05, z);
-  group.rotation.y = rotation;
-  const fillMat = new THREE.MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0,
-    // ramps up over first 30%
-    side: THREE.DoubleSide,
-    depthWrite: false
-  });
-  const fillMesh = new THREE.Mesh(planeGeo, fillMat);
-  fillMesh.scale.set(width * 0.8, 1, height * 0.8);
-  group.add(fillMesh);
-  const edgeGeo = new THREE.EdgesGeometry(new THREE.PlaneGeometry(width, height));
-  edgeGeo.rotateX(-Math.PI / 2);
-  const borderMat = new THREE.LineBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0.9,
-    depthWrite: false
-  });
-  const borderMesh = new THREE.LineSegments(edgeGeo, borderMat);
-  group.add(borderMesh);
-  sceneRef2.add(group);
-  const telegraph = {
-    type: "rect",
-    mesh: group,
-    fillMesh,
-    fillMaterial: fillMat,
-    borderMesh,
-    borderMaterial: borderMat,
-    borderEdgeGeo: edgeGeo,
-    center: { x, z },
-    width,
-    height,
-    rotation,
     duration: durationMs,
     elapsed: 0,
     color
@@ -723,19 +570,16 @@ function updateRect(t, progress) {
 function removeTelegraph(t) {
   if (t.type === "ring") {
     t.material.dispose();
-    sceneRef2.remove(t.mesh);
+    sceneRef.remove(t.mesh);
   } else if (t.type === "rect") {
     t.fillMaterial.dispose();
     t.borderMaterial.dispose();
     t.borderEdgeGeo.dispose();
-    sceneRef2.remove(t.mesh);
+    sceneRef.remove(t.mesh);
   }
 }
 function schedulePendingEffect(enemy, delayMs, callback) {
   pendingEffects.push({ enemy, delay: delayMs, callback });
-}
-function scheduleCallback(delayMs, callback) {
-  pendingEffects.push({ enemy: null, delay: delayMs, callback });
 }
 function updatePendingEffects(dt) {
   const dtMs = dt * 1e3;
@@ -774,43 +618,6 @@ function applyAoeEffect({ x, z, radius, durationMs, color, label, effectFn, game
     }
   }
 }
-function applyAoeRectEffect({
-  x,
-  z,
-  width,
-  height,
-  rotation,
-  telegraphDurationMs,
-  lingerDurationMs,
-  color,
-  damage,
-  playerDamageFn,
-  enemyDamageFn,
-  gameState: gameState2,
-  excludeEnemy
-}) {
-  createAoeRect(x, z, width, height, rotation, telegraphDurationMs, color);
-  const colorStr = "#" + color.toString(16).padStart(6, "0");
-  scheduleCallback(telegraphDurationMs, () => {
-    createAoeRect(x, z, width, height, rotation, lingerDurationMs, color);
-    for (const enemy of gameState2.enemies) {
-      if (enemy === excludeEnemy) continue;
-      const enemyRadius = enemy.config && enemy.config.size ? enemy.config.size.radius : 0;
-      if (isInRotatedRect(enemy.pos.x, enemy.pos.z, x, z, width, height, rotation, enemyRadius)) {
-        if (enemyDamageFn) {
-          enemyDamageFn(enemy);
-        }
-        enemy.flashTimer = 200;
-        enemy.bodyMesh.material.emissive.setHex(color);
-        if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(color);
-        spawnDamageNumber(enemy.pos.x, enemy.pos.z, damage, colorStr);
-      }
-    }
-    if (playerDamageFn) {
-      playerDamageFn(x, z, width, height, rotation);
-    }
-  });
-}
 function clearAoeTelegraphs() {
   for (const t of activeTelegraphs) {
     removeTelegraph(t);
@@ -820,6 +627,13 @@ function clearAoeTelegraphs() {
 }
 
 // src/config/enemies.ts
+var MOB_GLOBAL = {
+  speedMult: 1,
+  damageMult: 1,
+  healthMult: 1,
+  telegraphMult: 1,
+  recoveryMult: 1
+};
 var ENEMY_TYPES = {
   goblin: {
     name: "Goblin",
@@ -830,11 +644,21 @@ var ENEMY_TYPES = {
     attackRate: 800,
     behavior: "rush",
     knockbackResist: 0,
+    mass: 1,
     color: 16729190,
     emissive: 16720452,
     size: { radius: 0.3, height: 0.8 },
     drops: { currency: { min: 1, max: 3 }, healthChance: 0.1 },
     rush: { stopDistance: 0.5 },
+    melee: {
+      telegraphDuration: 300,
+      attackDuration: 100,
+      recoveryDuration: 400,
+      lungeDistance: 0.8,
+      damage: 10,
+      hitArc: 1.5,
+      hitRange: 1.2
+    },
     pitLeap: {
       edgeTimeRequired: 1500,
       leapSpeed: 7,
@@ -851,6 +675,7 @@ var ENEMY_TYPES = {
     attackRate: 2500,
     behavior: "kite",
     knockbackResist: 0.1,
+    mass: 0.8,
     color: 11176191,
     emissive: 8930508,
     size: { radius: 0.25, height: 1 },
@@ -876,6 +701,7 @@ var ENEMY_TYPES = {
     attackRate: 3e3,
     behavior: "mortar",
     knockbackResist: 0.1,
+    mass: 0.9,
     color: 4513279,
     emissive: 13391104,
     size: { radius: 0.3, height: 0.9 },
@@ -914,6 +740,7 @@ var ENEMY_TYPES = {
     attackRate: 1200,
     behavior: "tank",
     knockbackResist: 0.6,
+    mass: 3,
     color: 16746547,
     emissive: 2263244,
     size: { radius: 0.5, height: 1.4 },
@@ -937,6 +764,14 @@ var ENEMY_TYPES = {
       emissive: 4508927,
       opacity: 0.35
     },
+    melee: {
+      telegraphDuration: 700,
+      attackDuration: 150,
+      recoveryDuration: 800,
+      damage: 30,
+      hitArc: 2,
+      hitRange: 2.5
+    },
     deathExplosion: {
       radius: 4,
       damage: 20,
@@ -947,6 +782,135 @@ var ENEMY_TYPES = {
     }
   }
 };
+
+// src/engine/pools.ts
+var ObjectPool = class {
+  constructor(createFn, initialSize = 50) {
+    this.pool = [];
+    this.active = [];
+    this.createFn = createFn;
+    for (let i = 0; i < initialSize; i++) {
+      const obj = createFn();
+      obj.mesh.visible = false;
+      this.pool.push(obj);
+    }
+  }
+  acquire() {
+    let obj = this.pool.pop();
+    if (!obj) {
+      obj = this.createFn();
+    }
+    obj.mesh.visible = true;
+    this.active.push(obj);
+    return obj;
+  }
+  release(obj) {
+    obj.mesh.visible = false;
+    const idx = this.active.indexOf(obj);
+    if (idx !== -1) {
+      const last = this.active.length - 1;
+      if (idx !== last) this.active[idx] = this.active[last];
+      this.active.length = last;
+    }
+    this.pool.push(obj);
+  }
+  releaseAll() {
+    for (let i = this.active.length - 1; i >= 0; i--) {
+      const obj = this.active[i];
+      obj.mesh.visible = false;
+      this.pool.push(obj);
+    }
+    this.active.length = 0;
+  }
+  getActive() {
+    return this.active;
+  }
+};
+
+// src/entities/projectile.ts
+var playerPool;
+var enemyPool;
+var sceneRef2;
+var basePlayerProjSize;
+function initProjectilePool(scene2) {
+  sceneRef2 = scene2;
+  basePlayerProjSize = PLAYER.projectile.size;
+  const playerProjGeo = new THREE.SphereGeometry(basePlayerProjSize, 6, 4);
+  const playerProjMat = new THREE.MeshStandardMaterial({
+    color: PLAYER.projectile.color,
+    emissive: PLAYER.projectile.color,
+    emissiveIntensity: 0.8
+  });
+  playerPool = new ObjectPool(() => {
+    const mesh = new THREE.Mesh(playerProjGeo, playerProjMat.clone());
+    scene2.add(mesh);
+    return { mesh, dir: new THREE.Vector3(), speed: 0, damage: 0, life: 0, isEnemy: false };
+  }, 80);
+  const enemyProjGeo = new THREE.SphereGeometry(0.1, 6, 4);
+  enemyPool = new ObjectPool(() => {
+    const mesh = new THREE.Mesh(
+      enemyProjGeo,
+      new THREE.MeshStandardMaterial({
+        color: 16729190,
+        emissive: 16720452,
+        emissiveIntensity: 0.8
+      })
+    );
+    scene2.add(mesh);
+    return { mesh, dir: new THREE.Vector3(), speed: 0, damage: 0, life: 0, isEnemy: true };
+  }, 40);
+}
+function fireProjectile(origin, direction, config, isEnemy) {
+  if (isEnemy === void 0) isEnemy = false;
+  const pool3 = isEnemy ? enemyPool : playerPool;
+  const p = pool3.acquire();
+  p.mesh.position.set(origin.x, 0.8, origin.z);
+  p.dir.copy(direction).normalize();
+  p.speed = config.speed;
+  p.damage = config.damage;
+  p.life = 0;
+  if (!isEnemy && basePlayerProjSize) {
+    const s = PLAYER.projectile.size / basePlayerProjSize;
+    p.mesh.scale.set(s, s, s);
+  }
+  if (isEnemy && config.color) {
+    p.mesh.material.color.setHex(config.color);
+    p.mesh.material.emissive.setHex(config.color);
+  }
+  return p;
+}
+function updateProjectiles(dt) {
+  const maxLife = 2;
+  for (const pool3 of [playerPool, enemyPool]) {
+    const active2 = pool3.getActive();
+    for (let i = active2.length - 1; i >= 0; i--) {
+      const p = active2[i];
+      p.mesh.position.x += p.dir.x * p.speed * dt;
+      p.mesh.position.z += p.dir.z * p.speed * dt;
+      p.life += dt;
+      if (p.life > maxLife) {
+        pool3.release(p);
+      }
+    }
+  }
+}
+function getPlayerProjectiles() {
+  return playerPool ? playerPool.getActive() : [];
+}
+function getEnemyProjectiles() {
+  return enemyPool ? enemyPool.getActive() : [];
+}
+function releaseProjectile(p) {
+  if (p.isEnemy) {
+    enemyPool.release(p);
+  } else {
+    playerPool.release(p);
+  }
+}
+function releaseAllProjectiles() {
+  if (playerPool) playerPool.releaseAll();
+  if (enemyPool) enemyPool.releaseAll();
+}
 
 // src/entities/enemyRig.ts
 var SILHOUETTES = {
@@ -1360,6 +1324,9 @@ function spawnEnemy(typeName, position, gameState2) {
     // THREE.Line for aim arc preview
     mortarGroundCircle: null,
     // THREE.Mesh for persistent ground circle
+    // Physics velocity (knockback system)
+    vel: { x: 0, z: 0 },
+    // knockback velocity — integrated by applyVelocities()
     // Pit / edge-slide
     wasDeflected: false,
     // true when movement was deflected by collision (edge-sliding)
@@ -1381,6 +1348,11 @@ function spawnEnemy(typeName, position, gameState2) {
     leapArcHeight: 0,
     leapCooldown: 0,
     // ms until next leap allowed
+    // Melee attack state machine (for enemies with config.melee)
+    meleePhase: "idle",
+    meleeTimer: 0,
+    meleeHasHit: false,
+    // prevent double-hit per attack cycle
     // Hit reaction (squash/bounce)
     hitReaction: createHitReaction(),
     allMaterials: model.allMaterials
@@ -1425,49 +1397,6 @@ function pitAwareDir(x, z, dx, dz, lookahead) {
   }
   return { dx: 0, dz: 0 };
 }
-function raycastTerrainDist(ox, oz, dx, dz, maxDist) {
-  if (!_collisionBounds) _collisionBounds = getCollisionBounds();
-  let closest = maxDist;
-  for (const box of _collisionBounds) {
-    let tmin, tmax;
-    if (Math.abs(dx) < 1e-8) {
-      if (ox < box.minX || ox > box.maxX) continue;
-      tmin = -Infinity;
-      tmax = Infinity;
-    } else {
-      const invDx = 1 / dx;
-      let t1 = (box.minX - ox) * invDx;
-      let t2 = (box.maxX - ox) * invDx;
-      if (t1 > t2) {
-        const tmp = t1;
-        t1 = t2;
-        t2 = tmp;
-      }
-      tmin = t1;
-      tmax = t2;
-    }
-    if (Math.abs(dz) < 1e-8) {
-      if (oz < box.minZ || oz > box.maxZ) continue;
-    } else {
-      const invDz = 1 / dz;
-      let t1 = (box.minZ - oz) * invDz;
-      let t2 = (box.maxZ - oz) * invDz;
-      if (t1 > t2) {
-        const tmp = t1;
-        t1 = t2;
-        t2 = tmp;
-      }
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-    }
-    if (tmax < 0 || tmin > tmax) continue;
-    const t = tmin > 0 ? tmin : tmax;
-    if (t > 0 && t < closest) {
-      closest = t;
-    }
-  }
-  return closest;
-}
 function updateEnemies(dt, playerPos2, gameState2) {
   for (let i = gameState2.enemies.length - 1; i >= 0; i--) {
     const enemy = gameState2.enemies[i];
@@ -1478,13 +1407,13 @@ function updateEnemies(dt, playerPos2, gameState2) {
     } else {
       switch (enemy.behavior) {
         case "rush":
-          behaviorRush(enemy, playerPos2, dt);
+          behaviorRush(enemy, playerPos2, dt, gameState2);
           break;
         case "kite":
           behaviorKite(enemy, playerPos2, dt, gameState2);
           break;
         case "tank":
-          behaviorTank(enemy, playerPos2, dt);
+          behaviorTank(enemy, playerPos2, dt, gameState2);
           break;
         case "mortar":
           behaviorMortar(enemy, playerPos2, dt, gameState2);
@@ -1600,17 +1529,115 @@ function updateEnemies(dt, playerPos2, gameState2) {
     }
   }
 }
-function behaviorRush(enemy, playerPos2, dt) {
+function startEnemyMelee(enemy) {
+  const meleeCfg = enemy.config.melee;
+  if (!meleeCfg) return;
+  const telegraphDur = meleeCfg.telegraphDuration * MOB_GLOBAL.telegraphMult;
+  enemy.meleePhase = "telegraph";
+  enemy.meleeTimer = telegraphDur;
+  enemy.meleeHasHit = false;
+  enemy.flashTimer = telegraphDur;
+  enemy.bodyMesh.material.emissive.setHex(16755200);
+  if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16755200);
+  emit({
+    type: "enemyMeleeTelegraph",
+    position: { x: enemy.pos.x, z: enemy.pos.z },
+    facingAngle: enemy.mesh.rotation.y,
+    hitArc: meleeCfg.hitArc,
+    hitRange: meleeCfg.hitRange,
+    duration: telegraphDur + meleeCfg.attackDuration
+    // visible through telegraph + attack
+  });
+}
+function updateEnemyMelee(enemy, dt, playerPos2, gameState2) {
+  const meleeCfg = enemy.config.melee;
+  if (!meleeCfg || enemy.meleePhase === "idle") return;
+  enemy.meleeTimer -= dt * 1e3;
+  if (enemy.meleePhase === "telegraph") {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.015);
+    const r = Math.floor(255 * pulse);
+    const g = Math.floor(170 * pulse);
+    enemy.bodyMesh.material.emissive.setRGB(r / 255, g / 255, 0);
+    if (enemy.headMesh) enemy.headMesh.material.emissive.setRGB(r / 255, g / 255, 0);
+    if (enemy.meleeTimer <= 0) {
+      enemy.meleePhase = "attacking";
+      enemy.meleeTimer = meleeCfg.attackDuration;
+      if (meleeCfg.lungeDistance) {
+        _toPlayer.subVectors(playerPos2, enemy.pos);
+        _toPlayer.y = 0;
+        const dist = _toPlayer.length();
+        if (dist > 0.1) {
+          _toPlayer.normalize();
+          enemy.pos.x += _toPlayer.x * meleeCfg.lungeDistance;
+          enemy.pos.z += _toPlayer.z * meleeCfg.lungeDistance;
+        }
+      }
+      enemy.bodyMesh.material.emissive.setHex(16729088);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16729088);
+    }
+  } else if (enemy.meleePhase === "attacking") {
+    if (!enemy.meleeHasHit) {
+      const dx = playerPos2.x - enemy.pos.x;
+      const dz = playerPos2.z - enemy.pos.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < meleeCfg.hitRange && !isPlayerInvincible()) {
+        const angleToPlayer = Math.atan2(-dx, -dz);
+        const facingAngle = enemy.mesh.rotation.y;
+        let angleDiff = angleToPlayer - facingAngle;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        if (Math.abs(angleDiff) <= meleeCfg.hitArc / 2) {
+          const dmg = meleeCfg.damage * MOB_GLOBAL.damageMult;
+          gameState2.playerHealth -= dmg;
+          enemy.meleeHasHit = true;
+          screenShake(3, 120);
+          emit({ type: "playerHit", damage: dmg, position: { x: playerPos2.x, z: playerPos2.z } });
+          spawnDamageNumber(playerPos2.x, playerPos2.z, Math.round(dmg), "#ff4466");
+          if (gameState2.playerHealth <= 0) {
+            gameState2.playerHealth = 0;
+            gameState2.phase = "gameOver";
+          }
+        }
+      }
+    }
+    if (enemy.meleeTimer <= 0) {
+      enemy.meleePhase = "recovery";
+      enemy.meleeTimer = meleeCfg.recoveryDuration * MOB_GLOBAL.recoveryMult;
+      enemy.bodyMesh.material.emissive.setHex(2236962);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(2236962);
+    }
+  } else if (enemy.meleePhase === "recovery") {
+    if (enemy.meleeTimer <= 0) {
+      enemy.meleePhase = "idle";
+      enemy.lastAttackTime = performance.now();
+      enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
+    }
+  }
+}
+function behaviorRush(enemy, playerPos2, dt, gameState2) {
   if (enemy.isLeaping) return;
+  if (enemy.meleePhase !== "idle") {
+    updateEnemyMelee(enemy, dt, playerPos2, gameState2);
+    return;
+  }
   _toPlayer.subVectors(playerPos2, enemy.pos);
   _toPlayer.y = 0;
   const dist = _toPlayer.length();
   const stopDist = enemy.config.rush && enemy.config.rush.stopDistance || 0.5;
+  const meleeCfg = enemy.config.melee;
+  if (meleeCfg && dist <= meleeCfg.hitRange) {
+    const now = performance.now();
+    if (now - enemy.lastAttackTime > enemy.config.attackRate) {
+      startEnemyMelee(enemy);
+      return;
+    }
+  }
   if (dist > stopDist) {
     _toPlayer.normalize();
     const slideBoost = enemy.wasDeflected ? 1.175 : 1;
     const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-    const speed = enemy.config.speed * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
+    const speed = enemy.config.speed * MOB_GLOBAL.speedMult * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
     enemy.pos.x += _toPlayer.x * speed * dt;
     enemy.pos.z += _toPlayer.z * speed * dt;
   }
@@ -1691,7 +1718,7 @@ function behaviorKite(enemy, playerPos2, dt, gameState2) {
   if (!isTelegraphing) {
     const slideBoost = enemy.wasDeflected ? 1.175 : 1;
     const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-    const speed = enemy.config.speed * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
+    const speed = enemy.config.speed * MOB_GLOBAL.speedMult * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
     if (dist < preferredRange - (kite.retreatBuffer || 1)) {
       _toPlayer.normalize();
       const retreat = pitAwareDir(enemy.pos.x, enemy.pos.z, -_toPlayer.x, -_toPlayer.z, 2.5);
@@ -1715,62 +1742,37 @@ function behaviorKite(enemy, playerPos2, dt, gameState2) {
   if (enemy.sniperPhase === "idle") {
     if (dist < enemy.config.attackRange && now - enemy.lastAttackTime > enemy.config.attackRate) {
       enemy.sniperPhase = "telegraphing";
-      enemy.sniperTimer = sniper.telegraphDuration || 800;
+      enemy.sniperTimer = (sniper.telegraphDuration || 800) * MOB_GLOBAL.telegraphMult;
       const aimAngle = Math.atan2(playerPos2.x - enemy.pos.x, playerPos2.z - enemy.pos.z);
       enemy.sniperAimAngle = aimAngle;
-      const maxShotLength = sniper.shotLength || 14;
-      const dirX = Math.sin(aimAngle);
-      const dirZ = Math.cos(aimAngle);
-      const terrainDist = raycastTerrainDist(enemy.pos.x, enemy.pos.z, dirX, dirZ, maxShotLength);
-      const shotLength = Math.min(maxShotLength, terrainDist);
-      enemy.sniperAimCenter.x = enemy.pos.x + dirX * (shotLength / 2);
-      enemy.sniperAimCenter.z = enemy.pos.z + dirZ * (shotLength / 2);
-      enemy.flashTimer = sniper.telegraphDuration || 800;
+      enemy.flashTimer = enemy.sniperTimer;
       enemy.bodyMesh.material.emissive.setHex(sniper.color || 11158783);
       if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(sniper.color || 11158783);
-      const shotWidth = sniper.shotWidth || 1.2;
-      const dmg = sniper.damage || 15;
-      const color = sniper.color || 11158783;
-      const lingerMs = sniper.lingerDuration || 200;
-      applyAoeRectEffect({
-        x: enemy.sniperAimCenter.x,
-        z: enemy.sniperAimCenter.z,
-        width: shotWidth,
-        height: shotLength,
-        rotation: aimAngle,
-        telegraphDurationMs: sniper.telegraphDuration || 800,
-        lingerDurationMs: lingerMs,
-        color,
-        damage: dmg,
-        enemyDamageFn: (e) => {
-          e.health -= dmg;
-          const slowDur = sniper.slowDuration || 1e3;
-          const slowMul = sniper.slowMult || 0.5;
-          slowEnemy(e, slowDur, slowMul);
-          spawnDamageNumber(e.pos.x, e.pos.z, "SLOWED", "#cc88ff");
-        },
-        playerDamageFn: (cx, cz, w, h, rot) => {
-          if (isPlayerInvincible()) return;
-          const pp = getPlayerPos();
-          if (isInRotatedRect(pp.x, pp.z, cx, cz, w, h, rot)) {
-            gameState2.playerHealth -= dmg;
-            screenShake(3, 100);
-            spawnDamageNumber(pp.x, pp.z, dmg, "#ff4466");
-            if (gameState2.playerHealth <= 0) {
-              gameState2.playerHealth = 0;
-              gameState2.phase = "gameOver";
-            }
-          }
-        },
-        gameState: gameState2,
-        excludeEnemy: enemy
-      });
     }
   } else if (enemy.sniperPhase === "telegraphing") {
     enemy.sniperTimer -= dt * 1e3;
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.012);
+    const c = sniper.color || 11158783;
+    const r = (c >> 16 & 255) / 255;
+    const g = (c >> 8 & 255) / 255;
+    const b = (c & 255) / 255;
+    enemy.bodyMesh.material.emissive.setRGB(r * pulse, g * pulse, b * pulse);
+    if (enemy.headMesh) enemy.headMesh.material.emissive.setRGB(r * pulse, g * pulse, b * pulse);
     if (enemy.sniperTimer <= 0) {
       enemy.sniperPhase = "idle";
       enemy.lastAttackTime = now;
+      const dirX = Math.sin(enemy.sniperAimAngle);
+      const dirZ = Math.cos(enemy.sniperAimAngle);
+      const origin = { x: enemy.pos.x, y: 0.5, z: enemy.pos.z };
+      const direction = { x: dirX, y: 0, z: dirZ };
+      const projConfig = {
+        speed: 12,
+        damage: (sniper.damage || 15) * MOB_GLOBAL.damageMult,
+        color: sniper.color || 11158783
+      };
+      fireProjectile(origin, direction, projConfig, true);
+      enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
     }
   }
 }
@@ -1785,7 +1787,7 @@ function behaviorMortar(enemy, playerPos2, dt, gameState2) {
   if (!isAiming) {
     const slideBoost = enemy.wasDeflected ? 1.175 : 1;
     const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-    const speed = enemy.config.speed * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
+    const speed = enemy.config.speed * MOB_GLOBAL.speedMult * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
     if (dist < preferredRange - (kite.retreatBuffer || 1.5)) {
       _toPlayer.normalize();
       const retreat = pitAwareDir(enemy.pos.x, enemy.pos.z, -_toPlayer.x, -_toPlayer.z, 2.5);
@@ -2087,18 +2089,23 @@ function onDeathExplosion(enemy, gameState2) {
     }
   }
 }
-function behaviorTank(enemy, playerPos2, dt) {
+function behaviorTank(enemy, playerPos2, dt, gameState2) {
   const tank = enemy.config.tank || {};
   _toPlayer.subVectors(playerPos2, enemy.pos);
   _toPlayer.y = 0;
   const dist = _toPlayer.length();
+  if (enemy.meleePhase !== "idle") {
+    updateEnemyMelee(enemy, dt, playerPos2, gameState2);
+    return;
+  }
   const slowFactor = enemy.slowTimer > 0 ? enemy.slowMult : 1;
   const slideBoost = enemy.wasDeflected ? 1.175 : 1;
   const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
+  const baseSpeed = enemy.config.speed * MOB_GLOBAL.speedMult;
   if (enemy.isCharging) {
     const speedMult = tank.chargeSpeedMult || 3;
-    enemy.pos.x += enemy.chargeDir.x * enemy.config.speed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
-    enemy.pos.z += enemy.chargeDir.z * enemy.config.speed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
+    enemy.pos.x += enemy.chargeDir.x * baseSpeed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
+    enemy.pos.z += enemy.chargeDir.z * baseSpeed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
     enemy.chargeTimer -= dt * 1e3;
     if (enemy.chargeTimer <= 0) {
       enemy.isCharging = false;
@@ -2107,10 +2114,18 @@ function behaviorTank(enemy, playerPos2, dt) {
       enemy.chargeCooldown = cdMin + Math.random() * (cdMax - cdMin);
     }
   } else {
+    const meleeCfg = enemy.config.melee;
+    if (meleeCfg && dist <= meleeCfg.hitRange) {
+      const now = performance.now();
+      if (now - enemy.lastAttackTime > enemy.config.attackRate) {
+        startEnemyMelee(enemy);
+        return;
+      }
+    }
     if (dist > 1) {
       _toPlayer.normalize();
-      enemy.pos.x += _toPlayer.x * enemy.config.speed * slowFactor * slideBoost * iceEffects.speedMult * dt;
-      enemy.pos.z += _toPlayer.z * enemy.config.speed * slowFactor * slideBoost * iceEffects.speedMult * dt;
+      enemy.pos.x += _toPlayer.x * baseSpeed * slowFactor * slideBoost * iceEffects.speedMult * dt;
+      enemy.pos.z += _toPlayer.z * baseSpeed * slowFactor * slideBoost * iceEffects.speedMult * dt;
     }
     enemy.chargeCooldown -= dt * 1e3;
     const minD = tank.chargeMinDist || 2;
@@ -2142,6 +2157,11 @@ function slowEnemy(enemy, durationMs, mult) {
 function stunEnemy(enemy, durationMs) {
   enemy.stunTimer = durationMs;
   enemy.isCharging = false;
+  if (enemy.meleePhase !== "idle") {
+    enemy.meleePhase = "idle";
+    enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
+    if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
+  }
   if (enemy.sniperPhase === "telegraphing") {
     enemy.sniperPhase = "idle";
   }
@@ -2461,7 +2481,8 @@ var COLORS = {
   torso: { color: 4508808, emissive: 2271846, emissiveIntensity: 0.4 },
   head: { color: 5627306, emissive: 3390344, emissiveIntensity: 0.5 },
   arm: { color: 3848314, emissive: 2005344, emissiveIntensity: 0.35 },
-  leg: { color: 3716469, emissive: 1873496, emissiveIntensity: 0.35 }
+  leg: { color: 3716469, emissive: 1873496, emissiveIntensity: 0.35 },
+  sword: { color: 13421789, emissive: 8947882, emissiveIntensity: 0.3 }
 };
 var _torsoGeo = null;
 var _headGeo = null;
@@ -2469,6 +2490,8 @@ var _upperArmGeo = null;
 var _lowerArmGeo = null;
 var _thighGeo = null;
 var _shinGeo = null;
+var _swordBladeGeo = null;
+var _swordGuardGeo = null;
 function ensureGeometry() {
   if (_torsoGeo) return;
   _torsoGeo = new THREE.BoxGeometry(P.torsoWidth, P.torsoHeight, P.torsoDepth);
@@ -2477,6 +2500,8 @@ function ensureGeometry() {
   _lowerArmGeo = new THREE.BoxGeometry(P.lowerArmWidth, P.lowerArmHeight, P.lowerArmDepth);
   _thighGeo = new THREE.BoxGeometry(P.thighWidth, P.thighHeight, P.thighDepth);
   _shinGeo = new THREE.BoxGeometry(P.shinWidth, P.shinHeight, P.shinDepth);
+  _swordBladeGeo = new THREE.BoxGeometry(0.06, 0.5, 0.03);
+  _swordGuardGeo = new THREE.BoxGeometry(0.18, 0.04, 0.05);
 }
 function makeMat(palette) {
   return new THREE.MeshStandardMaterial({
@@ -2532,6 +2557,11 @@ function createPlayerRig(parentGroup) {
   lowerArmR.position.y = P.elbowY;
   upperArmR.add(lowerArmR);
   addMesh(_lowerArmGeo, COLORS.arm, lowerArmR, 0, P.lowerArmY, 0);
+  const sword = new THREE.Group();
+  sword.position.set(0, -0.24, 0);
+  lowerArmR.add(sword);
+  addMesh(_swordBladeGeo, COLORS.sword, sword, 0, -0.22, 0);
+  addMesh(_swordGuardGeo, COLORS.sword, sword, 0, 0.03, 0);
   const thighL = new THREE.Group();
   thighL.position.set(-P.legOffsetX, 0, 0);
   hip.add(thighL);
@@ -2560,6 +2590,7 @@ function createPlayerRig(parentGroup) {
       shoulderR,
       upperArmR,
       lowerArmR,
+      sword,
       thighL,
       shinL,
       thighR,
@@ -2669,13 +2700,16 @@ function easeOutBack(t) {
 function easeOutQuad2(t) {
   return 1 - (1 - t) * (1 - t);
 }
+function clamp(v, min, max) {
+  return v < min ? min : v > max ? max : v;
+}
 function lerpAngle(from, to, t) {
   let diff = to - from;
   while (diff > Math.PI) diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
   return from + diff * t;
 }
-function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, isInEndLag, dashProgress) {
+function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, isInEndLag, dashProgress, isSwinging = false, swingProgress = 0) {
   anim.time += dt;
   const isMoving = Math.abs(inputState2.moveX) > 0.01 || Math.abs(inputState2.moveZ) > 0.01;
   const prevState = anim.currentState;
@@ -2688,14 +2722,19 @@ function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, is
     if (anim.currentState !== "endLag") {
       transitionTo(anim, "endLag", 0);
     }
+  } else if (isSwinging) {
+    if (anim.currentState !== "swing") {
+      transitionTo(anim, "swing", 0);
+    }
+    anim.dashT = swingProgress;
   } else if (isMoving) {
     if (anim.currentState !== "run") {
-      const blend = anim.currentState === "endLag" ? C.endLagToNormalBlend : C.idleToRunBlend;
+      const blend = anim.currentState === "endLag" || anim.currentState === "swing" ? C.endLagToNormalBlend : C.idleToRunBlend;
       transitionTo(anim, "run", blend / 1e3);
     }
   } else {
     if (anim.currentState !== "idle") {
-      const blend = anim.currentState === "endLag" ? C.endLagToNormalBlend : C.runToIdleBlend;
+      const blend = anim.currentState === "endLag" || anim.currentState === "swing" ? C.endLagToNormalBlend : C.runToIdleBlend;
       transitionTo(anim, "idle", blend / 1e3);
     }
   }
@@ -2724,6 +2763,9 @@ function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, is
       break;
     case "endLag":
       applyEndLag(joints, anim);
+      break;
+    case "swing":
+      applySwing(joints, anim);
       break;
   }
   const hipOffset = anim.moveDirSmoothed - aimAngle;
@@ -2867,6 +2909,33 @@ function applyEndLag(joints, anim) {
   joints.upperArmL.rotation.x = -0.2 * (1 - ease);
   joints.upperArmR.rotation.x = -0.2 * (1 - ease);
 }
+function applySwing(joints, anim) {
+  const t = clamp(anim.dashT, 0, 1);
+  if (t < 0.3) {
+    const subT = t / 0.3;
+    const ease = easeOutQuad2(subT);
+    joints.upperArmR.rotation.x = 0.4 * ease;
+    joints.upperArmR.rotation.z = -0.3 * ease;
+    joints.lowerArmR.rotation.x = -0.6 * ease;
+    joints.upperArmL.rotation.x = -0.2 * ease;
+    joints.lowerArmL.rotation.x = -0.3 * ease;
+    joints.torso.rotation.y = -0.25 * ease;
+    joints.rigRoot.rotation.x = 0.06 * ease;
+  } else {
+    const subT = (t - 0.3) / 0.7;
+    const ease = easeOutQuad2(subT);
+    joints.upperArmR.rotation.x = 0.4 + (-1 - 0.4) * ease;
+    joints.upperArmR.rotation.z = -0.3 + (0.5 + 0.3) * ease;
+    joints.lowerArmR.rotation.x = -0.6 + (0.6 - 0.2) * ease;
+    joints.upperArmL.rotation.x = -0.2 + (0.3 + 0.2) * ease;
+    joints.lowerArmL.rotation.x = -0.3 + (-0.2 + 0.3) * ease;
+    joints.torso.rotation.y = -0.25 + (0.45 + 0.25) * ease;
+    const leanCurve = subT < 0.5 ? easeOutQuad2(subT * 2) : 1 - easeOutQuad2((subT - 0.5) * 2);
+    joints.rigRoot.rotation.x = 0.06 + 0.08 * leanCurve;
+    joints.thighL.rotation.x = 0.2 * ease;
+    joints.thighR.rotation.x = -0.15 * ease;
+  }
+}
 
 // src/entities/player.ts
 var playerGroup;
@@ -2874,7 +2943,12 @@ var aimIndicator;
 var rig;
 var animState;
 var playerPos = new THREE.Vector3(0, 0, 0);
-var lastFireTime = 0;
+var meleeSwinging = false;
+var meleeCooldownTimer = 0;
+var meleeSwingTimer = 0;
+var MELEE_SWING_DURATION = 200;
+var meleeHitEnemies = /* @__PURE__ */ new Set();
+var meleeSwingDir = 0;
 var isDashing = false;
 var dashTimer = 0;
 var dashDuration = 0;
@@ -2892,7 +2966,6 @@ var chargeTelegraphGroup = null;
 var chargeFillMesh = null;
 var chargeBorderMesh = null;
 var chargeBorderGeo = null;
-var _fireDir = new THREE.Vector3();
 var DEFAULT_EMISSIVE = 2271846;
 var DEFAULT_EMISSIVE_INTENSITY = 0.4;
 function restoreDefaultEmissive() {
@@ -2989,18 +3062,58 @@ function updatePlayer(inputState2, dt, gameState2) {
     playerGroup.rotation.y,
     isDashing,
     endLagTimer > 0,
-    isDashing ? Math.min(dashTimer / dashDuration, 1) : 0
+    isDashing ? Math.min(dashTimer / dashDuration, 1) : 0,
+    meleeSwinging,
+    meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0
   );
-  const dashCfg = ABILITIES.dash;
-  const canShoot = (!isDashing || dashCfg.canShootDuring) && !isCharging;
-  if (canShoot && now - lastFireTime > PLAYER.fireRate) {
-    _fireDir.set(
-      -Math.sin(playerGroup.rotation.y),
-      0,
-      -Math.cos(playerGroup.rotation.y)
-    );
-    fireProjectile(playerPos, _fireDir, { speed: PLAYER.projectile.speed, damage: PLAYER.projectile.damage, color: PLAYER.projectile.color }, false);
-    lastFireTime = now;
+  if (meleeCooldownTimer > 0) {
+    meleeCooldownTimer -= dt * 1e3;
+  }
+  if (meleeSwinging) {
+    meleeSwingTimer += dt * 1e3;
+    if (meleeSwingTimer >= MELEE_SWING_DURATION) {
+      meleeSwinging = false;
+      meleeSwingTimer = 0;
+    }
+  }
+  if (inputState2.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging) {
+    const enemies = gameState2.enemies;
+    if (enemies) {
+      let bestDist = MELEE.autoTargetRange * MELEE.autoTargetRange;
+      let bestEnemy = null;
+      const aimAngle = playerGroup.rotation.y;
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e.health <= 0 || e.fellInPit) continue;
+        const dx = e.pos.x - playerPos.x;
+        const dz = e.pos.z - playerPos.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq > bestDist) continue;
+        const angleToEnemy = Math.atan2(-dx, -dz);
+        let angleDiff = angleToEnemy - aimAngle;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        if (Math.abs(angleDiff) <= MELEE.autoTargetArc / 2) {
+          bestDist = distSq;
+          bestEnemy = e;
+        }
+      }
+      if (bestEnemy) {
+        const dx = bestEnemy.pos.x - playerPos.x;
+        const dz = bestEnemy.pos.z - playerPos.z;
+        playerGroup.rotation.y = Math.atan2(-dx, -dz);
+      }
+    }
+    meleeSwinging = true;
+    meleeSwingTimer = 0;
+    meleeCooldownTimer = MELEE.cooldown;
+    meleeHitEnemies.clear();
+    meleeSwingDir = playerGroup.rotation.y;
+    emit({
+      type: "meleeSwing",
+      position: { x: playerPos.x, z: playerPos.z },
+      direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) }
+    });
   }
   updateAfterimages(dt);
 }
@@ -3147,8 +3260,8 @@ function createChargeTelegraph(cfg) {
   chargeTelegraphGroup = new THREE.Group();
   chargeTelegraphGroup.position.set(playerPos.x, 0.05, playerPos.z);
   chargeTelegraphGroup.rotation.y = chargeAimAngle;
-  const fillGeo2 = new THREE.PlaneGeometry(1, 1);
-  fillGeo2.rotateX(-Math.PI / 2);
+  const fillGeo = new THREE.PlaneGeometry(1, 1);
+  fillGeo.rotateX(-Math.PI / 2);
   const fillMat = new THREE.MeshBasicMaterial({
     color: cfg.color,
     transparent: true,
@@ -3156,7 +3269,7 @@ function createChargeTelegraph(cfg) {
     side: THREE.DoubleSide,
     depthWrite: false
   });
-  chargeFillMesh = new THREE.Mesh(fillGeo2, fillMat);
+  chargeFillMesh = new THREE.Mesh(fillGeo, fillMat);
   const halfLen = cfg.minLength / 2;
   chargeFillMesh.scale.set(cfg.width, 1, cfg.minLength);
   chargeFillMesh.position.set(0, 0, halfLen);
@@ -3253,6 +3366,15 @@ function removeChargeTelegraph() {
     chargeBorderGeo = null;
   }
 }
+function isMeleeSwinging() {
+  return meleeSwinging;
+}
+function getMeleeSwingDir() {
+  return meleeSwingDir;
+}
+function getMeleeHitEnemies() {
+  return meleeHitEnemies;
+}
 function getPlayerPos() {
   return playerPos;
 }
@@ -3274,7 +3396,10 @@ function resetPlayer() {
   isDashing = false;
   isInvincible = false;
   endLagTimer = 0;
-  lastFireTime = 0;
+  meleeSwinging = false;
+  meleeCooldownTimer = 0;
+  meleeSwingTimer = 0;
+  meleeHitEnemies.clear();
   isCharging = false;
   chargeTimer = 0;
   pushEvent = null;
@@ -3287,6 +3412,10 @@ function resetPlayer() {
   }
   afterimages.length = 0;
 }
+function setPlayerPosition(x, z) {
+  playerPos.set(x, 0, z);
+  playerGroup.position.set(x, 0, z);
+}
 
 // src/engine/input.ts
 var keys = {};
@@ -3296,6 +3425,7 @@ var inputState = {
   aimWorldPos: { x: 0, y: 0, z: 0 },
   mouseNDC: { x: 0, y: 0 },
   dash: false,
+  attack: false,
   ultimate: false,
   ultimateHeld: false,
   toggleEditor: false
@@ -3335,6 +3465,12 @@ function initInput() {
     inputState.mouseNDC.x = e.clientX / window.innerWidth * 2 - 1;
     inputState.mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
     usingGamepad = false;
+  });
+  window.addEventListener("mousedown", (e) => {
+    if (e.button === 0) {
+      inputState.attack = true;
+      usingGamepad = false;
+    }
   });
   window.addEventListener("gamepadconnected", (e) => {
     console.log(`[input] Gamepad connected: ${e.gamepad.id}`);
@@ -3494,6 +3630,7 @@ function updateInput() {
 }
 function consumeInput() {
   inputState.dash = false;
+  inputState.attack = false;
   inputState.ultimate = false;
   inputState.toggleEditor = false;
 }
@@ -3557,366 +3694,134 @@ function autoAimClosestEnemy(enemies) {
   }
 }
 
-// src/config/waves.ts
-var WAVES = [
+// src/config/rooms.ts
+var ROOMS = [
+  // ── Room 1: Small arena, introductory enemies ──
   {
-    wave: 1,
-    message: "Wave 1 \u2014 The dungeon stirs...",
-    groups: [
-      {
-        id: "w1g1",
-        triggerDelay: 0,
-        telegraphDuration: 1500,
-        stagger: 200,
-        spawns: [
-          { type: "goblin", x: 5, z: 2 },
-          { type: "goblin", x: 11, z: 0 },
-          { type: "goblin", x: 0, z: 5 },
-          { type: "iceMortarImp", x: 7, z: -11 },
-          { type: "iceMortarImp", x: -10, z: 9 }
-        ]
-      },
-      {
-        id: "w1g2",
-        triggerDelay: 0,
-        telegraphDuration: 1500,
-        stagger: 200,
-        spawns: [
-          { type: "goblin", x: -2, z: -9 },
-          { type: "goblin", x: -10, z: -3 },
-          { type: "goblin", x: -10, z: 0 }
-        ]
-      }
-    ]
+    name: "The Pit",
+    arenaHalf: 15,
+    obstacles: [
+      { x: -4, z: 4, w: 1.5, h: 2, d: 1.5 },
+      // pillar left
+      { x: 5, z: -3, w: 1.5, h: 2, d: 1.5 },
+      // pillar right
+      { x: 0, z: -8, w: 3, h: 1, d: 1 }
+      // low wall
+    ],
+    pits: [
+      { x: 7, z: 7, w: 4, d: 3 }
+      // corner pit
+    ],
+    waves: [
+      // Wave 1: 5 enemies (4 goblins + 1 archer)
+      [
+        { type: "goblin", x: 8, z: 3 },
+        { type: "goblin", x: -6, z: 5 },
+        { type: "goblin", x: 3, z: -6 },
+        { type: "goblin", x: -8, z: -4 },
+        { type: "skeletonArcher", x: -10, z: -8 }
+      ],
+      // Wave 2: 5 enemies (more goblins + archer from different side)
+      [
+        { type: "goblin", x: -8, z: 3 },
+        { type: "goblin", x: 6, z: -5 },
+        { type: "goblin", x: -3, z: 6 },
+        { type: "goblin", x: 8, z: -4 },
+        { type: "skeletonArcher", x: 10, z: 8 }
+      ]
+    ],
+    playerStart: { x: 0, z: 0 }
   },
+  // ── Room 2: Medium arena, mixed enemies ──
   {
-    wave: 2,
-    message: "Wave 2 \u2014 Watch the big ones",
-    groups: [
-      {
-        id: "w2g1",
-        triggerDelay: 0,
-        telegraphDuration: 1500,
-        stagger: 150,
-        spawns: [
-          { type: "goblin", x: 14, z: 0 },
-          { type: "stoneGolem", x: 12, z: 2 },
-          { type: "goblin", x: 12, z: -2 },
-          { type: "goblin", x: -14, z: 0 },
-          { type: "goblin", x: -12, z: 2 },
-          { type: "stoneGolem", x: -12, z: -1 },
-          { type: "goblin", x: 6, z: -7 },
-          { type: "goblin", x: -6, z: 6 }
-        ]
-      },
-      {
-        id: "w2g2",
-        triggerDelay: 3e3,
-        telegraphDuration: 2e3,
-        stagger: 400,
-        spawns: [
-          { type: "skeletonArcher", x: 12, z: 12 },
-          { type: "skeletonArcher", x: -12, z: -12 },
-          { type: "skeletonArcher", x: -12, z: 12 }
-        ]
-      }
-    ]
-  },
-  {
-    wave: 3,
-    message: "Wave 3 \u2014 Final wave?",
-    groups: [
-      {
-        id: "w3g1",
-        triggerDelay: 0,
-        telegraphDuration: 1500,
-        stagger: 100,
-        spawns: [
-          { type: "goblin", x: 15, z: 5 },
-          { type: "goblin", x: 15, z: -5 },
-          { type: "goblin", x: -15, z: 5 },
-          { type: "goblin", x: -15, z: -5 },
-          { type: "goblin", x: 5, z: 15 },
-          { type: "goblin", x: -5, z: 15 }
-        ]
-      },
-      {
-        id: "w3g2",
-        triggerDelay: 2e3,
-        telegraphDuration: 2e3,
-        stagger: 300,
-        spawns: [
-          { type: "skeletonArcher", x: 14, z: 10 },
-          { type: "skeletonArcher", x: -14, z: 10 },
-          { type: "skeletonArcher", x: 0, z: -16 },
-          { type: "skeletonArcher", x: 14, z: -10 }
-        ]
-      },
-      {
-        id: "w3g3",
-        triggerDelay: 6e3,
-        telegraphDuration: 2500,
-        stagger: 500,
-        spawns: [
-          { type: "stoneGolem", x: 0, z: 15 },
-          { type: "stoneGolem", x: -15, z: -5 },
-          { type: "stoneGolem", x: 15, z: -5 }
-        ]
-      },
-      {
-        id: "w3g4",
-        triggerDelay: 7e3,
-        telegraphDuration: 1500,
-        stagger: 200,
-        spawns: [
-          { type: "iceMortarImp", x: -13, z: 0 },
-          { type: "iceMortarImp", x: -3, z: -12 },
-          { type: "iceMortarImp", x: 12, z: 1 },
-          { type: "iceMortarImp", x: -5, z: 11 }
-        ]
-      }
-    ]
+    name: "The Gauntlet",
+    arenaHalf: 18,
+    obstacles: [
+      { x: 6, z: 6, w: 2, h: 1.5, d: 2 },
+      // pillar NE
+      { x: -6, z: 6, w: 2, h: 1.5, d: 2 },
+      // pillar NW
+      { x: 0, z: -5, w: 1.5, h: 2.5, d: 1.5 },
+      // tall pillar center-south
+      { x: 10, z: -8, w: 3, h: 1, d: 1 }
+      // low wall east
+    ],
+    pits: [
+      { x: -8, z: 0, w: 3, d: 6 },
+      // long vertical pit west
+      { x: 8, z: 4, w: 4, d: 3 },
+      // pit east
+      { x: 0, z: 12, w: 6, d: 2.5 }
+      // pit north
+    ],
+    waves: [
+      // Wave 1: 5 enemies (3 goblins + archer + golem)
+      [
+        { type: "goblin", x: 10, z: 5 },
+        { type: "goblin", x: -10, z: 8 },
+        { type: "goblin", x: 5, z: -10 },
+        { type: "skeletonArcher", x: -12, z: -10 },
+        { type: "stoneGolem", x: 0, z: 10 }
+      ],
+      // Wave 2: 5 enemies (more goblins + archer + golem from different positions)
+      [
+        { type: "goblin", x: -10, z: -5 },
+        { type: "goblin", x: 10, z: -8 },
+        { type: "goblin", x: -5, z: 10 },
+        { type: "skeletonArcher", x: 12, z: 10 },
+        { type: "stoneGolem", x: -10, z: -10 }
+      ]
+    ],
+    playerStart: { x: 0, z: -3 }
   }
 ];
 
-// src/engine/telegraph.ts
-var sceneRef5;
-var ringGeo2;
-var fillGeo;
-var typeGeos = {};
-function initTelegraph(scene2) {
-  sceneRef5 = scene2;
-  ringGeo2 = new THREE.RingGeometry(0.6, 0.8, 24);
-  ringGeo2.rotateX(-Math.PI / 2);
-  fillGeo = new THREE.CircleGeometry(0.6, 24);
-  fillGeo.rotateX(-Math.PI / 2);
-  typeGeos.goblin = new THREE.ConeGeometry(0.2, 0.4, 3);
-  typeGeos.skeletonArcher = new THREE.BoxGeometry(0.25, 0.25, 0.25);
-  typeGeos.stoneGolem = new THREE.CylinderGeometry(0.25, 0.25, 0.1, 6);
-}
-function createTelegraph(x, z, typeName) {
-  const color = ENEMY_TYPES[typeName] ? ENEMY_TYPES[typeName].color : 16777215;
-  const group = new THREE.Group();
-  group.position.set(x, 0, z);
-  const ringMat = new THREE.MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0.6,
-    side: THREE.DoubleSide,
-    depthWrite: false
-  });
-  const ring = new THREE.Mesh(ringGeo2, ringMat);
-  ring.position.y = 0.03;
-  group.add(ring);
-  const fillMat = new THREE.MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0,
-    side: THREE.DoubleSide,
-    depthWrite: false
-  });
-  const fill = new THREE.Mesh(fillGeo, fillMat);
-  fill.position.y = 0.02;
-  group.add(fill);
-  const typeGeo = typeGeos[typeName] || typeGeos.goblin;
-  const typeMat = new THREE.MeshStandardMaterial({
-    color,
-    emissive: color,
-    emissiveIntensity: 0.6,
-    transparent: true,
-    opacity: 0.8
-  });
-  const typeIndicator = new THREE.Mesh(typeGeo, typeMat);
-  typeIndicator.position.y = 1.2;
-  if (typeName === "skeletonArcher") {
-    typeIndicator.rotation.y = Math.PI / 4;
-  }
-  group.add(typeIndicator);
-  sceneRef5.add(group);
-  return {
-    group,
-    ring,
-    ringMat,
-    fill,
-    fillMat,
-    typeIndicator,
-    typeMat,
-    baseColor: color,
-    time: 0
-  };
-}
-function updateTelegraph(telegraph, progress, dt) {
-  telegraph.time += dt;
-  telegraph.fillMat.opacity = progress * 0.4;
-  const freq = 2 + progress * 8;
-  const pulse = 0.5 + 0.5 * Math.sin(telegraph.time * freq * Math.PI * 2);
-  telegraph.ringMat.opacity = 0.3 + pulse * 0.5;
-  const scale = 1 + 0.1 * Math.sin(telegraph.time * freq * Math.PI * 2);
-  telegraph.ring.scale.set(scale, 1, scale);
-  if (progress > 0.8) {
-    const flash = Math.sin(telegraph.time * 20) > 0.5;
-    telegraph.ringMat.color.setHex(flash ? 16777215 : telegraph.baseColor);
-    telegraph.fillMat.color.setHex(flash ? 16777215 : telegraph.baseColor);
-  }
-  telegraph.typeIndicator.position.y = 1.2 + 0.15 * Math.sin(telegraph.time * 2);
-  telegraph.typeIndicator.rotation.y += dt * 1.5;
-}
-function removeTelegraph2(telegraph) {
-  if (telegraph.group.parent) {
-    sceneRef5.remove(telegraph.group);
-  }
-  telegraph.ringMat.dispose();
-  telegraph.fillMat.dispose();
-  telegraph.typeMat.dispose();
-}
-
-// src/engine/waveRunner.ts
-var sceneRef6;
-var waveState = {
-  status: "idle",
-  // 'idle' | 'announce' | 'running' | 'cleared' | 'victory'
-  waveIndex: 0,
-  elapsedMs: 0,
-  // ms since wave entered 'running'
-  announceTimer: 0,
-  clearPauseTimer: 0,
-  groups: []
-  // runtime state per group
+// src/config/physics.ts
+var PHYSICS = {
+  // Knockback velocity
+  friction: 25,
+  // deceleration rate (units/s²) — higher = snappier stop
+  minVelocity: 0.1,
+  // below this speed, zero out velocity
+  pushInstantRatio: 0,
+  // fraction of knockback as instant position offset (0 = pure velocity)
+  // Wall slam
+  wallSlamMinSpeed: 3,
+  // minimum impact speed for wall damage
+  wallSlamDamage: 8,
+  // damage per unit of impact speed above threshold
+  wallSlamStun: 400,
+  // ms stun on wall slam
+  wallSlamBounce: 0.4,
+  // velocity reflection coefficient (0 = dead stop, 1 = perfect bounce)
+  wallSlamShake: 3,
+  // screen shake intensity on wall slam
+  // Force push wave occlusion
+  pushWaveBlockRadius: 0.8,
+  // lateral distance for one enemy to block another from push wave
+  // Enemy-enemy collision
+  enemyBounce: 0.4,
+  // enemy-enemy restitution coefficient
+  impactMinSpeed: 2,
+  // minimum relative speed for collision damage
+  impactDamage: 5,
+  // damage per unit of relative speed above threshold
+  impactStun: 300
+  // ms stun when hit by another enemy
 };
-var announceEl;
-function initWaveRunner(scene2) {
-  sceneRef6 = scene2;
-  initTelegraph(scene2);
-  announceEl = document.getElementById("wave-announce");
-}
-function startWave(index, gameState2) {
-  if (index >= WAVES.length) {
-    waveState.status = "victory";
-    showAnnounce("VICTORY");
-    return;
-  }
-  waveState.waveIndex = index;
-  waveState.status = "announce";
-  waveState.announceTimer = 2e3;
-  waveState.elapsedMs = 0;
-  waveState.groups = [];
-  gameState2.currentWave = WAVES[index].wave;
-  showAnnounce(WAVES[index].message);
-}
-function updateWaveRunner(dt, gameState2) {
-  const dtMs = dt * 1e3;
-  switch (waveState.status) {
-    case "idle":
-    case "victory":
-      return;
-    case "announce":
-      waveState.announceTimer -= dtMs;
-      if (waveState.announceTimer <= 0) {
-        hideAnnounce();
-        waveState.status = "running";
-        emit({ type: "waveBegan", waveIndex: waveState.waveIndex });
-        initGroupRuntimes();
-      }
-      break;
-    case "running":
-      waveState.elapsedMs += dtMs;
-      let allGroupsDone = true;
-      for (const g of waveState.groups) {
-        updateGroup(g, dt, dtMs, gameState2);
-        if (g.phase !== "done") allGroupsDone = false;
-      }
-      if (allGroupsDone && gameState2.enemies.length === 0) {
-        waveState.status = "cleared";
-        waveState.clearPauseTimer = 2e3;
-        emit({ type: "waveCleared", waveIndex: waveState.waveIndex });
-        showAnnounce("Wave cleared!");
-      }
-      break;
-    case "cleared":
-      waveState.clearPauseTimer -= dtMs;
-      if (waveState.clearPauseTimer <= 0) {
-        hideAnnounce();
-        startWave(waveState.waveIndex + 1, gameState2);
-      }
-      break;
-  }
-}
-function initGroupRuntimes() {
-  const waveCfg = WAVES[waveState.waveIndex];
-  waveState.groups = waveCfg.groups.map((groupCfg) => ({
-    config: groupCfg,
-    phase: "waiting",
-    // 'waiting' | 'telegraphing' | 'spawning' | 'done'
-    timer: 0,
-    spawnIndex: 0,
-    staggerTimer: 0,
-    telegraphs: []
-  }));
-}
-function updateGroup(g, dt, dtMs, gameState2) {
-  switch (g.phase) {
-    case "waiting":
-      if (waveState.elapsedMs >= g.config.triggerDelay) {
-        g.phase = "telegraphing";
-        g.timer = g.config.telegraphDuration;
-        for (const s of g.config.spawns) {
-          const t = createTelegraph(s.x, s.z, s.type);
-          g.telegraphs.push(t);
-        }
-      }
-      break;
-    case "telegraphing":
-      g.timer -= dtMs;
-      const progress = 1 - Math.max(0, g.timer / g.config.telegraphDuration);
-      for (const t of g.telegraphs) {
-        updateTelegraph(t, progress, dt);
-      }
-      if (g.timer <= 0) {
-        for (const t of g.telegraphs) {
-          removeTelegraph2(t);
-        }
-        g.telegraphs = [];
-        g.phase = "spawning";
-        g.spawnIndex = 0;
-        g.staggerTimer = 0;
-      }
-      break;
-    case "spawning":
-      g.staggerTimer -= dtMs;
-      while (g.staggerTimer <= 0 && g.spawnIndex < g.config.spawns.length) {
-        const s = g.config.spawns[g.spawnIndex];
-        spawnEnemy(s.type, new THREE.Vector3(s.x, 0, s.z), gameState2);
-        g.spawnIndex++;
-        if (g.spawnIndex < g.config.spawns.length) {
-          g.staggerTimer += g.config.stagger;
-        }
-      }
-      if (g.spawnIndex >= g.config.spawns.length) {
-        g.phase = "done";
-      }
-      break;
-  }
-}
-function resetWaveRunner() {
-  for (const g of waveState.groups) {
-    for (const t of g.telegraphs) {
-      removeTelegraph2(t);
-    }
-  }
-  waveState.status = "idle";
-  waveState.waveIndex = 0;
-  waveState.elapsedMs = 0;
-  waveState.groups = [];
-  hideAnnounce();
-}
-function showAnnounce(text) {
-  if (!announceEl) return;
-  announceEl.textContent = text;
-  announceEl.classList.add("visible");
-}
-function hideAnnounce() {
-  if (!announceEl) return;
-  announceEl.classList.remove("visible");
+
+// src/engine/meleemath.ts
+function isInMeleeArc(playerX, playerZ, swingAngle, targetX, targetZ, range, arc) {
+  const dx = targetX - playerX;
+  const dz = targetZ - playerZ;
+  const distSq = dx * dx + dz * dz;
+  if (distSq > range * range) return false;
+  if (distSq < 1e-3) return true;
+  const angleToTarget = Math.atan2(-dx, -dz);
+  let angleDiff = angleToTarget - swingAngle;
+  while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+  while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+  return Math.abs(angleDiff) <= arc / 2;
 }
 
 // src/engine/physics.ts
@@ -3952,17 +3857,6 @@ function createGhostMesh(x, z, radius, height, color) {
   group.position.set(x, 0, z);
   getScene().add(group);
   return group;
-}
-function spawnPushGhosts(enemy, oldX, oldZ, newX, newZ) {
-  const cfg = enemy.config;
-  const r = cfg.size.radius;
-  const h = cfg.size.height;
-  for (let t = 0.33; t < 1; t += 0.33) {
-    const gx = oldX + (newX - oldX) * t;
-    const gz = oldZ + (newZ - oldZ) * t;
-    const mesh = createGhostMesh(gx, gz, r, h, 4521898);
-    effectGhosts.push({ type: "fade", mesh, life: 0, maxLife: 300 });
-  }
 }
 function spawnPitFallGhost(enemy) {
   const cfg = enemy.config;
@@ -4053,18 +3947,6 @@ function circleVsAABB(cx, cz, radius, box) {
 function pointVsAABB(px, pz, box) {
   return px >= box.minX && px <= box.maxX && pz >= box.minZ && pz <= box.maxZ;
 }
-function resolveTerrainCollision(x, z, radius) {
-  const bounds = getBounds();
-  let rx = x, rz = z;
-  for (const box of bounds) {
-    const push = circleVsAABB(rx, rz, radius, box);
-    if (push) {
-      rx += push.x;
-      rz += push.z;
-    }
-  }
-  return { x: rx, z: rz };
-}
 function pointHitsTerrain(px, pz) {
   const bounds = getBounds();
   for (const box of bounds) {
@@ -4085,6 +3967,183 @@ function resolveMovementCollision(x, z, radius) {
     }
   }
   return { x: rx, z: rz, wasDeflected };
+}
+function resolveTerrainCollisionEx(x, z, radius) {
+  const bounds = getBounds();
+  let rx = x, rz = z;
+  let hitWall = false;
+  let totalNX = 0, totalNZ = 0;
+  for (const box of bounds) {
+    const push = circleVsAABB(rx, rz, radius, box);
+    if (push) {
+      rx += push.x;
+      rz += push.z;
+      hitWall = true;
+      const len = Math.sqrt(push.x * push.x + push.z * push.z);
+      if (len > 1e-3) {
+        totalNX += push.x / len;
+        totalNZ += push.z / len;
+      }
+    }
+  }
+  const nLen = Math.sqrt(totalNX * totalNX + totalNZ * totalNZ);
+  if (nLen > 1e-3) {
+    totalNX /= nLen;
+    totalNZ /= nLen;
+  }
+  return { x: rx, z: rz, hitWall, normalX: totalNX, normalZ: totalNZ };
+}
+function applyVelocities(dt, gameState2) {
+  for (const enemy of gameState2.enemies) {
+    if (enemy.health <= 0) continue;
+    if (enemy.isLeaping) continue;
+    const vel = enemy.vel;
+    if (!vel) continue;
+    const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    if (speed < PHYSICS.minVelocity) {
+      vel.x = 0;
+      vel.z = 0;
+      continue;
+    }
+    const moveDist = speed * dt;
+    const enemyRadius = enemy.config.size.radius;
+    const moveSteps = Math.ceil(moveDist / enemyRadius);
+    const subDt = dt / Math.max(moveSteps, 1);
+    let result = { x: enemy.pos.x, z: enemy.pos.z, hitWall: false, normalX: 0, normalZ: 0 };
+    let fellInPit = false;
+    for (let s = 0; s < moveSteps; s++) {
+      enemy.pos.x += vel.x * subDt;
+      enemy.pos.z += vel.z * subDt;
+      if (pointInPit(enemy.pos.x, enemy.pos.z)) {
+        fellInPit = true;
+        break;
+      }
+      result = resolveTerrainCollisionEx(enemy.pos.x, enemy.pos.z, enemyRadius);
+      enemy.pos.x = result.x;
+      enemy.pos.z = result.z;
+      if (result.hitWall) break;
+    }
+    enemy.mesh.position.copy(enemy.pos);
+    if (fellInPit) {
+      spawnPitFallGhost(enemy);
+      emit({ type: "pitFall", position: { x: enemy.pos.x, z: enemy.pos.z }, isPlayer: false });
+      createAoeRing(enemy.pos.x, enemy.pos.z, 2.5, 500, 8930559);
+      enemy.health = 0;
+      enemy.fellInPit = true;
+      enemy.stunTimer = 9999;
+      spawnDamageNumber(enemy.pos.x, enemy.pos.z, "FELL!", "#8844ff");
+      screenShake(4, 200);
+      vel.x = 0;
+      vel.z = 0;
+      continue;
+    }
+    if (result.hitWall && speed > PHYSICS.wallSlamMinSpeed) {
+      const slamDamage = Math.round((speed - PHYSICS.wallSlamMinSpeed) * PHYSICS.wallSlamDamage);
+      applyDamageToEnemy(enemy, slamDamage, gameState2);
+      stunEnemy(enemy, PHYSICS.wallSlamStun);
+      emit({ type: "wallSlam", enemy, speed, damage: slamDamage, position: { x: enemy.pos.x, z: enemy.pos.z } });
+      spawnDamageNumber(enemy.pos.x, enemy.pos.z, slamDamage, "#ff8844");
+      screenShake(PHYSICS.wallSlamShake, 120);
+      enemy.flashTimer = 120;
+      if (enemy.bodyMesh) enemy.bodyMesh.material.emissive.setHex(16746564);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16746564);
+      createAoeRing(enemy.pos.x, enemy.pos.z, 1.5, 300, 16746564);
+      const dot = vel.x * result.normalX + vel.z * result.normalZ;
+      vel.x = (vel.x - 2 * dot * result.normalX) * PHYSICS.wallSlamBounce;
+      vel.z = (vel.z - 2 * dot * result.normalZ) * PHYSICS.wallSlamBounce;
+    }
+    const newSpeed = speed - PHYSICS.friction * dt;
+    if (newSpeed <= PHYSICS.minVelocity) {
+      vel.x = 0;
+      vel.z = 0;
+    } else {
+      const scale = newSpeed / speed;
+      vel.x *= scale;
+      vel.z *= scale;
+    }
+  }
+}
+function resolveEnemyCollisions(gameState2) {
+  const enemies = gameState2.enemies;
+  const len = enemies.length;
+  for (let i = 0; i < len; i++) {
+    const a = enemies[i];
+    if (a.health <= 0) continue;
+    if (a.isLeaping) continue;
+    for (let j = i + 1; j < len; j++) {
+      const b = enemies[j];
+      if (b.health <= 0) continue;
+      if (b.isLeaping) continue;
+      const dx = b.pos.x - a.pos.x;
+      const dz = b.pos.z - a.pos.z;
+      const distSq = dx * dx + dz * dz;
+      const radA = a.config.size.radius;
+      const radB = b.config.size.radius;
+      const minDist = radA + radB;
+      if (distSq >= minDist * minDist) continue;
+      const dist = Math.sqrt(distSq);
+      if (dist < 0.01) continue;
+      const overlap = minDist - dist;
+      const nx = dx / dist;
+      const nz = dz / dist;
+      const massA = a.config.mass ?? 1;
+      const massB = b.config.mass ?? 1;
+      const totalMass = massA + massB;
+      const ratioA = massB / totalMass;
+      const ratioB = massA / totalMass;
+      a.pos.x -= nx * overlap * ratioA;
+      a.pos.z -= nz * overlap * ratioA;
+      b.pos.x += nx * overlap * ratioB;
+      b.pos.z += nz * overlap * ratioB;
+      const velA = a.vel;
+      const velB = b.vel;
+      if (!velA || !velB) continue;
+      const relVelX = velA.x - velB.x;
+      const relVelZ = velA.z - velB.z;
+      const relVelDotN = relVelX * nx + relVelZ * nz;
+      if (relVelDotN <= 0) continue;
+      const e = PHYSICS.enemyBounce;
+      const impulse = (1 + e) * relVelDotN / totalMass;
+      velA.x -= impulse * massB * nx;
+      velA.z -= impulse * massB * nz;
+      velB.x += impulse * massA * nx;
+      velB.z += impulse * massA * nz;
+      const relSpeed = Math.sqrt(relVelX * relVelX + relVelZ * relVelZ);
+      if (relSpeed > PHYSICS.impactMinSpeed) {
+        const dmg = Math.round((relSpeed - PHYSICS.impactMinSpeed) * PHYSICS.impactDamage);
+        const midX = (a.pos.x + b.pos.x) / 2;
+        const midZ = (a.pos.z + b.pos.z) / 2;
+        const dmgA = Math.round(dmg * ratioA);
+        const dmgB = Math.round(dmg * ratioB);
+        if (dmgA > 0) {
+          applyDamageToEnemy(a, dmgA, gameState2);
+          a.flashTimer = 100;
+          if (a.bodyMesh) a.bodyMesh.material.emissive.setHex(16755268);
+          if (a.headMesh) a.headMesh.material.emissive.setHex(16755268);
+        }
+        if (dmgB > 0) {
+          applyDamageToEnemy(b, dmgB, gameState2);
+          b.flashTimer = 100;
+          if (b.bodyMesh) b.bodyMesh.material.emissive.setHex(16755268);
+          if (b.headMesh) b.headMesh.material.emissive.setHex(16755268);
+        }
+        stunEnemy(a, PHYSICS.impactStun);
+        stunEnemy(b, PHYSICS.impactStun);
+        spawnDamageNumber(midX, midZ, dmg, "#ffaa44");
+        screenShake(2, 80);
+        emit({
+          type: "enemyImpact",
+          enemyA: a,
+          enemyB: b,
+          speed: relSpeed,
+          damage: dmg,
+          position: { x: midX, z: midZ }
+        });
+      }
+      a.mesh.position.copy(a.pos);
+      b.mesh.position.copy(b.pos);
+    }
+  }
 }
 function pointInPit(px, pz) {
   const pits = getPits();
@@ -4174,6 +4233,31 @@ function onShieldBreak(enemy, gameState2) {
   }
   screenShake(4, 200);
 }
+function checkMeleeHits(gameState2) {
+  if (!isMeleeSwinging()) return;
+  const playerPos2 = getPlayerPos();
+  const swingDir = getMeleeSwingDir();
+  const hitEnemies = getMeleeHitEnemies();
+  for (const enemy of gameState2.enemies) {
+    if (enemy.health <= 0) continue;
+    if (enemy.fellInPit) continue;
+    if (hitEnemies.has(enemy)) continue;
+    if (!isInMeleeArc(playerPos2.x, playerPos2.z, swingDir, enemy.pos.x, enemy.pos.z, MELEE.range, MELEE.arc)) {
+      continue;
+    }
+    hitEnemies.add(enemy);
+    const wasShielded = enemy.shieldActive;
+    applyDamageToEnemy(enemy, MELEE.damage, gameState2);
+    emit({ type: "enemyHit", enemy, damage: MELEE.damage, position: { x: enemy.pos.x, z: enemy.pos.z }, wasShielded });
+    emit({ type: "meleeHit", enemy, damage: MELEE.damage, position: { x: enemy.pos.x, z: enemy.pos.z } });
+    const dmgColor = wasShielded ? "#88eeff" : "#ff8844";
+    spawnDamageNumber(enemy.pos.x, enemy.pos.z, MELEE.damage, dmgColor);
+    enemy.flashTimer = 100;
+    enemy.bodyMesh.material.emissive.setHex(16777215);
+    if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16777215);
+    screenShake(MELEE.screenShake, 80);
+  }
+}
 function checkCollisions(gameState2) {
   const playerPos2 = getPlayerPos();
   const playerR = PLAYER.size.radius;
@@ -4184,10 +4268,23 @@ function checkCollisions(gameState2) {
   }
   for (const enemy of gameState2.enemies) {
     if (enemy.isLeaping) continue;
-    const resolved = resolveMovementCollision(enemy.pos.x, enemy.pos.z, enemy.config.size.radius);
-    enemy.pos.x = resolved.x;
-    enemy.pos.z = resolved.z;
-    enemy.wasDeflected = resolved.wasDeflected;
+    if (enemy.fellInPit) continue;
+    const vel = enemy.vel;
+    const hasVelocity = vel && vel.x * vel.x + vel.z * vel.z > PHYSICS.minVelocity * PHYSICS.minVelocity;
+    const bounds = hasVelocity ? getBounds() : getMoveBounds();
+    let rx = enemy.pos.x, rz = enemy.pos.z;
+    let wasDeflected = false;
+    for (const box of bounds) {
+      const push = circleVsAABB(rx, rz, enemy.config.size.radius, box);
+      if (push) {
+        rx += push.x;
+        rz += push.z;
+        wasDeflected = true;
+      }
+    }
+    enemy.pos.x = rx;
+    enemy.pos.z = rz;
+    enemy.wasDeflected = wasDeflected;
     enemy.mesh.position.copy(enemy.pos);
   }
   const playerProj = getPlayerProjectiles();
@@ -4248,6 +4345,7 @@ function checkCollisions(gameState2) {
     const now = performance.now();
     for (const enemy of gameState2.enemies) {
       if (enemy.behavior === "kite") continue;
+      if (enemy.config.melee) continue;
       if (enemy.stunTimer > 0) continue;
       const dx = enemy.pos.x - playerPos2.x;
       const dz = enemy.pos.z - playerPos2.z;
@@ -4271,10 +4369,17 @@ function checkCollisions(gameState2) {
       }
     }
   }
+  checkMeleeHits(gameState2);
   const pushEvt = consumePushEvent();
   if (pushEvt) {
     const dirX = pushEvt.dirX;
     const dirZ = pushEvt.dirZ;
+    const perpX = -dirZ;
+    const perpZ = dirX;
+    const halfLen = pushEvt.length / 2;
+    const playerX = pushEvt.x - dirX * halfLen;
+    const playerZ = pushEvt.z - dirZ * halfLen;
+    const candidates = [];
     for (const enemy of gameState2.enemies) {
       if (enemy.health <= 0) continue;
       if (enemy.isLeaping) continue;
@@ -4289,32 +4394,568 @@ function checkCollisions(gameState2) {
         pushEvt.rotation,
         enemyRadius
       )) {
-        const oldX = enemy.pos.x;
-        const oldZ = enemy.pos.z;
-        const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-        const kbMult = 1 - (enemy.knockbackResist ?? enemy.config.knockbackResist ?? 0);
-        const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
-        enemy.pos.x += dirX * kbDist;
-        enemy.pos.z += dirZ * kbDist;
-        enemy.mesh.position.copy(enemy.pos);
-        spawnPushGhosts(enemy, oldX, oldZ, enemy.pos.x, enemy.pos.z);
-        emit({ type: "enemyPushed", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
-        enemy.flashTimer = 100;
-        enemy.bodyMesh.material.emissive.setHex(4521898);
-        if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(4521898);
-        spawnDamageNumber(enemy.pos.x, enemy.pos.z, "PUSH", "#44ffaa");
+        const dx = enemy.pos.x - playerX;
+        const dz = enemy.pos.z - playerZ;
+        const forward = dx * dirX + dz * dirZ;
+        const lateral = dx * perpX + dz * perpZ;
+        candidates.push({ enemy, forward, lateral });
+      }
+    }
+    candidates.sort((a, b) => a.forward - b.forward);
+    const pushedLaterals = [];
+    const blockRadius = PHYSICS.pushWaveBlockRadius;
+    for (const { enemy, lateral } of candidates) {
+      let blocked = false;
+      for (const pushedLat of pushedLaterals) {
+        if (Math.abs(lateral - pushedLat) < blockRadius) {
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) continue;
+      const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
+      const kbMult = 1 - (enemy.knockbackResist ?? enemy.config.knockbackResist ?? 0);
+      const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
+      if (kbDist > 0) {
+        const v0 = Math.sqrt(2 * PHYSICS.friction * kbDist);
+        enemy.vel.x = dirX * v0;
+        enemy.vel.z = dirZ * v0;
+      }
+      emit({ type: "enemyPushed", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+      enemy.flashTimer = 100;
+      enemy.bodyMesh.material.emissive.setHex(4521898);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(4521898);
+      spawnDamageNumber(enemy.pos.x, enemy.pos.z, "PUSH", "#44ffaa");
+      pushedLaterals.push(lateral);
+    }
+  }
+}
+
+// src/engine/particles.ts
+var HIT_SPARK = {
+  count: 5,
+  lifetime: 0.25,
+  speed: 6,
+  spread: Math.PI * 0.8,
+  size: 0.06,
+  color: 16777130,
+  fadeOut: true,
+  gravity: 4,
+  shape: "box"
+};
+var DEATH_PUFF = {
+  count: 8,
+  lifetime: 0.4,
+  speed: 3,
+  spread: Math.PI,
+  size: 0.08,
+  color: 16777215,
+  // will be overridden with enemy color
+  fadeOut: true,
+  gravity: 1,
+  shape: "sphere"
+};
+var DASH_TRAIL = {
+  count: 3,
+  lifetime: 0.3,
+  speed: 1.5,
+  spread: Math.PI * 0.3,
+  size: 0.05,
+  color: 4521864,
+  fadeOut: true,
+  gravity: 0,
+  shape: "box"
+};
+var SHIELD_BREAK_BURST = {
+  count: 10,
+  lifetime: 0.35,
+  speed: 8,
+  spread: Math.PI,
+  size: 0.07,
+  color: 8974079,
+  fadeOut: true,
+  gravity: 3,
+  shape: "box"
+};
+var PUSH_BURST = {
+  count: 4,
+  lifetime: 0.2,
+  speed: 5,
+  spread: Math.PI * 0.5,
+  size: 0.05,
+  color: 4521898,
+  fadeOut: true,
+  gravity: 2,
+  shape: "box"
+};
+var CHARGE_BLAST = {
+  count: 12,
+  lifetime: 0.3,
+  speed: 10,
+  spread: Math.PI * 0.4,
+  size: 0.08,
+  color: 4521898,
+  fadeOut: true,
+  gravity: 2,
+  shape: "sphere"
+};
+var ENEMY_IMPACT_SPARK = {
+  count: 6,
+  lifetime: 0.25,
+  speed: 5,
+  spread: Math.PI,
+  size: 0.06,
+  color: 16755268,
+  fadeOut: true,
+  gravity: 4,
+  shape: "sphere"
+};
+var WALL_SLAM_SPARK = {
+  count: 8,
+  lifetime: 0.3,
+  speed: 7,
+  spread: Math.PI * 0.6,
+  size: 0.07,
+  color: 16746564,
+  fadeOut: true,
+  gravity: 5,
+  shape: "box"
+};
+var POOL_SIZE2 = 80;
+var pool2 = [];
+var sceneRef5 = null;
+var boxGeo = null;
+var sphereGeo = null;
+function initParticles(scene2) {
+  sceneRef5 = scene2;
+  boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  sphereGeo = new THREE.SphereGeometry(0.5, 4, 3);
+  for (let i = 0; i < POOL_SIZE2; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 16777215,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false
+    });
+    const mesh = new THREE.Mesh(boxGeo, mat);
+    mesh.visible = false;
+    scene2.add(mesh);
+    pool2.push({
+      mesh,
+      active: false,
+      life: 0,
+      maxLife: 1,
+      vx: 0,
+      vy: 0,
+      vz: 0,
+      gravity: 0,
+      fadeOut: true,
+      material: mat,
+      baseScale: 1
+    });
+  }
+  initArcDecals(scene2);
+  initEnemyArcDecals(scene2);
+  wireEventBus();
+}
+var ARC_DECAL_POOL_SIZE = 3;
+var ARC_DECAL_LIFETIME = 0.25;
+var arcDecalPool = [];
+var arcDecalGeo = null;
+function initArcDecals(scene2) {
+  arcDecalGeo = new THREE.CircleGeometry(1, 24, Math.PI / 2 - MELEE.arc / 2, MELEE.arc);
+  arcDecalGeo.rotateX(-Math.PI / 2);
+  for (let i = 0; i < ARC_DECAL_POOL_SIZE; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 16777215,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const mesh = new THREE.Mesh(arcDecalGeo, mat);
+    mesh.visible = false;
+    scene2.add(mesh);
+    arcDecalPool.push({ mesh, active: false, life: 0 });
+  }
+}
+function spawnArcDecal(x, z, dirX, dirZ) {
+  let decal = null;
+  for (const d of arcDecalPool) {
+    if (!d.active) {
+      decal = d;
+      break;
+    }
+  }
+  if (!decal) return;
+  decal.active = true;
+  decal.life = 0;
+  decal.mesh.visible = true;
+  decal.mesh.position.set(x, 0.05, z);
+  const r = MELEE.range;
+  decal.mesh.scale.set(r * 0.3, 1, r * 0.3);
+  decal.mesh.rotation.y = Math.atan2(-dirX, -dirZ);
+  decal.mesh.material.opacity = 0.4;
+}
+function updateArcDecals(dt) {
+  for (const d of arcDecalPool) {
+    if (!d.active) continue;
+    d.life += dt;
+    if (d.life >= ARC_DECAL_LIFETIME) {
+      d.active = false;
+      d.mesh.visible = false;
+      continue;
+    }
+    const t = d.life / ARC_DECAL_LIFETIME;
+    const ease = 1 - (1 - t) * (1 - t);
+    const r = MELEE.range;
+    const s = r * (0.3 + 0.7 * ease);
+    d.mesh.scale.set(s, 1, s);
+    d.mesh.material.opacity = 0.4 * (1 - ease);
+  }
+}
+function clearArcDecals() {
+  for (const d of arcDecalPool) {
+    d.active = false;
+    d.mesh.visible = false;
+  }
+}
+var ENEMY_ARC_POOL_SIZE = 6;
+var enemyArcPool = [];
+function initEnemyArcDecals(scene2) {
+  for (let i = 0; i < ENEMY_ARC_POOL_SIZE; i++) {
+    const geo = new THREE.CircleGeometry(1, 24, 0, Math.PI);
+    geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 16729088,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.visible = false;
+    scene2.add(mesh);
+    enemyArcPool.push({ mesh, active: false, life: 0, maxLife: 1 });
+  }
+}
+function spawnEnemyArcDecal(x, z, facingAngle, hitArc, hitRange, durationMs) {
+  let decal = null;
+  for (const d of enemyArcPool) {
+    if (!d.active) {
+      decal = d;
+      break;
+    }
+  }
+  if (!decal) return;
+  const newGeo = new THREE.CircleGeometry(hitRange, 24, Math.PI / 2 - hitArc / 2, hitArc);
+  newGeo.rotateX(-Math.PI / 2);
+  decal.mesh.geometry.dispose();
+  decal.mesh.geometry = newGeo;
+  decal.active = true;
+  decal.life = 0;
+  decal.maxLife = durationMs / 1e3;
+  decal.mesh.visible = true;
+  decal.mesh.position.set(x, 0.05, z);
+  decal.mesh.scale.set(1, 1, 1);
+  decal.mesh.rotation.set(0, facingAngle, 0);
+  decal.mesh.material.opacity = 0.35;
+}
+function updateEnemyArcDecals(dt) {
+  for (const d of enemyArcPool) {
+    if (!d.active) continue;
+    d.life += dt;
+    if (d.life >= d.maxLife) {
+      d.active = false;
+      d.mesh.visible = false;
+      continue;
+    }
+    const t = d.life / d.maxLife;
+    if (t < 0.8) {
+      const pulse = 0.275 + 0.075 * Math.sin(d.life * 12);
+      d.mesh.material.opacity = pulse;
+    } else {
+      const fadeT = (t - 0.8) / 0.2;
+      d.mesh.material.opacity = 0.35 * (1 - fadeT);
+    }
+  }
+}
+function clearEnemyArcDecals() {
+  for (const d of enemyArcPool) {
+    d.active = false;
+    d.mesh.visible = false;
+  }
+}
+function burst(position, config, direction) {
+  if (!sceneRef5) return;
+  const y = position.y ?? 0.5;
+  for (let i = 0; i < config.count; i++) {
+    const p = acquireParticle();
+    if (!p) break;
+    p.mesh.geometry = config.shape === "sphere" ? sphereGeo : boxGeo;
+    const s = config.size * (0.7 + Math.random() * 0.6);
+    p.mesh.scale.set(s, s, s);
+    p.baseScale = s;
+    p.material.color.setHex(config.color);
+    p.material.opacity = 1;
+    p.mesh.position.set(
+      position.x + (Math.random() - 0.5) * 0.1,
+      y + (Math.random() - 0.5) * 0.1,
+      position.z + (Math.random() - 0.5) * 0.1
+    );
+    let vx, vy, vz;
+    if (direction) {
+      const angle = Math.atan2(direction.x, direction.z) + (Math.random() - 0.5) * config.spread;
+      const elevAngle = (Math.random() - 0.3) * config.spread * 0.5;
+      vx = Math.sin(angle) * Math.cos(elevAngle);
+      vy = Math.sin(elevAngle) + Math.random() * 0.3;
+      vz = Math.cos(angle) * Math.cos(elevAngle);
+    } else {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * config.spread;
+      vx = Math.sin(phi) * Math.cos(theta);
+      vy = Math.cos(phi) * 0.5 + Math.random() * 0.5;
+      vz = Math.sin(phi) * Math.sin(theta);
+    }
+    const speed = config.speed * (0.6 + Math.random() * 0.8);
+    p.vx = vx * speed;
+    p.vy = vy * speed;
+    p.vz = vz * speed;
+    p.gravity = config.gravity;
+    p.fadeOut = config.fadeOut;
+    p.life = 0;
+    p.maxLife = config.lifetime * (0.7 + Math.random() * 0.6);
+    p.active = true;
+    p.mesh.visible = true;
+  }
+}
+function updateParticles(dt) {
+  updateArcDecals(dt);
+  updateEnemyArcDecals(dt);
+  for (const p of pool2) {
+    if (!p.active) continue;
+    p.life += dt;
+    if (p.life >= p.maxLife) {
+      p.active = false;
+      p.mesh.visible = false;
+      continue;
+    }
+    p.vy -= p.gravity * dt;
+    p.mesh.position.x += p.vx * dt;
+    p.mesh.position.y += p.vy * dt;
+    p.mesh.position.z += p.vz * dt;
+    if (p.mesh.position.y < 0.02) {
+      p.mesh.position.y = 0.02;
+      p.vy = 0;
+      p.vx *= 0.8;
+      p.vz *= 0.8;
+    }
+    if (p.fadeOut) {
+      const t = p.life / p.maxLife;
+      p.material.opacity = 1 - t * t;
+    }
+    const lifeRatio = p.life / p.maxLife;
+    if (lifeRatio > 0.7) {
+      const shrink = 1 - (lifeRatio - 0.7) / 0.3;
+      p.mesh.scale.setScalar(p.baseScale * shrink);
+    }
+  }
+}
+function acquireParticle() {
+  for (const p of pool2) {
+    if (!p.active) return p;
+  }
+  return null;
+}
+function clearParticles() {
+  for (const p of pool2) {
+    p.active = false;
+    p.mesh.visible = false;
+  }
+  clearArcDecals();
+  clearEnemyArcDecals();
+}
+function wireEventBus() {
+  on("enemyHit", (e) => {
+    if (e.type === "enemyHit") {
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        HIT_SPARK
+      );
+    }
+  });
+  on("enemyDied", (e) => {
+    if (e.type === "enemyDied") {
+      const color = e.enemy.config?.color ?? DEATH_PUFF.color;
+      burst(
+        { x: e.position.x, y: 0.4, z: e.position.z },
+        { ...DEATH_PUFF, color }
+      );
+    }
+  });
+  on("playerDash", (e) => {
+    if (e.type === "playerDash") {
+      burst(
+        { x: e.position.x, y: 0.4, z: e.position.z },
+        DASH_TRAIL,
+        { x: -e.direction.x, z: -e.direction.z }
+      );
+    }
+  });
+  on("shieldBreak", (e) => {
+    if (e.type === "shieldBreak") {
+      burst(
+        { x: e.position.x, y: 0.6, z: e.position.z },
+        SHIELD_BREAK_BURST
+      );
+    }
+  });
+  on("chargeFired", (e) => {
+    if (e.type === "chargeFired") {
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        { ...CHARGE_BLAST, count: Math.round(6 + e.chargeT * 6) },
+        { x: e.direction.x, z: e.direction.z }
+      );
+    }
+  });
+  on("enemyPushed", (e) => {
+    if (e.type === "enemyPushed") {
+      burst(
+        { x: e.position.x, y: 0.3, z: e.position.z },
+        PUSH_BURST
+      );
+    }
+  });
+  on("meleeSwing", (e) => {
+    if (e.type === "meleeSwing") {
+      burst(
+        { x: e.position.x, y: 0.6, z: e.position.z },
+        { ...DASH_TRAIL, count: 2, speed: 3, lifetime: 0.15, color: 16777215 },
+        { x: e.direction.x, z: e.direction.z }
+      );
+      spawnArcDecal(e.position.x, e.position.z, e.direction.x, e.direction.z);
+    }
+  });
+  on("wallSlam", (e) => {
+    if (e.type === "wallSlam") {
+      burst(
+        { x: e.position.x, y: 0.3, z: e.position.z },
+        { ...WALL_SLAM_SPARK, count: Math.round(4 + e.speed / 5 * 4) }
+      );
+    }
+  });
+  on("enemyImpact", (e) => {
+    if (e.type === "enemyImpact") {
+      burst(
+        { x: e.position.x, y: 0.4, z: e.position.z },
+        { ...ENEMY_IMPACT_SPARK, count: Math.round(3 + e.speed / 5 * 3) }
+      );
+    }
+  });
+  on("enemyMeleeTelegraph", (e) => {
+    if (e.type === "enemyMeleeTelegraph") {
+      spawnEnemyArcDecal(
+        e.position.x,
+        e.position.z,
+        e.facingAngle,
+        e.hitArc,
+        e.hitRange,
+        e.duration
+      );
+    }
+  });
+}
+
+// src/engine/roomManager.ts
+var currentRoomIndex = 0;
+var currentWaveIndex = 0;
+var transitioning = false;
+var transitionTimer = 0;
+var TRANSITION_PAUSE = 1500;
+var announceEl = null;
+function initRoomManager() {
+  announceEl = document.getElementById("wave-announce");
+}
+function loadRoom(index, gameState2) {
+  if (index >= ROOMS.length) {
+    showAnnounce("VICTORY!");
+    return;
+  }
+  const room = ROOMS[index];
+  currentRoomIndex = index;
+  currentWaveIndex = 0;
+  transitioning = false;
+  transitionTimer = 0;
+  clearEnemies(gameState2);
+  releaseAllProjectiles();
+  clearMortarProjectiles();
+  clearIcePatches();
+  clearAoeTelegraphs();
+  clearDamageNumbers();
+  clearEffectGhosts();
+  clearParticles();
+  setArenaConfig(room.obstacles, room.pits, room.arenaHalf);
+  invalidateCollisionBounds();
+  rebuildArenaVisuals();
+  setPlayerPosition(room.playerStart.x, room.playerStart.z);
+  spawnWave(room.waves[0], gameState2);
+  gameState2.currentWave = index + 1;
+  showAnnounce(room.name);
+  setTimeout(hideAnnounce, 2e3);
+}
+function spawnWave(spawns, gameState2) {
+  for (const spawn of spawns) {
+    const pos = new THREE.Vector3(spawn.x, 0, spawn.z);
+    spawnEnemy(spawn.type, pos, gameState2);
+  }
+}
+function updateRoomManager(dt, gameState2) {
+  if (transitioning) {
+    transitionTimer -= dt * 1e3;
+    if (transitionTimer <= 0) {
+      transitioning = false;
+      loadRoom(currentRoomIndex + 1, gameState2);
+    }
+    return;
+  }
+  if (gameState2.phase === "playing" && gameState2.enemies.length === 0) {
+    const room = ROOMS[currentRoomIndex];
+    const hasMoreWaves = currentWaveIndex + 1 < room.waves.length;
+    if (hasMoreWaves) {
+      currentWaveIndex++;
+      const waveNum = currentWaveIndex + 1;
+      const totalWaves = room.waves.length;
+      showAnnounce(`Wave ${waveNum}/${totalWaves}`);
+      setTimeout(hideAnnounce, 1200);
+      spawnWave(room.waves[currentWaveIndex], gameState2);
+    } else {
+      transitioning = true;
+      transitionTimer = TRANSITION_PAUSE;
+      emit({ type: "roomCleared", roomIndex: currentRoomIndex });
+      if (currentRoomIndex + 1 >= ROOMS.length) {
+        showAnnounce("VICTORY!");
+      } else {
+        showAnnounce("Room Cleared!");
+        setTimeout(hideAnnounce, 1200);
       }
     }
   }
-  if (pushEvt) {
-    for (const enemy of gameState2.enemies) {
-      if (enemy.isLeaping) continue;
-      const resolved = resolveTerrainCollision(enemy.pos.x, enemy.pos.z, enemy.config.size.radius);
-      enemy.pos.x = resolved.x;
-      enemy.pos.z = resolved.z;
-      enemy.mesh.position.copy(enemy.pos);
-    }
-  }
+}
+function resetRoomManager() {
+  currentRoomIndex = 0;
+  currentWaveIndex = 0;
+  transitioning = false;
+  transitionTimer = 0;
+}
+function showAnnounce(text) {
+  if (!announceEl) return;
+  announceEl.textContent = text;
+  announceEl.classList.add("visible");
+}
+function hideAnnounce() {
+  if (!announceEl) return;
+  announceEl.classList.remove("visible");
 }
 
 // src/ui/hud.ts
@@ -4569,6 +5210,10 @@ var AUDIO_CONFIG = {
   chargeVolume: 0.35,
   waveClearVolume: 0.4,
   playerHitVolume: 0.5,
+  meleeSwingVolume: 0.3,
+  meleeHitVolume: 0.45,
+  wallSlamVolume: 0.5,
+  enemyImpactVolume: 0.4,
   enabled: true
 };
 var ctx2 = null;
@@ -4582,7 +5227,18 @@ function initAudio() {
     masterGain.gain.value = AUDIO_CONFIG.masterVolume;
     masterGain.connect(ctx2.destination);
     initialized = true;
-    wireEventBus();
+    wireEventBus2();
+    const muteBtn = document.getElementById("mute-btn");
+    if (muteBtn) {
+      muteBtn.addEventListener("click", () => {
+        AUDIO_CONFIG.enabled = !AUDIO_CONFIG.enabled;
+        if (masterGain) {
+          masterGain.gain.value = AUDIO_CONFIG.enabled ? AUDIO_CONFIG.masterVolume : 0;
+        }
+        muteBtn.textContent = AUDIO_CONFIG.enabled ? "\u{1F50A}" : "\u{1F507}";
+        muteBtn.classList.toggle("muted", !AUDIO_CONFIG.enabled);
+      });
+    }
   } catch (e) {
     console.warn("[audio] Web Audio API not available:", e);
   }
@@ -4782,7 +5438,118 @@ function playPlayerHit() {
   noise.start(now);
   noise.stop(now + duration);
 }
-function wireEventBus() {
+function playMeleeSwing() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.12;
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "highpass";
+  filter.frequency.setValueAtTime(1500, now);
+  filter.frequency.exponentialRampToValueAtTime(5e3, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.meleeSwingVolume, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playMeleeHit() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.08;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(120, now);
+  osc.frequency.exponentialRampToValueAtTime(50, now + duration);
+  const oscGain = ctx2.createGain();
+  oscGain.gain.setValueAtTime(AUDIO_CONFIG.meleeHitVolume * 0.5, now);
+  oscGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = 3e3;
+  filter.Q.value = 3;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.meleeHitVolume * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.6);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playWallSlam(intensity = 1) {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.15;
+  const vol = AUDIO_CONFIG.wallSlamVolume * Math.min(intensity, 2);
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(80, now);
+  osc.frequency.exponentialRampToValueAtTime(30, now + duration);
+  const oscGain = ctx2.createGain();
+  oscGain.gain.setValueAtTime(vol * 0.6, now);
+  oscGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.5);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 2e3;
+  filter.Q.value = 2;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(vol * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.5);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playEnemyImpact(intensity = 1) {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.1;
+  const vol = AUDIO_CONFIG.enemyImpactVolume * Math.min(intensity, 2);
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(150, now);
+  osc.frequency.exponentialRampToValueAtTime(60, now + duration);
+  const oscGain = ctx2.createGain();
+  oscGain.gain.setValueAtTime(vol * 0.5, now);
+  oscGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.4);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = 1500;
+  filter.Q.value = 3;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(vol * 0.3, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.4);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function wireEventBus2() {
   on("enemyHit", (e) => {
     if (e.type === "enemyHit") playHit(e.damage / 15);
   });
@@ -4794,6 +5561,15 @@ function wireEventBus() {
     if (e.type === "chargeFired") playChargeFire(e.chargeT);
   });
   on("waveCleared", () => playWaveClear());
+  on("roomCleared", () => playWaveClear());
+  on("meleeSwing", () => playMeleeSwing());
+  on("meleeHit", () => playMeleeHit());
+  on("wallSlam", (e) => {
+    if (e.type === "wallSlam") playWallSlam(e.speed / 5);
+  });
+  on("enemyImpact", (e) => {
+    if (e.type === "enemyImpact") playEnemyImpact(e.speed / 5);
+  });
 }
 
 // src/config/boss.ts
@@ -4965,18 +5741,153 @@ var SECTIONS = [
     ]
   },
   {
-    section: "Enemies",
+    section: "Melee",
+    collapsed: true,
+    items: [
+      {
+        label: "Damage",
+        config: () => MELEE,
+        key: "damage",
+        min: 5,
+        max: 60,
+        step: 1,
+        unit: "",
+        tip: "Melee swing damage per hit."
+      },
+      {
+        label: "Range",
+        config: () => MELEE,
+        key: "range",
+        min: 1,
+        max: 4,
+        step: 0.2,
+        unit: "u",
+        tip: "How far the swing reaches from player center."
+      },
+      {
+        label: "Arc",
+        config: () => MELEE,
+        key: "arc",
+        min: 1,
+        max: 3.5,
+        step: 0.1,
+        unit: "rad",
+        tip: "Hit cone width in radians (~2.4 = 137\xB0)."
+      },
+      {
+        label: "Cooldown",
+        config: () => MELEE,
+        key: "cooldown",
+        min: 100,
+        max: 800,
+        step: 10,
+        unit: "ms",
+        tip: "Time between swings."
+      },
+      {
+        label: "Knockback",
+        config: () => MELEE,
+        key: "knockback",
+        min: 0,
+        max: 4,
+        step: 0.25,
+        unit: "u",
+        tip: "Distance enemies are pushed on hit."
+      },
+      {
+        label: "Auto Range",
+        config: () => MELEE,
+        key: "autoTargetRange",
+        min: 1,
+        max: 6,
+        step: 0.5,
+        unit: "u",
+        tip: "Radius to search for auto-targeting snap."
+      },
+      {
+        label: "Auto Arc",
+        config: () => MELEE,
+        key: "autoTargetArc",
+        min: 1,
+        max: 3.5,
+        step: 0.1,
+        unit: "rad",
+        tip: "Cone width for auto-targeting snap."
+      },
+      {
+        label: "Shake",
+        config: () => MELEE,
+        key: "screenShake",
+        min: 0,
+        max: 4,
+        step: 0.25,
+        unit: "",
+        tip: "Screen shake intensity on melee hit."
+      },
+      {
+        label: "Hit Pause",
+        config: () => MELEE,
+        key: "hitPause",
+        min: 0,
+        max: 100,
+        step: 5,
+        unit: "ms",
+        tip: "Freeze-frame duration on melee hit (juice)."
+      }
+    ]
+  },
+  {
+    section: "Mob Global",
     items: [
       {
         label: "Speed Mult",
-        config: () => null,
-        key: "enemySpeedMult",
+        config: () => MOB_GLOBAL,
+        key: "speedMult",
         min: 0.2,
-        max: 4,
+        max: 3,
         step: 0.1,
-        custom: "enemySpeed",
         unit: "x",
-        tip: "Global speed multiplier applied to all enemy types. 1x = default."
+        tip: "Global speed multiplier for all enemies."
+      },
+      {
+        label: "Damage Mult",
+        config: () => MOB_GLOBAL,
+        key: "damageMult",
+        min: 0.2,
+        max: 3,
+        step: 0.1,
+        unit: "x",
+        tip: "Global damage multiplier for all enemies."
+      },
+      {
+        label: "Health Mult",
+        config: () => MOB_GLOBAL,
+        key: "healthMult",
+        min: 0.2,
+        max: 3,
+        step: 0.1,
+        unit: "x",
+        tip: "Global health multiplier for all enemies."
+      },
+      {
+        label: "Telegraph Mult",
+        config: () => MOB_GLOBAL,
+        key: "telegraphMult",
+        min: 0.2,
+        max: 3,
+        step: 0.1,
+        unit: "x",
+        tip: "Global telegraph duration multiplier. Higher = more reaction time."
+      },
+      {
+        label: "Recovery Mult",
+        config: () => MOB_GLOBAL,
+        key: "recoveryMult",
+        min: 0.2,
+        max: 3,
+        step: 0.1,
+        unit: "x",
+        tip: "Global recovery duration multiplier. Higher = bigger punish windows."
       }
     ]
   },
@@ -5066,9 +5977,9 @@ var SECTIONS = [
         label: "Cooldown",
         config: () => ABILITIES.ultimate,
         key: "cooldown",
-        min: 1e3,
+        min: 100,
         max: 15e3,
-        step: 500,
+        step: 100,
         unit: "ms",
         tip: "Force push cooldown."
       },
@@ -5141,6 +6052,133 @@ var SECTIONS = [
         step: 0.05,
         unit: "x",
         tip: "Movement speed multiplier while charging."
+      }
+    ]
+  },
+  // ── Physics ──
+  {
+    section: "Physics",
+    collapsed: true,
+    items: [
+      {
+        label: "Friction",
+        config: () => PHYSICS,
+        key: "friction",
+        min: 2,
+        max: 30,
+        step: 1,
+        unit: "u/s\xB2",
+        tip: "Knockback deceleration. Higher = snappier stop."
+      },
+      {
+        label: "Push Instant %",
+        config: () => PHYSICS,
+        key: "pushInstantRatio",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Fraction of knockback applied as instant offset. 1.0 = old instant feel."
+      },
+      {
+        label: "Wave Block Rad",
+        config: () => PHYSICS,
+        key: "pushWaveBlockRadius",
+        min: 0,
+        max: 2,
+        step: 0.1,
+        unit: "u",
+        tip: "Lateral distance for enemy occlusion. Nearer enemies block push to those behind. 0 = no blocking."
+      },
+      {
+        label: "Slam Min Speed",
+        config: () => PHYSICS,
+        key: "wallSlamMinSpeed",
+        min: 0,
+        max: 10,
+        step: 0.5,
+        unit: "u/s",
+        tip: "Minimum impact speed for wall slam damage."
+      },
+      {
+        label: "Slam Damage",
+        config: () => PHYSICS,
+        key: "wallSlamDamage",
+        min: 1,
+        max: 20,
+        step: 1,
+        unit: "/unit",
+        tip: "Damage per unit of speed above slam threshold."
+      },
+      {
+        label: "Slam Stun",
+        config: () => PHYSICS,
+        key: "wallSlamStun",
+        min: 0,
+        max: 1e3,
+        step: 50,
+        unit: "ms",
+        tip: "Stun duration on wall slam."
+      },
+      {
+        label: "Slam Bounce",
+        config: () => PHYSICS,
+        key: "wallSlamBounce",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Velocity reflection on wall hit. 0 = dead stop, 1 = perfect bounce."
+      },
+      {
+        label: "Slam Shake",
+        config: () => PHYSICS,
+        key: "wallSlamShake",
+        min: 0,
+        max: 8,
+        step: 0.5,
+        unit: "",
+        tip: "Screen shake intensity on wall slam."
+      },
+      {
+        label: "Enemy Bounce",
+        config: () => PHYSICS,
+        key: "enemyBounce",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Enemy-enemy collision restitution. 0 = stick, 1 = full bounce."
+      },
+      {
+        label: "Impact Min Spd",
+        config: () => PHYSICS,
+        key: "impactMinSpeed",
+        min: 0,
+        max: 10,
+        step: 0.5,
+        unit: "u/s",
+        tip: "Minimum relative speed for enemy-enemy impact damage."
+      },
+      {
+        label: "Impact Damage",
+        config: () => PHYSICS,
+        key: "impactDamage",
+        min: 1,
+        max: 20,
+        step: 1,
+        unit: "/unit",
+        tip: "Damage per unit of speed above impact threshold."
+      },
+      {
+        label: "Impact Stun",
+        config: () => PHYSICS,
+        key: "impactStun",
+        min: 0,
+        max: 1e3,
+        step: 50,
+        unit: "ms",
+        tip: "Stun duration when enemies collide at speed."
       }
     ]
   },
@@ -5514,6 +6552,26 @@ var SECTIONS = [
         step: 0.05,
         unit: "",
         tip: "Player damage taken sound volume."
+      },
+      {
+        label: "Melee Swing",
+        config: () => AUDIO_CONFIG,
+        key: "meleeSwingVolume",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Melee swing whoosh volume."
+      },
+      {
+        label: "Melee Hit",
+        config: () => AUDIO_CONFIG,
+        key: "meleeHitVolume",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Melee hit thump volume."
       }
     ]
   }
@@ -5934,6 +6992,188 @@ function injectStyles() {
     }
   `;
   document.head.appendChild(style);
+}
+
+// src/config/waves.ts
+var WAVES = [
+  {
+    wave: 1,
+    message: "Wave 1 \u2014 The dungeon stirs...",
+    groups: [
+      {
+        id: "w1g1",
+        triggerDelay: 0,
+        telegraphDuration: 1500,
+        stagger: 200,
+        spawns: [
+          { type: "goblin", x: 5, z: 2 },
+          { type: "goblin", x: 11, z: 0 },
+          { type: "goblin", x: 0, z: 5 },
+          { type: "iceMortarImp", x: 7, z: -11 },
+          { type: "iceMortarImp", x: -10, z: 9 }
+        ]
+      },
+      {
+        id: "w1g2",
+        triggerDelay: 0,
+        telegraphDuration: 1500,
+        stagger: 200,
+        spawns: [
+          { type: "goblin", x: -2, z: -9 },
+          { type: "goblin", x: -10, z: -3 },
+          { type: "goblin", x: -10, z: 0 }
+        ]
+      }
+    ]
+  },
+  {
+    wave: 2,
+    message: "Wave 2 \u2014 Watch the big ones",
+    groups: [
+      {
+        id: "w2g1",
+        triggerDelay: 0,
+        telegraphDuration: 1500,
+        stagger: 150,
+        spawns: [
+          { type: "goblin", x: 14, z: 0 },
+          { type: "stoneGolem", x: 12, z: 2 },
+          { type: "goblin", x: 12, z: -2 },
+          { type: "goblin", x: -14, z: 0 },
+          { type: "goblin", x: -12, z: 2 },
+          { type: "stoneGolem", x: -12, z: -1 },
+          { type: "goblin", x: 6, z: -7 },
+          { type: "goblin", x: -6, z: 6 }
+        ]
+      },
+      {
+        id: "w2g2",
+        triggerDelay: 3e3,
+        telegraphDuration: 2e3,
+        stagger: 400,
+        spawns: [
+          { type: "skeletonArcher", x: 12, z: 12 },
+          { type: "skeletonArcher", x: -12, z: -12 },
+          { type: "skeletonArcher", x: -12, z: 12 }
+        ]
+      }
+    ]
+  },
+  {
+    wave: 3,
+    message: "Wave 3 \u2014 Final wave?",
+    groups: [
+      {
+        id: "w3g1",
+        triggerDelay: 0,
+        telegraphDuration: 1500,
+        stagger: 100,
+        spawns: [
+          { type: "goblin", x: 15, z: 5 },
+          { type: "goblin", x: 15, z: -5 },
+          { type: "goblin", x: -15, z: 5 },
+          { type: "goblin", x: -15, z: -5 },
+          { type: "goblin", x: 5, z: 15 },
+          { type: "goblin", x: -5, z: 15 }
+        ]
+      },
+      {
+        id: "w3g2",
+        triggerDelay: 2e3,
+        telegraphDuration: 2e3,
+        stagger: 300,
+        spawns: [
+          { type: "skeletonArcher", x: 14, z: 10 },
+          { type: "skeletonArcher", x: -14, z: 10 },
+          { type: "skeletonArcher", x: 0, z: -16 },
+          { type: "skeletonArcher", x: 14, z: -10 }
+        ]
+      },
+      {
+        id: "w3g3",
+        triggerDelay: 6e3,
+        telegraphDuration: 2500,
+        stagger: 500,
+        spawns: [
+          { type: "stoneGolem", x: 0, z: 15 },
+          { type: "stoneGolem", x: -15, z: -5 },
+          { type: "stoneGolem", x: 15, z: -5 }
+        ]
+      },
+      {
+        id: "w3g4",
+        triggerDelay: 7e3,
+        telegraphDuration: 1500,
+        stagger: 200,
+        spawns: [
+          { type: "iceMortarImp", x: -13, z: 0 },
+          { type: "iceMortarImp", x: -3, z: -12 },
+          { type: "iceMortarImp", x: 12, z: 1 },
+          { type: "iceMortarImp", x: -5, z: 11 }
+        ]
+      }
+    ]
+  }
+];
+
+// src/engine/telegraph.ts
+var sceneRef6;
+function removeTelegraph2(telegraph) {
+  if (telegraph.group.parent) {
+    sceneRef6.remove(telegraph.group);
+  }
+  telegraph.ringMat.dispose();
+  telegraph.fillMat.dispose();
+  telegraph.typeMat.dispose();
+}
+
+// src/engine/waveRunner.ts
+var waveState = {
+  status: "idle",
+  // 'idle' | 'announce' | 'running' | 'cleared' | 'victory'
+  waveIndex: 0,
+  elapsedMs: 0,
+  // ms since wave entered 'running'
+  announceTimer: 0,
+  clearPauseTimer: 0,
+  groups: []
+  // runtime state per group
+};
+var announceEl2;
+function startWave(index, gameState2) {
+  if (index >= WAVES.length) {
+    waveState.status = "victory";
+    showAnnounce2("VICTORY");
+    return;
+  }
+  waveState.waveIndex = index;
+  waveState.status = "announce";
+  waveState.announceTimer = 2e3;
+  waveState.elapsedMs = 0;
+  waveState.groups = [];
+  gameState2.currentWave = WAVES[index].wave;
+  showAnnounce2(WAVES[index].message);
+}
+function resetWaveRunner() {
+  for (const g of waveState.groups) {
+    for (const t of g.telegraphs) {
+      removeTelegraph2(t);
+    }
+  }
+  waveState.status = "idle";
+  waveState.waveIndex = 0;
+  waveState.elapsedMs = 0;
+  waveState.groups = [];
+  hideAnnounce2();
+}
+function showAnnounce2(text) {
+  if (!announceEl2) return;
+  announceEl2.textContent = text;
+  announceEl2.classList.add("visible");
+}
+function hideAnnounce2() {
+  if (!announceEl2) return;
+  announceEl2.classList.remove("visible");
 }
 
 // src/ui/spawnEditor.ts
@@ -6672,12 +7912,12 @@ function rebuildMarkers() {
         body.position.y = 0.4;
         mesh.add(body);
         const ringColor = isSelected ? 16777215 : ENEMY_TYPES[spawn.type] ? ENEMY_TYPES[spawn.type].color : 16777215;
-        const ringGeo3 = new THREE.RingGeometry(
+        const ringGeo2 = new THREE.RingGeometry(
           isSelected ? 0.55 : 0.5,
           isSelected ? 0.75 : 0.65,
           16
         );
-        ringGeo3.rotateX(-Math.PI / 2);
+        ringGeo2.rotateX(-Math.PI / 2);
         const ringMat = new THREE.MeshBasicMaterial({
           color: ringColor,
           transparent: true,
@@ -6685,7 +7925,7 @@ function rebuildMarkers() {
           side: THREE.DoubleSide,
           depthWrite: false
         });
-        const ring = new THREE.Mesh(ringGeo3, ringMat);
+        const ring = new THREE.Mesh(ringGeo2, ringMat);
         ring.position.y = 0.02;
         mesh.add(ring);
         mesh.position.set(spawn.x, 0, spawn.z);
@@ -6728,12 +7968,12 @@ function rebuildLevelMarkers() {
     const wireframe = new THREE.LineSegments(edgesGeo, lineMat);
     wireframe.position.y = o.h / 2;
     group.add(wireframe);
-    const ringGeo3 = new THREE.RingGeometry(
+    const ringGeo2 = new THREE.RingGeometry(
       selected ? 0.6 : 0.5,
       selected ? 0.85 : 0.7,
       16
     );
-    ringGeo3.rotateX(-Math.PI / 2);
+    ringGeo2.rotateX(-Math.PI / 2);
     const ringMat = new THREE.MeshBasicMaterial({
       color: selected ? 4521864 : 6728447,
       transparent: true,
@@ -6741,7 +7981,7 @@ function rebuildLevelMarkers() {
       side: THREE.DoubleSide,
       depthWrite: false
     });
-    const ring = new THREE.Mesh(ringGeo3, ringMat);
+    const ring = new THREE.Mesh(ringGeo2, ringMat);
     ring.position.y = 0.03;
     group.add(ring);
     group.position.set(o.x, 0, o.z);
@@ -6752,8 +7992,8 @@ function rebuildLevelMarkers() {
     const p = PITS[i];
     const selected = isPitSelected && levelState.selectedIdx === i;
     const group = new THREE.Group();
-    const planeGeo2 = new THREE.PlaneGeometry(p.w, p.d);
-    const edgesGeo = new THREE.EdgesGeometry(planeGeo2);
+    const planeGeo = new THREE.PlaneGeometry(p.w, p.d);
+    const edgesGeo = new THREE.EdgesGeometry(planeGeo);
     const lineMat = new THREE.LineBasicMaterial({
       color: selected ? 16729258 : 16729190,
       linewidth: 1
@@ -6762,12 +8002,12 @@ function rebuildLevelMarkers() {
     wireframe.rotation.x = -Math.PI / 2;
     wireframe.position.y = 0.1;
     group.add(wireframe);
-    const ringGeo3 = new THREE.RingGeometry(
+    const ringGeo2 = new THREE.RingGeometry(
       selected ? 0.6 : 0.5,
       selected ? 0.85 : 0.7,
       16
     );
-    ringGeo3.rotateX(-Math.PI / 2);
+    ringGeo2.rotateX(-Math.PI / 2);
     const ringMat = new THREE.MeshBasicMaterial({
       color: selected ? 16729258 : 16729190,
       transparent: true,
@@ -6775,7 +8015,7 @@ function rebuildLevelMarkers() {
       side: THREE.DoubleSide,
       depthWrite: false
     });
-    const ring = new THREE.Mesh(ringGeo3, ringMat);
+    const ring = new THREE.Mesh(ringGeo2, ringMat);
     ring.position.y = 0.03;
     group.add(ring);
     group.position.set(p.x, 0, p.z);
@@ -8123,248 +9363,6 @@ function injectStyles2() {
   document.head.appendChild(style);
 }
 
-// src/engine/particles.ts
-var HIT_SPARK = {
-  count: 5,
-  lifetime: 0.25,
-  speed: 6,
-  spread: Math.PI * 0.8,
-  size: 0.06,
-  color: 16777130,
-  fadeOut: true,
-  gravity: 4,
-  shape: "box"
-};
-var DEATH_PUFF = {
-  count: 8,
-  lifetime: 0.4,
-  speed: 3,
-  spread: Math.PI,
-  size: 0.08,
-  color: 16777215,
-  // will be overridden with enemy color
-  fadeOut: true,
-  gravity: 1,
-  shape: "sphere"
-};
-var DASH_TRAIL = {
-  count: 3,
-  lifetime: 0.3,
-  speed: 1.5,
-  spread: Math.PI * 0.3,
-  size: 0.05,
-  color: 4521864,
-  fadeOut: true,
-  gravity: 0,
-  shape: "box"
-};
-var SHIELD_BREAK_BURST = {
-  count: 10,
-  lifetime: 0.35,
-  speed: 8,
-  spread: Math.PI,
-  size: 0.07,
-  color: 8974079,
-  fadeOut: true,
-  gravity: 3,
-  shape: "box"
-};
-var PUSH_BURST = {
-  count: 4,
-  lifetime: 0.2,
-  speed: 5,
-  spread: Math.PI * 0.5,
-  size: 0.05,
-  color: 4521898,
-  fadeOut: true,
-  gravity: 2,
-  shape: "box"
-};
-var CHARGE_BLAST = {
-  count: 12,
-  lifetime: 0.3,
-  speed: 10,
-  spread: Math.PI * 0.4,
-  size: 0.08,
-  color: 4521898,
-  fadeOut: true,
-  gravity: 2,
-  shape: "sphere"
-};
-var POOL_SIZE2 = 80;
-var pool2 = [];
-var sceneRef8 = null;
-var boxGeo = null;
-var sphereGeo = null;
-function initParticles(scene2) {
-  sceneRef8 = scene2;
-  boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  sphereGeo = new THREE.SphereGeometry(0.5, 4, 3);
-  for (let i = 0; i < POOL_SIZE2; i++) {
-    const mat = new THREE.MeshBasicMaterial({
-      color: 16777215,
-      transparent: true,
-      opacity: 1,
-      depthWrite: false
-    });
-    const mesh = new THREE.Mesh(boxGeo, mat);
-    mesh.visible = false;
-    scene2.add(mesh);
-    pool2.push({
-      mesh,
-      active: false,
-      life: 0,
-      maxLife: 1,
-      vx: 0,
-      vy: 0,
-      vz: 0,
-      gravity: 0,
-      fadeOut: true,
-      material: mat,
-      baseScale: 1
-    });
-  }
-  wireEventBus2();
-}
-function burst(position, config, direction) {
-  if (!sceneRef8) return;
-  const y = position.y ?? 0.5;
-  for (let i = 0; i < config.count; i++) {
-    const p = acquireParticle();
-    if (!p) break;
-    p.mesh.geometry = config.shape === "sphere" ? sphereGeo : boxGeo;
-    const s = config.size * (0.7 + Math.random() * 0.6);
-    p.mesh.scale.set(s, s, s);
-    p.baseScale = s;
-    p.material.color.setHex(config.color);
-    p.material.opacity = 1;
-    p.mesh.position.set(
-      position.x + (Math.random() - 0.5) * 0.1,
-      y + (Math.random() - 0.5) * 0.1,
-      position.z + (Math.random() - 0.5) * 0.1
-    );
-    let vx, vy, vz;
-    if (direction) {
-      const angle = Math.atan2(direction.x, direction.z) + (Math.random() - 0.5) * config.spread;
-      const elevAngle = (Math.random() - 0.3) * config.spread * 0.5;
-      vx = Math.sin(angle) * Math.cos(elevAngle);
-      vy = Math.sin(elevAngle) + Math.random() * 0.3;
-      vz = Math.cos(angle) * Math.cos(elevAngle);
-    } else {
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.random() * config.spread;
-      vx = Math.sin(phi) * Math.cos(theta);
-      vy = Math.cos(phi) * 0.5 + Math.random() * 0.5;
-      vz = Math.sin(phi) * Math.sin(theta);
-    }
-    const speed = config.speed * (0.6 + Math.random() * 0.8);
-    p.vx = vx * speed;
-    p.vy = vy * speed;
-    p.vz = vz * speed;
-    p.gravity = config.gravity;
-    p.fadeOut = config.fadeOut;
-    p.life = 0;
-    p.maxLife = config.lifetime * (0.7 + Math.random() * 0.6);
-    p.active = true;
-    p.mesh.visible = true;
-  }
-}
-function updateParticles(dt) {
-  for (const p of pool2) {
-    if (!p.active) continue;
-    p.life += dt;
-    if (p.life >= p.maxLife) {
-      p.active = false;
-      p.mesh.visible = false;
-      continue;
-    }
-    p.vy -= p.gravity * dt;
-    p.mesh.position.x += p.vx * dt;
-    p.mesh.position.y += p.vy * dt;
-    p.mesh.position.z += p.vz * dt;
-    if (p.mesh.position.y < 0.02) {
-      p.mesh.position.y = 0.02;
-      p.vy = 0;
-      p.vx *= 0.8;
-      p.vz *= 0.8;
-    }
-    if (p.fadeOut) {
-      const t = p.life / p.maxLife;
-      p.material.opacity = 1 - t * t;
-    }
-    const lifeRatio = p.life / p.maxLife;
-    if (lifeRatio > 0.7) {
-      const shrink = 1 - (lifeRatio - 0.7) / 0.3;
-      p.mesh.scale.setScalar(p.baseScale * shrink);
-    }
-  }
-}
-function acquireParticle() {
-  for (const p of pool2) {
-    if (!p.active) return p;
-  }
-  return null;
-}
-function clearParticles() {
-  for (const p of pool2) {
-    p.active = false;
-    p.mesh.visible = false;
-  }
-}
-function wireEventBus2() {
-  on("enemyHit", (e) => {
-    if (e.type === "enemyHit") {
-      burst(
-        { x: e.position.x, y: 0.5, z: e.position.z },
-        HIT_SPARK
-      );
-    }
-  });
-  on("enemyDied", (e) => {
-    if (e.type === "enemyDied") {
-      const color = e.enemy.config?.color ?? DEATH_PUFF.color;
-      burst(
-        { x: e.position.x, y: 0.4, z: e.position.z },
-        { ...DEATH_PUFF, color }
-      );
-    }
-  });
-  on("playerDash", (e) => {
-    if (e.type === "playerDash") {
-      burst(
-        { x: e.position.x, y: 0.4, z: e.position.z },
-        DASH_TRAIL,
-        { x: -e.direction.x, z: -e.direction.z }
-      );
-    }
-  });
-  on("shieldBreak", (e) => {
-    if (e.type === "shieldBreak") {
-      burst(
-        { x: e.position.x, y: 0.6, z: e.position.z },
-        SHIELD_BREAK_BURST
-      );
-    }
-  });
-  on("chargeFired", (e) => {
-    if (e.type === "chargeFired") {
-      burst(
-        { x: e.position.x, y: 0.5, z: e.position.z },
-        { ...CHARGE_BLAST, count: Math.round(6 + e.chargeT * 6) },
-        { x: e.direction.x, z: e.direction.z }
-      );
-    }
-  });
-  on("enemyPushed", (e) => {
-    if (e.type === "enemyPushed") {
-      burst(
-        { x: e.position.x, y: 0.3, z: e.position.z },
-        PUSH_BURST
-      );
-    }
-  });
-}
-
 // src/engine/game.ts
 var gameState = {
   phase: "waiting",
@@ -8379,6 +9377,7 @@ var gameState = {
   }
 };
 var lastTime = 0;
+var hitPauseTimer = 0;
 function gameLoop(timestamp) {
   requestAnimationFrame(gameLoop);
   if (gameState.phase === "waiting") {
@@ -8400,14 +9399,21 @@ function gameLoop(timestamp) {
   lastTime = timestamp;
   dt = Math.min(dt, 0.05);
   if (dt <= 0) return;
+  if (hitPauseTimer > 0) {
+    hitPauseTimer -= dt * 1e3;
+    getRendererInstance().render(getScene(), getCamera());
+    return;
+  }
   updateInput();
   autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
   updatePlayer(input, dt, gameState);
   updateProjectiles(dt);
-  updateWaveRunner(dt, gameState);
+  updateRoomManager(dt, gameState);
   updateEnemies(dt, getPlayerPos(), gameState);
   checkCollisions(gameState);
+  applyVelocities(dt, gameState);
+  resolveEnemyCollisions(gameState);
   checkPitFalls(gameState);
   updateEffectGhosts(dt);
   updateParticles(dt);
@@ -8437,17 +9443,9 @@ function restart() {
   gameState.abilities.ultimate.activeRemaining = 0;
   gameState.abilities.ultimate.charging = false;
   gameState.abilities.ultimate.chargeT = 0;
-  clearEnemies(gameState);
-  releaseAllProjectiles();
   resetPlayer();
-  clearDamageNumbers();
-  clearAoeTelegraphs();
-  clearMortarProjectiles();
-  clearIcePatches();
-  clearEffectGhosts();
-  clearParticles();
-  resetWaveRunner();
-  startWave(0, gameState);
+  resetRoomManager();
+  loadRoom(0, gameState);
 }
 function init() {
   try {
@@ -8460,9 +9458,12 @@ function init() {
     initEnemySystem(scene2);
     initMortarSystem(scene2);
     initAoeTelegraph(scene2);
-    initWaveRunner(scene2);
+    initRoomManager();
     initAudio();
     initParticles(scene2);
+    on("meleeHit", () => {
+      hitPauseTimer = MELEE.hitPause;
+    });
     initHUD();
     initDamageNumbers();
     initTuningPanel();
@@ -8471,7 +9472,7 @@ function init() {
       resumeAudio();
       gameState.phase = "playing";
       document.getElementById("hud").style.visibility = "visible";
-      startWave(0, gameState);
+      loadRoom(0, gameState);
       lastTime = performance.now();
     });
     document.getElementById("hud").style.visibility = "hidden";

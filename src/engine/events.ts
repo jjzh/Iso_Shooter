@@ -17,7 +17,13 @@ export type GameEvent =
   | { type: 'shieldBreak'; enemy: any; position: { x: number; z: number } }
   | { type: 'chargeFired'; chargeT: number; direction: { x: number; z: number }; position: { x: number; z: number } }
   | { type: 'enemyPushed'; enemy: any; position: { x: number; z: number } }
-  | { type: 'pitFall'; position: { x: number; z: number }; isPlayer: boolean };
+  | { type: 'pitFall'; position: { x: number; z: number }; isPlayer: boolean }
+  | { type: 'meleeSwing'; position: { x: number; z: number }; direction: { x: number; z: number } }
+  | { type: 'meleeHit'; enemy: any; damage: number; position: { x: number; z: number } }
+  | { type: 'roomCleared'; roomIndex: number }
+  | { type: 'enemyMeleeTelegraph'; position: { x: number; z: number }; facingAngle: number; hitArc: number; hitRange: number; duration: number }
+  | { type: 'wallSlam'; enemy: any; speed: number; damage: number; position: { x: number; z: number } }
+  | { type: 'enemyImpact'; enemyA: any; enemyB: any; speed: number; damage: number; position: { x: number; z: number } };
 
 // ─── Bus Implementation ───
 

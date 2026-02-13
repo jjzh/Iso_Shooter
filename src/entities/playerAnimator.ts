@@ -52,7 +52,7 @@ export const C = {
 
 // ─── Animation State ───
 
-export type AnimState = 'idle' | 'run' | 'dash' | 'endLag';
+export type AnimState = 'idle' | 'run' | 'dash' | 'endLag' | 'swing';
 
 export interface AnimatorState {
   currentState: AnimState;
@@ -136,7 +136,9 @@ export function updateAnimation(
   aimAngle: number,
   isDashing: boolean,
   isInEndLag: boolean,
-  dashProgress: number
+  dashProgress: number,
+  isSwinging: boolean = false,
+  swingProgress: number = 0
 ): void {
   anim.time += dt;
 
@@ -153,14 +155,21 @@ export function updateAnimation(
     if (anim.currentState !== 'endLag') {
       transitionTo(anim, 'endLag', 0); // instant
     }
+  } else if (isSwinging) {
+    if (anim.currentState !== 'swing') {
+      transitionTo(anim, 'swing', 0); // instant
+    }
+    anim.dashT = swingProgress; // reuse dashT for swing progress
   } else if (isMoving) {
     if (anim.currentState !== 'run') {
-      const blend = anim.currentState === 'endLag' ? C.endLagToNormalBlend : C.idleToRunBlend;
+      const blend = anim.currentState === 'endLag' || anim.currentState === 'swing'
+        ? C.endLagToNormalBlend : C.idleToRunBlend;
       transitionTo(anim, 'run', blend / 1000);
     }
   } else {
     if (anim.currentState !== 'idle') {
-      const blend = anim.currentState === 'endLag' ? C.endLagToNormalBlend : C.runToIdleBlend;
+      const blend = anim.currentState === 'endLag' || anim.currentState === 'swing'
+        ? C.endLagToNormalBlend : C.runToIdleBlend;
       transitionTo(anim, 'idle', blend / 1000);
     }
   }
@@ -191,6 +200,7 @@ export function updateAnimation(
     case 'run':   applyRun(joints, anim, dt, inputState); break;
     case 'dash':  applyDash(joints, anim); break;
     case 'endLag': applyEndLag(joints, anim); break;
+    case 'swing': applySwing(joints, anim); break;
   }
 
   // ─── Upper/Lower Body Separation ───
@@ -427,4 +437,56 @@ function applyEndLag(joints: PlayerJoints, anim: AnimatorState) {
   // Arms settle forward
   joints.upperArmL.rotation.x = -0.2 * (1 - ease);
   joints.upperArmR.rotation.x = -0.2 * (1 - ease);
+}
+
+// ─── Melee Swing Pose ───
+
+function applySwing(joints: PlayerJoints, anim: AnimatorState) {
+  const t = clamp(anim.dashT, 0, 1); // dashT reused for swing progress
+
+  // Two sub-phases: wind-up (0-0.3), follow-through (0.3-1.0)
+  if (t < 0.3) {
+    // WIND-UP — coil back, brief preparation
+    const subT = t / 0.3;
+    const ease = easeOutQuad(subT);
+
+    // Right arm winds back
+    joints.upperArmR.rotation.x = 0.4 * ease;    // pull back
+    joints.upperArmR.rotation.z = -0.3 * ease;    // out to side
+    joints.lowerArmR.rotation.x = -0.6 * ease;    // elbow bent
+
+    // Left arm guards
+    joints.upperArmL.rotation.x = -0.2 * ease;
+    joints.lowerArmL.rotation.x = -0.3 * ease;
+
+    // Torso coils opposite to swing
+    joints.torso.rotation.y = -0.25 * ease;
+
+    // Slight crouch
+    joints.rigRoot.rotation.x = 0.06 * ease;
+  } else {
+    // FOLLOW-THROUGH — explosive sweep across body
+    const subT = (t - 0.3) / 0.7;
+    const ease = easeOutQuad(subT);
+
+    // Right arm sweeps forward and across
+    joints.upperArmR.rotation.x = 0.4 + (-1.0 - 0.4) * ease;   // -1.0: fully forward
+    joints.upperArmR.rotation.z = -0.3 + (0.5 + 0.3) * ease;    // 0.5: across body
+    joints.lowerArmR.rotation.x = -0.6 + (0.6 - 0.2) * ease;    // extend arm
+
+    // Left arm sweeps back for counterbalance
+    joints.upperArmL.rotation.x = -0.2 + (0.3 + 0.2) * ease;
+    joints.lowerArmL.rotation.x = -0.3 + (-0.2 + 0.3) * ease;
+
+    // Torso twists through — big rotation sells the swing
+    joints.torso.rotation.y = -0.25 + (0.45 + 0.25) * ease;
+
+    // Forward lean intensifies then settles
+    const leanCurve = subT < 0.5 ? easeOutQuad(subT * 2) : 1 - easeOutQuad((subT - 0.5) * 2);
+    joints.rigRoot.rotation.x = 0.06 + 0.08 * leanCurve;
+
+    // Front leg plants, back leg braces
+    joints.thighL.rotation.x = 0.2 * ease;
+    joints.thighR.rotation.x = -0.15 * ease;
+  }
 }

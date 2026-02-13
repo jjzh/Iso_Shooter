@@ -9,6 +9,7 @@ const inputState = {
   aimWorldPos: { x: 0, y: 0, z: 0 },
   mouseNDC: { x: 0, y: 0 },
   dash: false,
+  attack: false,
   ultimate: false,
   ultimateHeld: false,
   toggleEditor: false,
@@ -59,6 +60,13 @@ export function initInput() {
     inputState.mouseNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
     inputState.mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
     usingGamepad = false;
+  });
+
+  window.addEventListener('mousedown', (e) => {
+    if (e.button === 0) { // left click
+      inputState.attack = true;
+      usingGamepad = false;
+    }
   });
 
   // Gamepad connect/disconnect
@@ -290,6 +298,7 @@ export function updateInput() {
 
 export function consumeInput() {
   inputState.dash = false;
+  inputState.attack = false;
   inputState.ultimate = false;
   inputState.toggleEditor = false;
 }

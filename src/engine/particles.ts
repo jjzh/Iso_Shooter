@@ -5,6 +5,7 @@
 
 import { on } from './events';
 import type { GameEvent } from './events';
+import { MELEE } from '../config/player';
 
 // ─── Config Types ───
 
@@ -94,6 +95,30 @@ export const CHARGE_BLAST: ParticleConfig = {
   shape: 'sphere',
 };
 
+export const ENEMY_IMPACT_SPARK: ParticleConfig = {
+  count: 6,
+  lifetime: 0.25,
+  speed: 5,
+  spread: Math.PI,
+  size: 0.06,
+  color: 0xffaa44,
+  fadeOut: true,
+  gravity: 4,
+  shape: 'sphere',
+};
+
+export const WALL_SLAM_SPARK: ParticleConfig = {
+  count: 8,
+  lifetime: 0.3,
+  speed: 7,
+  spread: Math.PI * 0.6,
+  size: 0.07,
+  color: 0xff8844,
+  fadeOut: true,
+  gravity: 5,
+  shape: 'box',
+};
+
 // ─── Pool ───
 
 const POOL_SIZE = 80;
@@ -151,8 +176,201 @@ export function initParticles(scene: any): void {
     });
   }
 
+  // Init arc decal pools
+  initArcDecals(scene);
+  initEnemyArcDecals(scene);
+
   // Subscribe to events
   wireEventBus();
+}
+
+// ─── Melee Arc Decal Pool ───
+
+const ARC_DECAL_POOL_SIZE = 3;
+const ARC_DECAL_LIFETIME = 0.25; // seconds
+
+interface ArcDecal {
+  mesh: any;       // THREE.Mesh
+  active: boolean;
+  life: number;    // seconds elapsed
+}
+
+const arcDecalPool: ArcDecal[] = [];
+let arcDecalGeo: any = null;
+
+function initArcDecals(scene: any): void {
+  // CircleGeometry(radius, segments, thetaStart, thetaLength) creates a sector
+  // thetaStart is in the XY plane. After rotateX(-PI/2), XY→XZ.
+  // Default arc center at thetaStart=0 points along +X. We offset by +PI/2
+  // so the arc center points along +Y (pre-rotation) = +Z (post-rotation),
+  // which aligns with Three.js rotation.y convention.
+  arcDecalGeo = new THREE.CircleGeometry(1, 24, Math.PI / 2 - MELEE.arc / 2, MELEE.arc);
+  arcDecalGeo.rotateX(-Math.PI / 2); // lay flat on ground
+
+  for (let i = 0; i < ARC_DECAL_POOL_SIZE; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(arcDecalGeo, mat);
+    mesh.visible = false;
+    scene.add(mesh);
+
+    arcDecalPool.push({ mesh, active: false, life: 0 });
+  }
+}
+
+function spawnArcDecal(x: number, z: number, dirX: number, dirZ: number): void {
+  // Find inactive decal in pool
+  let decal: ArcDecal | null = null;
+  for (const d of arcDecalPool) {
+    if (!d.active) { decal = d; break; }
+  }
+  if (!decal) return; // pool exhausted
+
+  decal.active = true;
+  decal.life = 0;
+  decal.mesh.visible = true;
+  decal.mesh.position.set(x, 0.05, z);
+
+  // Scale to match current melee range
+  const r = MELEE.range;
+  decal.mesh.scale.set(r * 0.3, 1, r * 0.3); // start small, will grow
+
+  // Rotate to face swing direction
+  // direction = { -sin(angle), -cos(angle) } from player.ts
+  // Recover the original rotation.y angle: atan2(-dirX, -dirZ)
+  // Arc geometry is pre-rotated so its center aligns with +Z (rotation.y = 0)
+  decal.mesh.rotation.y = Math.atan2(-dirX, -dirZ);
+
+  decal.mesh.material.opacity = 0.4;
+}
+
+function updateArcDecals(dt: number): void {
+  for (const d of arcDecalPool) {
+    if (!d.active) continue;
+
+    d.life += dt;
+    if (d.life >= ARC_DECAL_LIFETIME) {
+      d.active = false;
+      d.mesh.visible = false;
+      continue;
+    }
+
+    const t = d.life / ARC_DECAL_LIFETIME;
+    // easeOutQuad
+    const ease = 1 - (1 - t) * (1 - t);
+
+    // Scale: 0.3 → 1.0 of melee range
+    const r = MELEE.range;
+    const s = r * (0.3 + 0.7 * ease);
+    d.mesh.scale.set(s, 1, s);
+
+    // Opacity: 0.4 → 0
+    d.mesh.material.opacity = 0.4 * (1 - ease);
+  }
+}
+
+function clearArcDecals(): void {
+  for (const d of arcDecalPool) {
+    d.active = false;
+    d.mesh.visible = false;
+  }
+}
+
+// ─── Enemy Telegraph Arc Decal Pool ───
+
+const ENEMY_ARC_POOL_SIZE = 6;  // up to 6 simultaneous enemy telegraphs
+
+interface EnemyArcDecal {
+  mesh: any;       // THREE.Mesh
+  active: boolean;
+  life: number;    // seconds elapsed
+  maxLife: number;  // total duration (telegraph + attack)
+}
+
+const enemyArcPool: EnemyArcDecal[] = [];
+
+function initEnemyArcDecals(scene: any): void {
+  for (let i = 0; i < ENEMY_ARC_POOL_SIZE; i++) {
+    // Start with a placeholder geometry — replaced per-spawn with correct arc/range
+    const geo = new THREE.CircleGeometry(1, 24, 0, Math.PI);
+    geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xff4400,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.visible = false;
+    scene.add(mesh);
+
+    enemyArcPool.push({ mesh, active: false, life: 0, maxLife: 1 });
+  }
+}
+
+function spawnEnemyArcDecal(x: number, z: number, facingAngle: number, hitArc: number, hitRange: number, durationMs: number): void {
+  // Find inactive decal in pool
+  let decal: EnemyArcDecal | null = null;
+  for (const d of enemyArcPool) {
+    if (!d.active) { decal = d; break; }
+  }
+  if (!decal) return;
+
+  // Replace geometry with correct arc shape for this enemy
+  // CircleGeometry arc is in XY plane, centered on +X axis
+  // Offset by PI/2 so arc center aligns with +Z (matches rotation.y convention)
+  const newGeo = new THREE.CircleGeometry(hitRange, 24, Math.PI / 2 - hitArc / 2, hitArc);
+  newGeo.rotateX(-Math.PI / 2);
+  decal.mesh.geometry.dispose();
+  decal.mesh.geometry = newGeo;
+
+  decal.active = true;
+  decal.life = 0;
+  decal.maxLife = durationMs / 1000;
+  decal.mesh.visible = true;
+  decal.mesh.position.set(x, 0.05, z);
+  decal.mesh.scale.set(1, 1, 1);
+  decal.mesh.rotation.set(0, facingAngle, 0);
+  decal.mesh.material.opacity = 0.35;
+}
+
+function updateEnemyArcDecals(dt: number): void {
+  for (const d of enemyArcPool) {
+    if (!d.active) continue;
+
+    d.life += dt;
+    if (d.life >= d.maxLife) {
+      d.active = false;
+      d.mesh.visible = false;
+      continue;
+    }
+
+    const t = d.life / d.maxLife;
+
+    // Pulsing opacity during telegraph, then fade in last 20%
+    if (t < 0.8) {
+      // Pulse between 0.2 and 0.35
+      const pulse = 0.275 + 0.075 * Math.sin(d.life * 12);
+      d.mesh.material.opacity = pulse;
+    } else {
+      // Fade out in last 20%
+      const fadeT = (t - 0.8) / 0.2;
+      d.mesh.material.opacity = 0.35 * (1 - fadeT);
+    }
+  }
+}
+
+function clearEnemyArcDecals(): void {
+  for (const d of enemyArcPool) {
+    d.active = false;
+    d.mesh.visible = false;
+  }
 }
 
 // ─── Burst API ───
@@ -224,6 +442,9 @@ export function burst(
 // ─── Update ───
 
 export function updateParticles(dt: number): void {
+  updateArcDecals(dt);
+  updateEnemyArcDecals(dt);
+
   for (const p of pool) {
     if (!p.active) continue;
 
@@ -277,6 +498,8 @@ export function clearParticles(): void {
     p.active = false;
     p.mesh.visible = false;
   }
+  clearArcDecals();
+  clearEnemyArcDecals();
 }
 
 // ─── Event Bus Integration ───
@@ -336,6 +559,46 @@ function wireEventBus(): void {
       burst(
         { x: e.position.x, y: 0.3, z: e.position.z },
         PUSH_BURST
+      );
+    }
+  });
+
+  on('meleeSwing', (e: GameEvent) => {
+    if (e.type === 'meleeSwing') {
+      burst(
+        { x: e.position.x, y: 0.6, z: e.position.z },
+        { ...DASH_TRAIL, count: 2, speed: 3, lifetime: 0.15, color: 0xffffff },
+        { x: e.direction.x, z: e.direction.z }
+      );
+      // Ground arc decal showing melee hit area
+      spawnArcDecal(e.position.x, e.position.z, e.direction.x, e.direction.z);
+    }
+  });
+
+  on('wallSlam', (e: GameEvent) => {
+    if (e.type === 'wallSlam') {
+      burst(
+        { x: e.position.x, y: 0.3, z: e.position.z },
+        { ...WALL_SLAM_SPARK, count: Math.round(4 + (e.speed / 5) * 4) }
+      );
+    }
+  });
+
+  on('enemyImpact', (e: GameEvent) => {
+    if (e.type === 'enemyImpact') {
+      burst(
+        { x: e.position.x, y: 0.4, z: e.position.z },
+        { ...ENEMY_IMPACT_SPARK, count: Math.round(3 + (e.speed / 5) * 3) }
+      );
+    }
+  });
+
+  on('enemyMeleeTelegraph', (e: GameEvent) => {
+    if (e.type === 'enemyMeleeTelegraph') {
+      spawnEnemyArcDecal(
+        e.position.x, e.position.z,
+        e.facingAngle, e.hitArc, e.hitRange,
+        e.duration
       );
     }
   });

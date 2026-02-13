@@ -1,7 +1,6 @@
-import { PLAYER } from '../config/player';
+import { PLAYER, MELEE } from '../config/player';
 import { ABILITIES } from '../config/abilities';
 import { screenShake, getScene } from '../engine/renderer';
-import { fireProjectile } from './projectile';
 import { getAbilityDirOverride, clearAbilityDirOverride } from '../engine/input';
 import { getIceEffects } from './mortarProjectile';
 import { emit } from '../engine/events';
@@ -14,7 +13,14 @@ let playerGroup: any, aimIndicator: any;
 let rig: PlayerRig;
 let animState: AnimatorState;
 const playerPos = new THREE.Vector3(0, 0, 0);
-let lastFireTime = 0;
+
+// Melee state
+let meleeSwinging = false;
+let meleeCooldownTimer = 0;  // ms remaining until next swing allowed
+let meleeSwingTimer = 0;     // ms into current swing (for animation)
+const MELEE_SWING_DURATION = 200; // ms — how long the swing animation plays
+const meleeHitEnemies: Set<any> = new Set(); // track which enemies were hit this swing (multi-hit)
+let meleeSwingDir = 0;        // angle of the swing (radians)
 
 // Dash state
 let isDashing = false;
@@ -40,9 +46,6 @@ let chargeTelegraphGroup: any = null;
 let chargeFillMesh: any = null;
 let chargeBorderMesh: any = null;
 let chargeBorderGeo: any = null;
-
-// Reusable vector for auto-fire direction
-const _fireDir = new THREE.Vector3();
 
 // Original emissive colors (used for charge glow reset)
 const DEFAULT_EMISSIVE = 0x22aa66;
@@ -163,22 +166,68 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     playerGroup.rotation.y,
     isDashing,
     endLagTimer > 0,
-    isDashing ? Math.min(dashTimer / dashDuration, 1) : 0
+    isDashing ? Math.min(dashTimer / dashDuration, 1) : 0,
+    meleeSwinging,
+    meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0
   );
 
-  // === AUTO-FIRE ===
-  const dashCfg = ABILITIES.dash;
-  const canShoot = (!isDashing || dashCfg.canShootDuring) && !isCharging;
+  // === MELEE COOLDOWN ===
+  if (meleeCooldownTimer > 0) {
+    meleeCooldownTimer -= dt * 1000;
+  }
 
-  if (canShoot && now - lastFireTime > PLAYER.fireRate) {
-    _fireDir.set(
-      -Math.sin(playerGroup.rotation.y),
-      0,
-      -Math.cos(playerGroup.rotation.y)
-    );
+  // === MELEE SWING UPDATE ===
+  if (meleeSwinging) {
+    meleeSwingTimer += dt * 1000;
+    if (meleeSwingTimer >= MELEE_SWING_DURATION) {
+      meleeSwinging = false;
+      meleeSwingTimer = 0;
+    }
+  }
 
-    fireProjectile(playerPos, _fireDir, { speed: PLAYER.projectile.speed, damage: PLAYER.projectile.damage, color: PLAYER.projectile.color }, false);
-    lastFireTime = now;
+  // === MELEE ATTACK (left click) ===
+  if (inputState.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging) {
+    // Auto-targeting: snap aim to nearest enemy within cone before swinging
+    const enemies = gameState.enemies;
+    if (enemies) {
+      let bestDist = MELEE.autoTargetRange * MELEE.autoTargetRange;
+      let bestEnemy: any = null;
+      const aimAngle = playerGroup.rotation.y;
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e.health <= 0 || e.fellInPit) continue;
+        const dx = e.pos.x - playerPos.x;
+        const dz = e.pos.z - playerPos.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq > bestDist) continue;
+        // Check if within auto-target arc
+        const angleToEnemy = Math.atan2(-dx, -dz);
+        let angleDiff = angleToEnemy - aimAngle;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        if (Math.abs(angleDiff) <= MELEE.autoTargetArc / 2) {
+          bestDist = distSq;
+          bestEnemy = e;
+        }
+      }
+      if (bestEnemy) {
+        const dx = bestEnemy.pos.x - playerPos.x;
+        const dz = bestEnemy.pos.z - playerPos.z;
+        playerGroup.rotation.y = Math.atan2(-dx, -dz);
+      }
+    }
+
+    meleeSwinging = true;
+    meleeSwingTimer = 0;
+    meleeCooldownTimer = MELEE.cooldown;
+    meleeHitEnemies.clear();
+    meleeSwingDir = playerGroup.rotation.y;
+
+    emit({
+      type: 'meleeSwing',
+      position: { x: playerPos.x, z: playerPos.z },
+      direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) },
+    });
   }
 
   updateAfterimages(dt);
@@ -516,6 +565,11 @@ function removeChargeTelegraph() {
   }
 }
 
+// === MELEE PUBLIC API ===
+export function isMeleeSwinging() { return meleeSwinging; }
+export function getMeleeSwingDir() { return meleeSwingDir; }
+export function getMeleeHitEnemies() { return meleeHitEnemies; }
+
 // === PUBLIC API ===
 export function getPlayerPos() { return playerPos; }
 export function getPlayerGroup() { return playerGroup; }
@@ -534,7 +588,10 @@ export function resetPlayer() {
   isDashing = false;
   isInvincible = false;
   endLagTimer = 0;
-  lastFireTime = 0;
+  meleeSwinging = false;
+  meleeCooldownTimer = 0;
+  meleeSwingTimer = 0;
+  meleeHitEnemies.clear();
   isCharging = false;
   chargeTimer = 0;
   pushEvent = null;
@@ -548,4 +605,9 @@ export function resetPlayer() {
     scene.remove(ai.mesh);
   }
   afterimages.length = 0;
+}
+
+export function setPlayerPosition(x: number, z: number) {
+  playerPos.set(x, 0, z);
+  playerGroup.position.set(x, 0, z);
 }

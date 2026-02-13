@@ -1,20 +1,21 @@
 import { initRenderer, updateCamera, getScene, getRendererInstance, getCamera } from './renderer';
 import { initInput, updateInput, consumeInput, getInputState, autoAimClosestEnemy } from './input';
 import { createPlayer, updatePlayer, getPlayerPos, resetPlayer } from '../entities/player';
-import { initProjectilePool, updateProjectiles, releaseAllProjectiles } from '../entities/projectile';
-import { initEnemySystem, updateEnemies, clearEnemies } from '../entities/enemy';
-import { initMortarSystem, updateMortarProjectiles, clearMortarProjectiles, updateIcePatches, clearIcePatches } from '../entities/mortarProjectile';
-import { initWaveRunner, updateWaveRunner, startWave, resetWaveRunner } from './waveRunner';
-import { checkCollisions, checkPitFalls, updateEffectGhosts, clearEffectGhosts } from './physics';
-import { initAoeTelegraph, updateAoeTelegraphs, updatePendingEffects, clearAoeTelegraphs } from './aoeTelegraph';
+import { initProjectilePool, updateProjectiles } from '../entities/projectile';
+import { initEnemySystem, updateEnemies } from '../entities/enemy';
+import { initMortarSystem, updateMortarProjectiles, updateIcePatches } from '../entities/mortarProjectile';
+import { initRoomManager, loadRoom, updateRoomManager, resetRoomManager } from './roomManager';
+import { checkCollisions, checkPitFalls, updateEffectGhosts, applyVelocities, resolveEnemyCollisions } from './physics';
+import { initAoeTelegraph, updateAoeTelegraphs, updatePendingEffects } from './aoeTelegraph';
 import { initHUD, updateHUD } from '../ui/hud';
 import { initScreens, showGameOver, hideScreens } from '../ui/screens';
-import { initDamageNumbers, updateDamageNumbers, clearDamageNumbers } from '../ui/damageNumbers';
+import { initDamageNumbers, updateDamageNumbers } from '../ui/damageNumbers';
 import { initTuningPanel } from '../ui/tuning';
 import { initSpawnEditor, checkEditorToggle, updateSpawnEditor, isEditorActive } from '../ui/spawnEditor';
 import { initAudio, resumeAudio } from './audio';
-import { initParticles, updateParticles, clearParticles } from './particles';
-import { PLAYER } from '../config/player';
+import { initParticles, updateParticles } from './particles';
+import { PLAYER, MELEE } from '../config/player';
+import { on } from './events';
 import { applyUrlParams, snapshotDefaults } from './urlParams';
 import { GameState } from '../types/index';
 
@@ -32,6 +33,7 @@ const gameState: GameState = {
 };
 
 let lastTime = 0;
+let hitPauseTimer = 0; // ms remaining — freeze frame on melee hit
 
 function gameLoop(timestamp: number): void {
   requestAnimationFrame(gameLoop);
@@ -60,6 +62,13 @@ function gameLoop(timestamp: number): void {
 
   if (dt <= 0) return;
 
+  // Hit pause (freeze frame on melee hit)
+  if (hitPauseTimer > 0) {
+    hitPauseTimer -= dt * 1000;
+    getRendererInstance().render(getScene(), getCamera());
+    return;
+  }
+
   // 1. Input
   updateInput();
   autoAimClosestEnemy(gameState.enemies);
@@ -71,14 +80,20 @@ function gameLoop(timestamp: number): void {
   // 3. Projectiles
   updateProjectiles(dt);
 
-  // 4. Wave Runner
-  updateWaveRunner(dt, gameState);
+  // 4. Room Manager (replaces wave runner)
+  updateRoomManager(dt, gameState);
 
   // 5. Enemies
   updateEnemies(dt, getPlayerPos(), gameState);
 
   // 6. Collisions
   checkCollisions(gameState);
+
+  // 6a. Physics velocities (knockback sliding, wall slam detection)
+  applyVelocities(dt, gameState);
+
+  // 6a2. Enemy-enemy collision (separation + momentum transfer)
+  resolveEnemyCollisions(gameState);
 
   // 6b. Pit falls
   checkPitFalls(gameState);
@@ -136,18 +151,9 @@ function restart(): void {
   gameState.abilities.ultimate.charging = false;
   gameState.abilities.ultimate.chargeT = 0;
 
-  clearEnemies(gameState);
-  releaseAllProjectiles();
   resetPlayer();
-  clearDamageNumbers();
-  clearAoeTelegraphs();
-  clearMortarProjectiles();
-  clearIcePatches();
-  clearEffectGhosts();
-  clearParticles();
-  resetWaveRunner();
-
-  startWave(0, gameState);
+  resetRoomManager();
+  loadRoom(0, gameState);
 }
 
 function init(): void {
@@ -163,9 +169,14 @@ function init(): void {
     initEnemySystem(scene);
     initMortarSystem(scene);
     initAoeTelegraph(scene);
-    initWaveRunner(scene);
+    initRoomManager();
     initAudio();
     initParticles(scene);
+
+    // Melee hit pause — subscribe to meleeHit event
+    on('meleeHit', () => {
+      hitPauseTimer = MELEE.hitPause;
+    });
     initHUD();
     initDamageNumbers();
     initTuningPanel();
@@ -174,7 +185,7 @@ function init(): void {
       resumeAudio(); // AudioContext requires user gesture to start
       gameState.phase = 'playing';
       document.getElementById('hud')!.style.visibility = 'visible';
-      startWave(0, gameState);
+      loadRoom(0, gameState);
       lastTime = performance.now();
     });
 
