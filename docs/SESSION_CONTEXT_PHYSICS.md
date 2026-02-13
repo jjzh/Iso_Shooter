@@ -234,4 +234,248 @@ Jeff tunes values via sliders during play. Claude sets reasonable defaults.
 
 ---
 
-*Generated from explore/hades session, February 2026*
+*Generated from explore/hades physics session, February 2026*
+
+---
+---
+
+# Part 2: Design Exploration & Thesis Development
+
+> Captures how Jeff works during open-ended design exploration — idea generation, thesis refinement, convergent decision-making, and the transition from abstract thinking to concrete build plans. Appended to provide full session context.
+
+---
+
+## The Two Modes Jeff Operates In
+
+The physics section above documents execution mode. This section documents **exploration mode** — the earlier part of the session where Jeff was developing ideas, not building code.
+
+### Exploration Mode (~First 60% of Session)
+
+Jeff is thinking out loud. He doesn't have a clear goal yet — he's circling around ideas, testing framings, looking for the thing that clicks. Signals:
+
+- Long voice-dictated messages with topic shifts
+- Hypothetical examples ("imagine if the game imported your Spotify...")
+- Reference to other games as inspiration, not specification
+- Questions framed as "what if" rather than "how do I"
+- Explicit requests to challenge or push back
+
+**What Claude should do:**
+- Match Jeff's energy — explore broadly, don't converge prematurely
+- Offer frameworks and framings, not solutions
+- Push back genuinely (Jeff explicitly asks for this)
+- Capture ideas in durable artifacts — Jeff's best thinking happens verbally and will be lost without documentation
+- Identify when Jeff says something important that he hasn't fully articulated yet, and help him crystallize it
+
+**What Claude should NOT do:**
+- Jump to implementation ("let me create a file for that")
+- Treat exploration as a decision that needs to be made
+- Present options as if Jeff needs to choose right now
+- Lose track of ideas that came up early — Jeff circles back to them
+
+### Transition Signals
+
+The transition from exploration to execution happened across Messages 8-10:
+
+- **Message 8:** "I think my instinct is to get to a Hades-like state first" (directional convergence)
+- **Message 9:** Specific decisions: hand-coded rooms, pure melee, one room sufficient (scoping convergence)
+- **Message 10:** "Let's just start" (execution signal)
+
+**Signals that Jeff is transitioning:**
+- Messages get shorter
+- Hedging language ("I think", "maybe") disappears
+- Specific choices stated as facts
+- Explicit "let's go" or "let's start"
+
+**What Claude should do at the transition:**
+1. Confirm the scope (repeat back what's in and out)
+2. Present a structured build plan
+3. Ask if the plan needs adjustment (one last chance for exploration)
+4. Switch to execution mode — todo list, implement, test, build
+
+---
+
+## How Ideas Evolve in Conversation
+
+### The Generative Surface Arc
+
+This is the most instructive example of how Jeff develops ideas through dialogue:
+
+**Stage 1 — Raw intuition** (Message 1):
+> "One of the things that I want to explore more with this project is the idea of generative surfaces... This idea of a surface that actually generates different outcomes for gameplay from person to person — not because of a skill variable, but because of a context variable."
+
+Jeff knows he's onto something but can't define it precisely yet. He uses examples to triangulate: D&D character backstory, importing a song that changes game mechanics, photographing a bridge that becomes a level.
+
+**Stage 2 — Naming and framing** (Claude response):
+Claude provided the term "exogenous context" and categorized different sources (temporal, environmental, social, creative, behavioral). This gave Jeff vocabulary to work with.
+
+**Stage 3 — Sharpening through contradiction** (Message 4):
+> "Build convergence is a really interesting thing for me... the idea of the game giving you a neutral power level and then the external context is what pushes you into temporary strength."
+
+Jeff takes the framework and runs with it — but he's not just accepting it. He's stress-testing: does exogenous context actually solve the build convergence problem? His answer: only if it creates *temporary* advantages, not permanent ones.
+
+**Stage 4 — Practical grounding** (Message 7):
+> "The generative surface can be faked... just faking the data... Some of these things are interesting to talk about but I'm not sure they would actually feel more fun."
+
+Jeff pulls back from the abstract to the concrete: cool ideas need to be testable. The prototyping version of a generative surface is just hard-coded presets that simulate different external contexts.
+
+**Stage 5 — Separation of concerns** (Message 7):
+> "I think the game needs BOTH a gameplay twist AND a generative twist... the game itself needs to feel different to play."
+
+The final crystallization: generative surfaces are a *structural* innovation (run-to-run variety), but the game still needs a *moment-to-moment* innovation (gameplay twist). These are separate problems with separate solutions.
+
+### Pattern: Ideas Arrive as Metaphors, Not Specifications
+
+Jeff's most important ideas come wrapped in metaphors or examples:
+
+| What Jeff said | What he meant |
+|---|---|
+| "Like D&D backstory" | Player identity should mechanically matter, not just be cosmetic |
+| "Import your Spotify playlist" | External personal data creates unique gameplay variants |
+| "Photograph a bridge" | Physical environment becomes game content |
+| "Like a wave" (physics session) | Force propagates and is absorbed, not attenuated |
+| "Neutral power + external context = temporary strength" | Exogenous modifiers should create fleeting advantages, not permanent builds |
+
+**Lesson for skill authoring:** When Jeff uses a metaphor, unpack the intended *interaction* (what the player experiences) before proposing an *implementation* (what the code does). The metaphor carries design intent that a literal interpretation would miss.
+
+---
+
+## The Steelmanning Pattern
+
+Jeff explicitly asks Claude to argue against its own proposals. This happened twice:
+
+### Instance 1: "Steelman against each one of your suggested steps"
+
+Claude proposed a 5-step Phase 1 plan. Jeff said:
+
+> "I want you to steelman against each one of your suggested steps and then come to me with a revised plan."
+
+The steelmanning produced real improvements:
+- **Room system:** Originally proposed as a new parallel system -> steelmanned to "extend existing arena config" (simpler, reuses code)
+- **Door visuals:** Originally included -> steelmanned to "auto-transition, no doors" (avoids visual design decisions that don't matter yet)
+- **Melee animation:** Originally proposed as elaborate -> steelmanned to "minimal, generous arc" (feel over fidelity)
+
+### What This Means for Skill Authoring
+
+Build "challenge your own plan" as a default step in the workflow. Before presenting a plan to Jeff:
+1. Write the plan
+2. Argue against each point — what's over-engineered? What's missing? What's solving the wrong problem?
+3. Revise based on the counterarguments
+4. Present the *revised* plan with the steelman reasoning visible
+
+Jeff trusts recommendations more when he can see they survived scrutiny.
+
+---
+
+## The "Genre Is Scaffolding" Reframing
+
+This was the single most important conceptual shift in the session. It happened in Message 2:
+
+> "The prototypes aren't about remaking Hades or remaking a souls-like... the genre is scaffolding. The twist is what you're evaluating."
+
+**Implications for every future session:**
+- Every task should connect back to "what twist are we evaluating?"
+- Don't over-invest in genre scaffolding — it exists to support the twist
+- If the scaffolding doesn't feel good enough to evaluate a twist on, that's a valid finding (iterate on scaffolding)
+- If the scaffolding is "good enough," stop building scaffolding and start building the twist
+
+---
+
+## Phasing as Decision Management
+
+Jeff arrived at a 3-phase structure that manages complexity:
+
+```
+Phase 1: Genre scaffolding (build the minimum shell)
+Phase 2: Gameplay twist (moment-to-moment feel innovation)
+Phase 3: Generative twist (run-to-run structural innovation)
+```
+
+Each phase has a clear question:
+- Phase 1: "Does the base loop feel good enough to evaluate twists on?"
+- Phase 2: "Does the gameplay twist change how combat feels?"
+- Phase 3: "Does the generative twist change how runs feel different from each other?"
+
+**Why this matters for skill authoring:** Jeff doesn't want to answer all questions simultaneously. He sequences them so each decision is made with the right context. Don't jump ahead to Phase 2 questions while building Phase 1.
+
+---
+
+## How Jeff Evaluates Ideas
+
+### The Feasibility Filter
+When presented with 7 generative twist candidates, Jeff immediately sorted by "can I test this in a browser game?" Not theoretical elegance or originality — practical testability.
+
+### The "Interesting to Talk About vs. Fun to Play" Test
+> "Some of these things are interesting to talk about but I'm not sure they would actually feel more fun when played."
+
+Jeff is wary of ideas that sound clever in conversation but don't translate to moment-to-moment gameplay feel. The test is: if I hard-code this and play it, would I notice a difference?
+
+### The "Two Questions" Framework
+For any proposed mechanic:
+1. Does it change what the player *does*? (gameplay twist)
+2. Does it change what the player *decides*? (generative twist)
+
+If a mechanic only changes flavor/cosmetics without changing actions or decisions, it's not worth prototyping.
+
+---
+
+## Interaction Anti-Patterns to Avoid
+
+### 1. Presenting Choices Without Context
+**Anti-pattern:** "Do you want a room system or a level system?"
+**Better:** "Here's what each optimizes for [table], here's my recommendation given your prototyping goals, here's when I'd change the recommendation."
+
+### 2. Converging Too Early
+**Anti-pattern:** Jeff says "I'm interested in generative surfaces" -> Claude immediately proposes an implementation
+**Better:** Explore the design space. What are the categories? What are the reference points? What are the cursed problems? THEN converge.
+
+### 3. Treating Exploration as a Decision Point
+**Anti-pattern:** "Which of these 5 twists should we build?" (when Jeff is still exploring)
+**Better:** Present the space, help Jeff develop criteria for choosing, wait for his signal that he's ready to decide.
+
+### 4. Losing Ideas
+**Anti-pattern:** Jeff mentions "parallel/interleaved runs" in passing -> it never comes up again
+**Better:** Capture it in the design doc even if it's not immediately actionable. Jeff's passing ideas often become central later.
+
+### 5. Over-Specifying Before Playtesting
+**Anti-pattern:** Detailed spec for every parameter before any code exists
+**Better:** Set reasonable defaults, expose everything in the tuning panel, let Jeff's playtesting drive the values.
+
+---
+
+## Durable Artifacts Strategy
+
+Jeff explicitly requested that design thinking be captured in markdown, not lost in chat:
+
+> "I want some of these thoughts saved in more robust format"
+
+**Artifacts produced this session:**
+
+| Document | Purpose | Lives where |
+|---|---|---|
+| `PROTOTYPE_THESIS.md` | Top-level map across all prototypes | `docs/` on main |
+| `DESIGN_EXPLORATION.md` | All design ideas, twist candidates, pairing matrices | `docs/` on main |
+| `HANDOFF_TEMPLATE.md` | Template for new prototype branches | `docs/` on main |
+| `HANDOFF.md` | Current state of explore/hades | branch root |
+| This document | How Jeff works (implementation + exploration) | `docs/` on branch |
+
+**Rule:** Every significant design conversation should produce or update a durable doc. The doc should capture not just the decisions but the reasoning and alternatives considered.
+
+---
+
+## Summary: Two Modes Compared
+
+| Dimension | Design Exploration | Implementation |
+|---|---|---|
+| **Jeff's mode** | Exploratory, circling, refining | Directive, testing, iterating |
+| **Message length** | Long, stream-of-consciousness | Short, bundled feedback |
+| **Claude's role** | Thought partner, framework provider | Implementer, diagnostician |
+| **Output type** | Documents, frameworks, candidate lists | Code, tests, config values |
+| **Quality signal** | "That framing clicks" / "That's interesting" | "That feels good" / "That doesn't work" |
+| **Risk** | Losing ideas, converging too early | Breaking gameplay, stale builds |
+| **Key skill** | Patience — let Jeff explore | Speed — build, test, iterate |
+
+Both modes are essential. A prototype session often starts in exploration mode and transitions to execution mode. The skill should support both, recognizing the transition signals.
+
+---
+
+*Appended from explore/hades design exploration session, February 2026*
