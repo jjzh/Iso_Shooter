@@ -8,6 +8,8 @@ import { ABILITIES } from '../config/abilities';
 import { PHYSICS } from '../config/physics';
 import { C as ANIM } from '../entities/playerAnimator';
 import { AUDIO_CONFIG, setMasterVolume } from '../engine/audio';
+import { SPAWN_CONFIG } from '../config/spawn';
+import { DOOR_CONFIG } from '../config/door';
 import { buildShareUrl } from '../engine/urlParams';
 
 // ─── Slider Section Definitions ───
@@ -275,6 +277,34 @@ const SECTIONS: SliderSection[] = [
         unit: '', tip: 'Melee swing whoosh volume.' },
       { label: 'Melee Hit',     config: () => AUDIO_CONFIG,  key: 'meleeHitVolume',     min: 0,    max: 1,   step: 0.05,
         unit: '', tip: 'Melee hit thump volume.' },
+    ]
+  },
+  {
+    section: 'Spawn Pacing',
+    collapsed: true,
+    items: [
+      { label: 'Telegraph Dur',     config: () => SPAWN_CONFIG, key: 'telegraphDuration',  min: 500,  max: 3000, step: 100,
+        unit: 'ms', tip: 'How long spawn warnings show before enemies appear.' },
+      { label: 'Spawn Cooldown',    config: () => SPAWN_CONFIG, key: 'spawnCooldown',      min: 200,  max: 2000, step: 100,
+        unit: 'ms', tip: 'Minimum delay between consecutive pack dispatches.' },
+      { label: 'Max Conc. Mult',    config: () => SPAWN_CONFIG, key: 'maxConcurrentMult',  min: 0.5,  max: 2,    step: 0.1,
+        unit: '', tip: 'Multiplier on max concurrent enemies (affects all rooms).' },
+      { label: 'Ahead Dist Min',    config: () => SPAWN_CONFIG, key: 'spawnAheadMin',      min: 3,    max: 15,   step: 1,
+        unit: 'u', tip: 'Min distance ahead of player to spawn enemies.' },
+      { label: 'Ahead Dist Max',    config: () => SPAWN_CONFIG, key: 'spawnAheadMax',      min: 8,    max: 25,   step: 1,
+        unit: 'u', tip: 'Max distance ahead of player to spawn enemies.' },
+    ]
+  },
+  {
+    section: 'Door',
+    collapsed: true,
+    items: [
+      { label: 'Unlock Duration',   config: () => DOOR_CONFIG,  key: 'unlockDuration',     min: 300,  max: 2000, step: 100,
+        unit: 'ms', tip: 'Door unlock animation duration.' },
+      { label: 'Interact Radius',   config: () => DOOR_CONFIG,  key: 'interactRadius',     min: 1,    max: 4,    step: 0.5,
+        unit: 'u', tip: 'How close player must be to enter door.' },
+      { label: 'Rest Pause',        config: () => DOOR_CONFIG,  key: 'restPause',          min: 500,  max: 5000, step: 500,
+        unit: 'ms', tip: 'How long before rest room door opens.' },
     ]
   },
 ];

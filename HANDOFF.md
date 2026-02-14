@@ -43,23 +43,22 @@ None identified yet for Phase 1. Phase 2/3 will add this. See `docs/DESIGN_EXPLO
 ## Branch Info
 - **Branch:** `explore/hades`
 - **Forked from:** `main`
-- **Last updated:** 2026-02-12
+- **Last updated:** 2026-02-13
 
 ## Current State
-**Phase 1 COMPLETE + Physics system implemented. Ready for combat tuning.**
+**Phase 1 COMPLETE + Room & Spawn Rework COMPLETE. Ready for playtesting.**
 
-The full action roguelike loop is functional with a physics-first combat system:
+The full action roguelike loop is functional with a physics-first combat system and a reworked room/spawn system:
 - Click-to-attack melee with generous arc, auto-targeting, hit pause
-- 4 enemy types reworked with telegraph → attack → recovery state machines
-- 2 hand-coded rooms with distinct layouts and escalating difficulty
-- Room clear → 1.5s pause → auto-transition to next room
-- Death → restart at room 1
-- **Physics-based knockback** — all forces go through velocity system (no teleport)
-- **Wall slam** — enemies take damage + stun when knocked into walls at speed
-- **Enemy-enemy collision** — mass-weighted separation + momentum transfer + impact damage
-- **Force push wave occlusion** — push wave stops at first enemies, back enemies get bowled into
-- **Pit falls from knockback** — force push can knock enemies into pits
-- All 509 automated tests passing, clean typecheck, clean build
+- 4 enemy types with telegraph → attack → recovery state machines (all used)
+- **5 rectangular rooms** with escalating difficulty — player enters from one end, progresses forward
+- **Incremental pack spawning** — enemies spawn in groups of 2-3 with telegraphs, escalating pressure
+- **Door system** — physical door at far wall unlocks on room clear, player walks through to transition
+- **Rest room** (Room 4) — heals player, door auto-opens after brief pause
+- **Victory room** (Room 5) — empty celebration, boss designed separately
+- **Ice Mortar Imp** integrated into Room 3 for area denial variety
+- Physics-based knockback, wall slam, enemy collision, force push wave occlusion, pit falls
+- All 552 automated tests passing, clean typecheck, clean build
 
 ## Phase 1 Build Plan — COMPLETED
 
@@ -162,12 +161,29 @@ The full action roguelike loop is functional with a physics-first combat system:
 - **Physics system** (velocity, wall slam, enemy collision, wave occlusion) — general-purpose for any action prototype
 
 ## What To Do Next
-1. **Playtest combat feel** — focus on force push bowling, wall slams, pit kills
-2. **Tune physics values** — friction, wall slam damage/stun, impact thresholds, wave block radius (all in tuning panel)
-3. **Tune enemy feel** — adjust MOB_GLOBAL multipliers (telegraph/recovery timing is critical for the punish loop)
-4. **Evaluate scaffolding** — does the base loop feel good enough to layer a twist on top?
-5. **If yes:** choose twist candidate from `docs/DESIGN_EXPLORATION.md`, start Phase 2
-6. **If no:** identify what's missing and iterate on Phase 1
+1. **Playtest the new room flow** — walk through all 5 rooms, check spawn pacing and escalation
+2. **Tune spawn pacing** — use "Spawn Pacing" tuning section (telegraph duration, cooldown, max concurrent multiplier, spawn distances)
+3. **Tune door feel** — use "Door" tuning section (unlock duration, interact radius, rest pause)
+4. **Camera check** — verify isometric camera handles the longer rectangular rooms well, adjust frustum if needed
+5. **Tune enemy feel** — adjust MOB_GLOBAL multipliers for each room's encounter pacing
+6. **Evaluate scaffolding** — does the 5-room loop feel good enough to layer a twist on top?
+7. **Design boss encounter** — Room 5 is currently empty; design the golem boss fight separately
+8. **If ready for twist:** choose from `docs/DESIGN_EXPLORATION.md`, start Phase 2
+
+## Systems Added (Room & Spawn Rework Session)
+- **Rectangular arena** (`src/config/arena.ts`) — `ARENA_HALF_X` + `ARENA_HALF_Z` for different width vs depth. `setArenaConfig` accepts both dimensions.
+- **Incremental spawn system** (`src/engine/roomManager.ts`) — pack dispatch algorithm. Enemies spawn in groups of 2-3 with telegraphs. Escalating pressure: `maxConcurrent` controls ceiling, kills open slots for new packs.
+- **Spawn position resolver** (`src/engine/roomManager.ts`) — dynamic position resolution based on `spawnZone` (ahead/sides/far/behind) relative to player position. Validates against obstacles and pits.
+- **Door system** (`src/engine/door.ts`) — physical door at far wall (+Z). States: locked → unlocking (animation) → open. Player walks within `interactRadius` to trigger transition.
+- **Door audio** (`src/engine/audio.ts: playDoorUnlock`) — 4-note ascending arpeggio on room clear
+- **Door particles** (`src/engine/particles.ts: DOOR_UNLOCK_BURST`) — upward blue-white burst on door unlock
+- **Heal audio** (`src/engine/audio.ts: playHeal`) — warm ascending tone on rest room entry
+- **Spawn config** (`src/config/spawn.ts`) — tunable: telegraphDuration, spawnCooldown, maxConcurrentMult, spawnAheadMin/Max
+- **Door config** (`src/config/door.ts`) — tunable: unlockDuration, interactRadius, restPause
+- **5 room definitions** (`src/config/rooms.ts`) — The Approach (goblins), The Crossfire (+ archers), The Crucible (+ imps), The Respite (rest), The Throne (victory)
+- **New types** (`src/types/index.ts`) — `SpawnPack`, `RoomSpawnBudget`, `SpawnZone`
+- **New events** (`src/engine/events.ts`) — `roomClearComplete`, `doorUnlocked`, `doorEntered`, `spawnPackTelegraph`, `spawnPackSpawned`, `restRoomEntered`, `playerHealed`
+- **Telegraph: imp type** (`src/engine/telegraph.ts`) — added `iceMortarImp` geometry (sphere) + label
 
 ## Systems Added (Physics Session)
 - **Velocity knockback** (`src/engine/physics.ts: applyVelocities`) — enemies get velocity vectors, friction decelerates to zero, stepped substeps prevent wall tunneling
@@ -185,3 +201,4 @@ The full action roguelike loop is functional with a physics-first combat system:
 - **2026-02-12** — Started Phase 1. Added MELEE config, left-click input wiring, and melee swing trigger with event bus emission. Removed auto-fire projectile from player.
 - **2026-02-12** — Completed Phase 1 (all 5 steps). Melee combat with hit detection, auto-targeting, animation, audio. Enemy rework with telegraph/attack/recovery state machines, MOB_GLOBAL multipliers, archer real projectile. Room system with 2 rooms, auto-transition, death restart. 395 tests passing, clean build.
 - **2026-02-12** — Physics session. Built velocity knockback, wall slam, enemy-enemy collision, force push wave occlusion, pit falls from knockback. Removed melee knockback (competing with force push). Committed to pure velocity (pushInstantRatio=0, no teleport). 509 tests passing, clean build. Session context captured in `docs/SESSION_CONTEXT_PHYSICS.md`.
+- **2026-02-13** — Room & spawn rework. Rectangular arena (ARENA_HALF_X/Z), 5 rooms with escalating difficulty, incremental pack spawn system with telegraphs, door system with unlock animation + audio + particles, rest room (heal to full), victory room. Added ice mortar imp to Room 3. New tuning sections: "Spawn Pacing" and "Door". New configs: `spawn.ts`, `door.ts`. New file: `door.ts`. Rewrote `roomManager.ts` with pack dispatch algorithm. 552 tests passing, clean build.

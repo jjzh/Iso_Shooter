@@ -1,4 +1,4 @@
-import { OBSTACLES, PITS, ARENA_HALF, WALL_THICKNESS, WALL_HEIGHT } from '../config/arena';
+import { OBSTACLES, PITS, ARENA_HALF_X, ARENA_HALF_Z, WALL_THICKNESS, WALL_HEIGHT } from '../config/arena';
 
 let scene: any, camera: any, renderer: any;
 const baseFrustum = 12;
@@ -54,16 +54,17 @@ export function initRenderer() {
   rimLight.position.set(-10, 5, -10);
   scene.add(rimLight);
 
-  // Ground
+  // Ground — sized generously so it covers any room shape
+  const groundSize = 120;
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(60, 60),
+    new THREE.PlaneGeometry(groundSize, groundSize),
     new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.9, metalness: 0.1 })
   );
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
   // Grid overlay
-  const grid = new THREE.GridHelper(60, 30, 0x2a4a4a, 0x1a2a3a);
+  const grid = new THREE.GridHelper(groundSize, 60, 0x2a4a4a, 0x1a2a3a);
   grid.position.y = 0.01;
   scene.add(grid);
 
@@ -125,23 +126,23 @@ function createObstacles() {
     roughness: 0.8
   });
 
-  // North/South walls
+  // North/South walls (span arena width)
   for (const zSign of [-1, 1]) {
     const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(ARENA_HALF * 2 + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS),
+      new THREE.BoxGeometry(ARENA_HALF_X * 2 + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS),
       wallMat
     );
-    wall.position.set(0, WALL_HEIGHT / 2, zSign * ARENA_HALF);
+    wall.position.set(0, WALL_HEIGHT / 2, zSign * ARENA_HALF_Z);
     scene.add(wall);
     wallMeshes.push(wall);
   }
-  // East/West walls
+  // East/West walls (span arena depth)
   for (const xSign of [-1, 1]) {
     const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, ARENA_HALF * 2 + WALL_THICKNESS),
+      new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, ARENA_HALF_Z * 2 + WALL_THICKNESS),
       wallMat
     );
-    wall.position.set(xSign * ARENA_HALF, WALL_HEIGHT / 2, 0);
+    wall.position.set(xSign * ARENA_HALF_X, WALL_HEIGHT / 2, 0);
     scene.add(wall);
     wallMeshes.push(wall);
   }

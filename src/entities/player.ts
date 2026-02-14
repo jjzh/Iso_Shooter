@@ -1,5 +1,6 @@
 import { PLAYER, MELEE } from '../config/player';
 import { ABILITIES } from '../config/abilities';
+import { ARENA_HALF_X, ARENA_HALF_Z } from '../config/arena';
 import { screenShake, getScene } from '../engine/renderer';
 import { getAbilityDirOverride, clearAbilityDirOverride } from '../engine/input';
 import { getIceEffects } from './mortarProjectile';
@@ -148,9 +149,11 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
 
   }
 
-  // Arena clamp
-  playerPos.x = Math.max(-19.5, Math.min(19.5, playerPos.x));
-  playerPos.z = Math.max(-19.5, Math.min(19.5, playerPos.z));
+  // Arena clamp — 0.5 margin from walls (dynamic per room size)
+  const clampX = ARENA_HALF_X - 0.5;
+  const clampZ = ARENA_HALF_Z - 0.5;
+  playerPos.x = Math.max(-clampX, Math.min(clampX, playerPos.x));
+  playerPos.z = Math.max(-clampZ, Math.min(clampZ, playerPos.z));
 
   playerGroup.position.copy(playerPos);
 
@@ -304,9 +307,11 @@ function updateDash(dt: number, gameState: any) {
   playerPos.x += dashDir.x * dashDistance * easedT;
   playerPos.z += dashDir.z * dashDistance * easedT;
 
-  // Arena clamp during dash
-  playerPos.x = Math.max(-19.5, Math.min(19.5, playerPos.x));
-  playerPos.z = Math.max(-19.5, Math.min(19.5, playerPos.z));
+  // Arena clamp during dash — dynamic per room size
+  const dashClampX = ARENA_HALF_X - 0.5;
+  const dashClampZ = ARENA_HALF_Z - 0.5;
+  playerPos.x = Math.max(-dashClampX, Math.min(dashClampX, playerPos.x));
+  playerPos.z = Math.max(-dashClampZ, Math.min(dashClampZ, playerPos.z));
 
   // I-frame window
   isInvincible = cfg.invincible && (dashTimer >= cfg.iFrameStart && dashTimer <= cfg.iFrameEnd);

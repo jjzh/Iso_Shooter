@@ -1,85 +1,189 @@
 // Room definitions for the Hades prototype
-// Each room defines its own arena layout, obstacles, pits, and enemy spawns
-// Enemies spawn in waves — wave 2 spawns after wave 1 is cleared
+// Each room defines its own arena layout, obstacles, pits, and incremental spawn budget
+// Rooms are rectangular (longer on Z) — player enters from +Z (bottom-left in iso),
+// progresses toward -Z (top-right in iso), exits through a door at the far end
 
-import { Obstacle, Pit, SpawnEntry } from '../types/index';
+import { Obstacle, Pit, SpawnPack, RoomSpawnBudget } from '../types/index';
 
 export interface RoomDefinition {
   name: string;
-  arenaHalf: number;
+  arenaHalfX: number;
+  arenaHalfZ: number;
   obstacles: Obstacle[];
   pits: Pit[];
-  waves: SpawnEntry[][];   // each sub-array is a wave of spawns
+  spawnBudget: RoomSpawnBudget;
   playerStart: { x: number; z: number };
+  isRestRoom?: boolean;
+  isVictoryRoom?: boolean;
 }
 
+// ─── Helper: build packs of N enemies ───
+
+function pack(enemies: { type: string }[], zone: SpawnPack['spawnZone'] = 'ahead'): SpawnPack {
+  return { enemies, spawnZone: zone };
+}
+
+function goblins(n: number): { type: string }[] {
+  return Array.from({ length: n }, () => ({ type: 'goblin' }));
+}
+
+function archers(n: number): { type: string }[] {
+  return Array.from({ length: n }, () => ({ type: 'skeletonArcher' }));
+}
+
+function imps(n: number): { type: string }[] {
+  return Array.from({ length: n }, () => ({ type: 'iceMortarImp' }));
+}
+
+// ─── Room Definitions ───
+
 export const ROOMS: RoomDefinition[] = [
-  // ── Room 1: Small arena, introductory enemies ──
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 1: "The Approach" — goblins only, teach melee + dash
+  // Player enters at +Z (bottom-left in iso), progresses toward -Z (top-right)
+  // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'The Pit',
-    arenaHalf: 15,
+    name: 'The Approach',
+    arenaHalfX: 10,
+    arenaHalfZ: 22,
     obstacles: [
-      { x: -4, z: 4, w: 1.5, h: 2, d: 1.5 },   // pillar left
-      { x: 5, z: -3, w: 1.5, h: 2, d: 1.5 },    // pillar right
-      { x: 0, z: -8, w: 3, h: 1, d: 1 },         // low wall
+      { x: -4, z: 5, w: 1.5, h: 2, d: 1.5 },    // pillar left near entrance
+      { x: 4, z: -5, w: 1.5, h: 2, d: 1.5 },     // pillar right mid
+      { x: 0, z: -12, w: 3, h: 1, d: 1 },         // low wall far
     ],
     pits: [
-      { x: 7, z: 7, w: 4, d: 3 },                // corner pit
+      { x: 5, z: -8, w: 3, d: 3 },                // small pit mid-right (teaches force push)
     ],
-    waves: [
-      // Wave 1: 5 enemies (4 goblins + 1 archer)
-      [
-        { type: 'goblin', x: 8, z: 3 },
-        { type: 'goblin', x: -6, z: 5 },
-        { type: 'goblin', x: 3, z: -6 },
-        { type: 'goblin', x: -8, z: -4 },
-        { type: 'skeletonArcher', x: -10, z: -8 },
+    spawnBudget: {
+      maxConcurrent: 4,
+      telegraphDuration: 1500,
+      packs: [
+        // Start light: 2 goblins ahead
+        pack(goblins(2), 'ahead'),
+        pack(goblins(2), 'ahead'),
+        // Ramp up: 3 goblins, mix positions
+        pack(goblins(3), 'ahead'),
+        pack(goblins(3), 'sides'),
+        // One final push from far end
+        pack(goblins(2), 'far'),
       ],
-      // Wave 2: 5 enemies (more goblins + archer from different side)
-      [
-        { type: 'goblin', x: -8, z: 3 },
-        { type: 'goblin', x: 6, z: -5 },
-        { type: 'goblin', x: -3, z: 6 },
-        { type: 'goblin', x: 8, z: -4 },
-        { type: 'skeletonArcher', x: 10, z: 8 },
-      ],
-    ],
-    playerStart: { x: 0, z: 0 },
+    },
+    playerStart: { x: 0, z: 18 },
   },
 
-  // ── Room 2: Medium arena, mixed enemies ──
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 2: "The Crossfire" — goblins + archers, introduce ranged pressure
+  // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'The Gauntlet',
-    arenaHalf: 18,
+    name: 'The Crossfire',
+    arenaHalfX: 12,
+    arenaHalfZ: 24,
     obstacles: [
-      { x: 6, z: 6, w: 2, h: 1.5, d: 2 },       // pillar NE
-      { x: -6, z: 6, w: 2, h: 1.5, d: 2 },       // pillar NW
-      { x: 0, z: -5, w: 1.5, h: 2.5, d: 1.5 },   // tall pillar center-south
-      { x: 10, z: -8, w: 3, h: 1, d: 1 },         // low wall east
+      { x: -6, z: 0, w: 2, h: 2, d: 2 },         // cover pillar left
+      { x: 6, z: 0, w: 2, h: 2, d: 2 },           // cover pillar right
+      { x: 0, z: -10, w: 4, h: 1.5, d: 1 },       // mid wall (toward far/exit end)
+      { x: -3, z: 10, w: 1.5, h: 2, d: 1.5 },     // pillar near entrance
     ],
     pits: [
-      { x: -8, z: 0, w: 3, d: 6 },               // long vertical pit west
-      { x: 8, z: 4, w: 4, d: 3 },                 // pit east
-      { x: 0, z: 12, w: 6, d: 2.5 },              // pit north
+      { x: -8, z: -8, w: 3, d: 4 },               // pit left mid (toward exit)
+      { x: 8, z: 5, w: 3, d: 3 },                  // pit right near entrance
     ],
-    waves: [
-      // Wave 1: 5 enemies (3 goblins + archer + golem)
-      [
-        { type: 'goblin', x: 10, z: 5 },
-        { type: 'goblin', x: -10, z: 8 },
-        { type: 'goblin', x: 5, z: -10 },
-        { type: 'skeletonArcher', x: -12, z: -10 },
-        { type: 'stoneGolem', x: 0, z: 10 },
+    spawnBudget: {
+      maxConcurrent: 5,
+      telegraphDuration: 1500,
+      packs: [
+        // Intro: goblins rush
+        pack(goblins(2), 'ahead'),
+        // Archer appears far back
+        pack([...archers(1), ...goblins(1)], 'far'),
+        // More melee pressure
+        pack(goblins(3), 'ahead'),
+        // Flanking archers
+        pack(archers(2), 'sides'),
+        // Mixed push
+        pack([...goblins(2), ...archers(1)], 'ahead'),
+        // Final rush
+        pack(goblins(3), 'sides'),
       ],
-      // Wave 2: 5 enemies (more goblins + archer + golem from different positions)
-      [
-        { type: 'goblin', x: -10, z: -5 },
-        { type: 'goblin', x: 10, z: -8 },
-        { type: 'goblin', x: -5, z: 10 },
-        { type: 'skeletonArcher', x: 12, z: 10 },
-        { type: 'stoneGolem', x: -10, z: -10 },
-      ],
+    },
+    playerStart: { x: 0, z: 20 },
+  },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 3: "The Crucible" — full mix with imps, area denial
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: 'The Crucible',
+    arenaHalfX: 13,
+    arenaHalfZ: 25,
+    obstacles: [
+      { x: -5, z: 8, w: 2, h: 2, d: 2 },         // pillar near entrance left
+      { x: 5, z: 8, w: 2, h: 2, d: 2 },           // pillar near entrance right
+      { x: 0, z: -5, w: 1.5, h: 2.5, d: 1.5 },   // tall center pillar
+      { x: -8, z: -10, w: 3, h: 1, d: 1 },        // low wall far left
+      { x: 8, z: -10, w: 3, h: 1, d: 1 },         // low wall far right
     ],
-    playerStart: { x: 0, z: -3 },
+    pits: [
+      { x: 0, z: 3, w: 5, d: 3 },                 // central pit (forces flanking)
+      { x: -9, z: -15, w: 3, d: 4 },              // far left pit
+      { x: 9, z: -15, w: 3, d: 4 },               // far right pit
+    ],
+    spawnBudget: {
+      maxConcurrent: 6,
+      telegraphDuration: 1500,
+      packs: [
+        // Start with melee rush
+        pack(goblins(3), 'ahead'),
+        // Introduce ranged
+        pack([...archers(1), ...goblins(1)], 'far'),
+        // First imp — area denial begins
+        pack([...imps(1), ...goblins(1)], 'sides'),
+        // Melee wave to push player into imp zones
+        pack(goblins(3), 'ahead'),
+        // More imps + archer
+        pack([...imps(1), ...archers(1)], 'far'),
+        // Heavy mixed final push
+        pack([...goblins(2), ...imps(1)], 'ahead'),
+        pack([...archers(1), ...goblins(1)], 'sides'),
+      ],
+    },
+    playerStart: { x: 0, z: 21 },
+  },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 4: "The Respite" — rest room, heal to full
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: 'The Respite',
+    arenaHalfX: 8,
+    arenaHalfZ: 12,
+    obstacles: [],
+    pits: [],
+    spawnBudget: {
+      maxConcurrent: 0,
+      telegraphDuration: 0,
+      packs: [],
+    },
+    playerStart: { x: 0, z: 8 },
+    isRestRoom: true,
+  },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 5: "The Throne" — victory room (boss designed separately)
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: 'The Throne',
+    arenaHalfX: 10,
+    arenaHalfZ: 10,
+    obstacles: [],
+    pits: [],
+    spawnBudget: {
+      maxConcurrent: 0,
+      telegraphDuration: 0,
+      packs: [],
+    },
+    playerStart: { x: 0, z: 6 },
+    isVictoryRoom: true,
   },
 ];

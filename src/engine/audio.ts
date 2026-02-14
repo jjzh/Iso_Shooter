@@ -432,6 +432,47 @@ export function playEnemyImpact(intensity: number = 1): void {
   noise.stop(now + duration);
 }
 
+// Door unlock: ascending 4-note arpeggio (more dramatic than wave clear)
+export function playDoorUnlock(): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const notes = [392, 523, 659, 784]; // G4, C5, E5, G5
+  const noteLen = 0.18;
+
+  notes.forEach((freq, i) => {
+    const osc = ctx!.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    const gain = ctx!.createGain();
+    const start = now + i * 0.1;
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(AUDIO_CONFIG.waveClearVolume * 0.35, start + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + noteLen);
+    osc.connect(gain);
+    gain.connect(masterGain!);
+    osc.start(start);
+    osc.stop(start + noteLen);
+  });
+}
+
+// Player healed: warm ascending tone
+export function playHeal(): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(330, now);
+  osc.frequency.linearRampToValueAtTime(660, now + 0.4);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(0.2, now + 0.05);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + 0.5);
+}
+
 // ─── Event Bus Integration ───
 
 function wireEventBus(): void {
@@ -454,6 +495,10 @@ function wireEventBus(): void {
   on('waveCleared', () => playWaveClear());
 
   on('roomCleared', () => playWaveClear());
+
+  on('roomClearComplete', () => playDoorUnlock());
+
+  on('playerHealed', () => playHeal());
 
   on('meleeSwing', () => playMeleeSwing());
 

@@ -12,6 +12,7 @@ const inputState = {
   attack: false,
   ultimate: false,
   ultimateHeld: false,
+  interact: false,
   toggleEditor: false,
 };
 
@@ -49,6 +50,7 @@ export function initInput() {
     // Edge-triggered ability inputs
     if (e.code === 'Space') { inputState.dash = true; e.preventDefault(); }
     if (e.code === 'KeyE') inputState.ultimate = true;
+    if (e.code === 'KeyF' || e.code === 'Enter') inputState.interact = true;
     if (e.code === 'Backquote') inputState.toggleEditor = true;
   });
 
@@ -254,6 +256,11 @@ function pollGamepad() {
   if (ultBtn && !prevGamepadButtons.ult) inputState.ultimate = true;
   prevGamepadButtons.ult = !!ultBtn;
 
+  // Interact: Y button (3) — door interaction
+  const interactBtn = buttons[3] && buttons[3].pressed;
+  if (interactBtn && !prevGamepadButtons.interact) inputState.interact = true;
+  prevGamepadButtons.interact = !!interactBtn;
+
   // Ultimate held (for charge release detection)
   if (ultBtn) inputState.ultimateHeld = true;
 }
@@ -300,6 +307,7 @@ export function consumeInput() {
   inputState.dash = false;
   inputState.attack = false;
   inputState.ultimate = false;
+  inputState.interact = false;
   inputState.toggleEditor = false;
 }
 

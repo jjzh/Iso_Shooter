@@ -169,7 +169,7 @@ function init(): void {
     initEnemySystem(scene);
     initMortarSystem(scene);
     initAoeTelegraph(scene);
-    initRoomManager();
+    initRoomManager(scene);
     initAudio();
     initParticles(scene);
 

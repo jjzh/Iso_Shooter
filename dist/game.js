@@ -3,6 +3,8 @@ const THREE = window.THREE;
 const nipplejs = window.nipplejs;
 
 // src/config/arena.ts
+var ARENA_HALF_X = 20;
+var ARENA_HALF_Z = 20;
 var ARENA_HALF = 20;
 var OBSTACLES = [
   { x: 5, z: 9, w: 2, h: 1.5, d: 3 },
@@ -23,12 +25,14 @@ var PITS = [
   { x: -0.5, z: -7, w: 8.5, d: 2.5 },
   { x: 8, z: 0, w: 3, d: 9 }
 ];
-function setArenaConfig(obstacles, pits, arenaHalf) {
+function setArenaConfig(obstacles, pits, arenaHalfX, arenaHalfZ) {
   OBSTACLES.length = 0;
   obstacles.forEach((o) => OBSTACLES.push(o));
   PITS.length = 0;
   pits.forEach((p) => PITS.push(p));
-  ARENA_HALF = arenaHalf;
+  ARENA_HALF_X = arenaHalfX;
+  ARENA_HALF_Z = arenaHalfZ ?? arenaHalfX;
+  ARENA_HALF = ARENA_HALF_X;
 }
 function getPitBounds() {
   return PITS.map((p) => ({
@@ -48,12 +52,13 @@ function getCollisionBounds() {
       maxZ: o.z + o.d / 2
     });
   }
-  const h = ARENA_HALF;
+  const hx = ARENA_HALF_X;
+  const hz = ARENA_HALF_Z;
   const t = WALL_THICKNESS;
-  bounds.push({ minX: -h - t / 2, maxX: h + t / 2, minZ: h - t / 2, maxZ: h + t / 2 });
-  bounds.push({ minX: -h - t / 2, maxX: h + t / 2, minZ: -h - t / 2, maxZ: -h + t / 2 });
-  bounds.push({ minX: h - t / 2, maxX: h + t / 2, minZ: -h - t / 2, maxZ: h + t / 2 });
-  bounds.push({ minX: -h - t / 2, maxX: -h + t / 2, minZ: -h - t / 2, maxZ: h + t / 2 });
+  bounds.push({ minX: -hx - t / 2, maxX: hx + t / 2, minZ: hz - t / 2, maxZ: hz + t / 2 });
+  bounds.push({ minX: -hx - t / 2, maxX: hx + t / 2, minZ: -hz - t / 2, maxZ: -hz + t / 2 });
+  bounds.push({ minX: hx - t / 2, maxX: hx + t / 2, minZ: -hz - t / 2, maxZ: hz + t / 2 });
+  bounds.push({ minX: -hx - t / 2, maxX: -hx + t / 2, minZ: -hz - t / 2, maxZ: hz + t / 2 });
   return bounds;
 }
 
@@ -102,13 +107,14 @@ function initRenderer() {
   const rimLight = new THREE.DirectionalLight(4491519, 0.3);
   rimLight.position.set(-10, 5, -10);
   scene.add(rimLight);
+  const groundSize = 120;
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(60, 60),
+    new THREE.PlaneGeometry(groundSize, groundSize),
     new THREE.MeshStandardMaterial({ color: 1710638, roughness: 0.9, metalness: 0.1 })
   );
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
-  const grid = new THREE.GridHelper(60, 30, 2771530, 1714746);
+  const grid = new THREE.GridHelper(groundSize, 60, 2771530, 1714746);
   grid.position.y = 0.01;
   scene.add(grid);
   createObstacles();
@@ -157,19 +163,19 @@ function createObstacles() {
   });
   for (const zSign of [-1, 1]) {
     const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(ARENA_HALF * 2 + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS),
+      new THREE.BoxGeometry(ARENA_HALF_X * 2 + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS),
       wallMat
     );
-    wall.position.set(0, WALL_HEIGHT / 2, zSign * ARENA_HALF);
+    wall.position.set(0, WALL_HEIGHT / 2, zSign * ARENA_HALF_Z);
     scene.add(wall);
     wallMeshes.push(wall);
   }
   for (const xSign of [-1, 1]) {
     const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, ARENA_HALF * 2 + WALL_THICKNESS),
+      new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, ARENA_HALF_Z * 2 + WALL_THICKNESS),
       wallMat
     );
-    wall.position.set(xSign * ARENA_HALF, WALL_HEIGHT / 2, 0);
+    wall.position.set(xSign * ARENA_HALF_X, WALL_HEIGHT / 2, 0);
     scene.add(wall);
     wallMeshes.push(wall);
   }
@@ -3050,8 +3056,10 @@ function updatePlayer(inputState2, dt, gameState2) {
     playerPos.x += inputState2.moveX * PLAYER.speed * speedMod * dt;
     playerPos.z += inputState2.moveZ * PLAYER.speed * speedMod * dt;
   }
-  playerPos.x = Math.max(-19.5, Math.min(19.5, playerPos.x));
-  playerPos.z = Math.max(-19.5, Math.min(19.5, playerPos.z));
+  const clampX = ARENA_HALF_X - 0.5;
+  const clampZ = ARENA_HALF_Z - 0.5;
+  playerPos.x = Math.max(-clampX, Math.min(clampX, playerPos.x));
+  playerPos.z = Math.max(-clampZ, Math.min(clampZ, playerPos.z));
   playerGroup.position.copy(playerPos);
   aimAtCursor(inputState2);
   updateAnimation(
@@ -3182,8 +3190,10 @@ function updateDash(dt, gameState2) {
   playerPos.copy(dashStartPos);
   playerPos.x += dashDir.x * dashDistance * easedT;
   playerPos.z += dashDir.z * dashDistance * easedT;
-  playerPos.x = Math.max(-19.5, Math.min(19.5, playerPos.x));
-  playerPos.z = Math.max(-19.5, Math.min(19.5, playerPos.z));
+  const dashClampX = ARENA_HALF_X - 0.5;
+  const dashClampZ = ARENA_HALF_Z - 0.5;
+  playerPos.x = Math.max(-dashClampX, Math.min(dashClampX, playerPos.x));
+  playerPos.z = Math.max(-dashClampZ, Math.min(dashClampZ, playerPos.z));
   isInvincible = cfg.invincible && (dashTimer >= cfg.iFrameStart && dashTimer <= cfg.iFrameEnd);
   if (cfg.afterimageCount > 0) {
     const interval = dashDuration / (cfg.afterimageCount + 1);
@@ -3260,8 +3270,8 @@ function createChargeTelegraph(cfg) {
   chargeTelegraphGroup = new THREE.Group();
   chargeTelegraphGroup.position.set(playerPos.x, 0.05, playerPos.z);
   chargeTelegraphGroup.rotation.y = chargeAimAngle;
-  const fillGeo = new THREE.PlaneGeometry(1, 1);
-  fillGeo.rotateX(-Math.PI / 2);
+  const fillGeo2 = new THREE.PlaneGeometry(1, 1);
+  fillGeo2.rotateX(-Math.PI / 2);
   const fillMat = new THREE.MeshBasicMaterial({
     color: cfg.color,
     transparent: true,
@@ -3269,7 +3279,7 @@ function createChargeTelegraph(cfg) {
     side: THREE.DoubleSide,
     depthWrite: false
   });
-  chargeFillMesh = new THREE.Mesh(fillGeo, fillMat);
+  chargeFillMesh = new THREE.Mesh(fillGeo2, fillMat);
   const halfLen = cfg.minLength / 2;
   chargeFillMesh.scale.set(cfg.width, 1, cfg.minLength);
   chargeFillMesh.position.set(0, 0, halfLen);
@@ -3428,6 +3438,7 @@ var inputState = {
   attack: false,
   ultimate: false,
   ultimateHeld: false,
+  interact: false,
   toggleEditor: false
 };
 var INV_SQRT2 = 1 / Math.SQRT2;
@@ -3456,6 +3467,7 @@ function initInput() {
       e.preventDefault();
     }
     if (e.code === "KeyE") inputState.ultimate = true;
+    if (e.code === "KeyF" || e.code === "Enter") inputState.interact = true;
     if (e.code === "Backquote") inputState.toggleEditor = true;
   });
   window.addEventListener("keyup", (e) => {
@@ -3603,6 +3615,9 @@ function pollGamepad() {
   const ultBtn = buttons[5] && buttons[5].pressed || buttons[7] && buttons[7].pressed;
   if (ultBtn && !prevGamepadButtons.ult) inputState.ultimate = true;
   prevGamepadButtons.ult = !!ultBtn;
+  const interactBtn = buttons[3] && buttons[3].pressed;
+  if (interactBtn && !prevGamepadButtons.interact) inputState.interact = true;
+  prevGamepadButtons.interact = !!interactBtn;
   if (ultBtn) inputState.ultimateHeld = true;
 }
 function updateInput() {
@@ -3632,6 +3647,7 @@ function consumeInput() {
   inputState.dash = false;
   inputState.attack = false;
   inputState.ultimate = false;
+  inputState.interact = false;
   inputState.toggleEditor = false;
 }
 function getInputState() {
@@ -3695,86 +3711,195 @@ function autoAimClosestEnemy(enemies) {
 }
 
 // src/config/rooms.ts
+function pack(enemies, zone = "ahead") {
+  return { enemies, spawnZone: zone };
+}
+function goblins(n) {
+  return Array.from({ length: n }, () => ({ type: "goblin" }));
+}
+function archers(n) {
+  return Array.from({ length: n }, () => ({ type: "skeletonArcher" }));
+}
+function imps(n) {
+  return Array.from({ length: n }, () => ({ type: "iceMortarImp" }));
+}
 var ROOMS = [
-  // ── Room 1: Small arena, introductory enemies ──
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 1: "The Approach" — goblins only, teach melee + dash
+  // Player enters at +Z (bottom-left in iso), progresses toward -Z (top-right)
+  // ══════════════════════════════════════════════════════════════════════
   {
-    name: "The Pit",
-    arenaHalf: 15,
+    name: "The Approach",
+    arenaHalfX: 10,
+    arenaHalfZ: 22,
     obstacles: [
-      { x: -4, z: 4, w: 1.5, h: 2, d: 1.5 },
-      // pillar left
-      { x: 5, z: -3, w: 1.5, h: 2, d: 1.5 },
-      // pillar right
-      { x: 0, z: -8, w: 3, h: 1, d: 1 }
-      // low wall
+      { x: -4, z: 5, w: 1.5, h: 2, d: 1.5 },
+      // pillar left near entrance
+      { x: 4, z: -5, w: 1.5, h: 2, d: 1.5 },
+      // pillar right mid
+      { x: 0, z: -12, w: 3, h: 1, d: 1 }
+      // low wall far
     ],
     pits: [
-      { x: 7, z: 7, w: 4, d: 3 }
-      // corner pit
+      { x: 5, z: -8, w: 3, d: 3 }
+      // small pit mid-right (teaches force push)
     ],
-    waves: [
-      // Wave 1: 5 enemies (4 goblins + 1 archer)
-      [
-        { type: "goblin", x: 8, z: 3 },
-        { type: "goblin", x: -6, z: 5 },
-        { type: "goblin", x: 3, z: -6 },
-        { type: "goblin", x: -8, z: -4 },
-        { type: "skeletonArcher", x: -10, z: -8 }
-      ],
-      // Wave 2: 5 enemies (more goblins + archer from different side)
-      [
-        { type: "goblin", x: -8, z: 3 },
-        { type: "goblin", x: 6, z: -5 },
-        { type: "goblin", x: -3, z: 6 },
-        { type: "goblin", x: 8, z: -4 },
-        { type: "skeletonArcher", x: 10, z: 8 }
+    spawnBudget: {
+      maxConcurrent: 4,
+      telegraphDuration: 1500,
+      packs: [
+        // Start light: 2 goblins ahead
+        pack(goblins(2), "ahead"),
+        pack(goblins(2), "ahead"),
+        // Ramp up: 3 goblins, mix positions
+        pack(goblins(3), "ahead"),
+        pack(goblins(3), "sides"),
+        // One final push from far end
+        pack(goblins(2), "far")
       ]
-    ],
-    playerStart: { x: 0, z: 0 }
+    },
+    playerStart: { x: 0, z: 18 }
   },
-  // ── Room 2: Medium arena, mixed enemies ──
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 2: "The Crossfire" — goblins + archers, introduce ranged pressure
+  // ══════════════════════════════════════════════════════════════════════
   {
-    name: "The Gauntlet",
-    arenaHalf: 18,
+    name: "The Crossfire",
+    arenaHalfX: 12,
+    arenaHalfZ: 24,
     obstacles: [
-      { x: 6, z: 6, w: 2, h: 1.5, d: 2 },
-      // pillar NE
-      { x: -6, z: 6, w: 2, h: 1.5, d: 2 },
-      // pillar NW
-      { x: 0, z: -5, w: 1.5, h: 2.5, d: 1.5 },
-      // tall pillar center-south
-      { x: 10, z: -8, w: 3, h: 1, d: 1 }
-      // low wall east
+      { x: -6, z: 0, w: 2, h: 2, d: 2 },
+      // cover pillar left
+      { x: 6, z: 0, w: 2, h: 2, d: 2 },
+      // cover pillar right
+      { x: 0, z: -10, w: 4, h: 1.5, d: 1 },
+      // mid wall (toward far/exit end)
+      { x: -3, z: 10, w: 1.5, h: 2, d: 1.5 }
+      // pillar near entrance
     ],
     pits: [
-      { x: -8, z: 0, w: 3, d: 6 },
-      // long vertical pit west
-      { x: 8, z: 4, w: 4, d: 3 },
-      // pit east
-      { x: 0, z: 12, w: 6, d: 2.5 }
-      // pit north
+      { x: -8, z: -8, w: 3, d: 4 },
+      // pit left mid (toward exit)
+      { x: 8, z: 5, w: 3, d: 3 }
+      // pit right near entrance
     ],
-    waves: [
-      // Wave 1: 5 enemies (3 goblins + archer + golem)
-      [
-        { type: "goblin", x: 10, z: 5 },
-        { type: "goblin", x: -10, z: 8 },
-        { type: "goblin", x: 5, z: -10 },
-        { type: "skeletonArcher", x: -12, z: -10 },
-        { type: "stoneGolem", x: 0, z: 10 }
-      ],
-      // Wave 2: 5 enemies (more goblins + archer + golem from different positions)
-      [
-        { type: "goblin", x: -10, z: -5 },
-        { type: "goblin", x: 10, z: -8 },
-        { type: "goblin", x: -5, z: 10 },
-        { type: "skeletonArcher", x: 12, z: 10 },
-        { type: "stoneGolem", x: -10, z: -10 }
+    spawnBudget: {
+      maxConcurrent: 5,
+      telegraphDuration: 1500,
+      packs: [
+        // Intro: goblins rush
+        pack(goblins(2), "ahead"),
+        // Archer appears far back
+        pack([...archers(1), ...goblins(1)], "far"),
+        // More melee pressure
+        pack(goblins(3), "ahead"),
+        // Flanking archers
+        pack(archers(2), "sides"),
+        // Mixed push
+        pack([...goblins(2), ...archers(1)], "ahead"),
+        // Final rush
+        pack(goblins(3), "sides")
       ]
+    },
+    playerStart: { x: 0, z: 20 }
+  },
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 3: "The Crucible" — full mix with imps, area denial
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: "The Crucible",
+    arenaHalfX: 13,
+    arenaHalfZ: 25,
+    obstacles: [
+      { x: -5, z: 8, w: 2, h: 2, d: 2 },
+      // pillar near entrance left
+      { x: 5, z: 8, w: 2, h: 2, d: 2 },
+      // pillar near entrance right
+      { x: 0, z: -5, w: 1.5, h: 2.5, d: 1.5 },
+      // tall center pillar
+      { x: -8, z: -10, w: 3, h: 1, d: 1 },
+      // low wall far left
+      { x: 8, z: -10, w: 3, h: 1, d: 1 }
+      // low wall far right
     ],
-    playerStart: { x: 0, z: -3 }
+    pits: [
+      { x: 0, z: 3, w: 5, d: 3 },
+      // central pit (forces flanking)
+      { x: -9, z: -15, w: 3, d: 4 },
+      // far left pit
+      { x: 9, z: -15, w: 3, d: 4 }
+      // far right pit
+    ],
+    spawnBudget: {
+      maxConcurrent: 6,
+      telegraphDuration: 1500,
+      packs: [
+        // Start with melee rush
+        pack(goblins(3), "ahead"),
+        // Introduce ranged
+        pack([...archers(1), ...goblins(1)], "far"),
+        // First imp — area denial begins
+        pack([...imps(1), ...goblins(1)], "sides"),
+        // Melee wave to push player into imp zones
+        pack(goblins(3), "ahead"),
+        // More imps + archer
+        pack([...imps(1), ...archers(1)], "far"),
+        // Heavy mixed final push
+        pack([...goblins(2), ...imps(1)], "ahead"),
+        pack([...archers(1), ...goblins(1)], "sides")
+      ]
+    },
+    playerStart: { x: 0, z: 21 }
+  },
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 4: "The Respite" — rest room, heal to full
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: "The Respite",
+    arenaHalfX: 8,
+    arenaHalfZ: 12,
+    obstacles: [],
+    pits: [],
+    spawnBudget: {
+      maxConcurrent: 0,
+      telegraphDuration: 0,
+      packs: []
+    },
+    playerStart: { x: 0, z: 8 },
+    isRestRoom: true
+  },
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 5: "The Throne" — victory room (boss designed separately)
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: "The Throne",
+    arenaHalfX: 10,
+    arenaHalfZ: 10,
+    obstacles: [],
+    pits: [],
+    spawnBudget: {
+      maxConcurrent: 0,
+      telegraphDuration: 0,
+      packs: []
+    },
+    playerStart: { x: 0, z: 6 },
+    isVictoryRoom: true
   }
 ];
+
+// src/config/spawn.ts
+var SPAWN_CONFIG = {
+  telegraphDuration: 1500,
+  // ms — how long spawn warnings show before enemies appear
+  spawnCooldown: 500,
+  // ms — minimum delay between consecutive pack dispatches
+  maxConcurrentMult: 1,
+  // multiplier on per-room maxConcurrent
+  spawnAheadMin: 8,
+  // minimum distance ahead of player to spawn enemies (Z units)
+  spawnAheadMax: 15
+  // maximum distance ahead of player to spawn enemies (Z units)
+};
 
 // src/config/physics.ts
 var PHYSICS = {
@@ -4521,6 +4646,18 @@ var WALL_SLAM_SPARK = {
   gravity: 5,
   shape: "box"
 };
+var DOOR_UNLOCK_BURST = {
+  count: 12,
+  lifetime: 0.5,
+  speed: 6,
+  spread: Math.PI * 0.5,
+  size: 0.08,
+  color: 8961023,
+  fadeOut: true,
+  gravity: -2,
+  // float upward
+  shape: "sphere"
+};
 var POOL_SIZE2 = 80;
 var pool2 = [];
 var sceneRef5 = null;
@@ -4865,17 +5002,314 @@ function wireEventBus() {
       );
     }
   });
+  on("doorUnlocked", (e) => {
+    if (e.type === "doorUnlocked") {
+      burst({ x: 0, y: 2, z: 0 }, DOOR_UNLOCK_BURST);
+    }
+  });
+}
+
+// src/engine/telegraph.ts
+var sceneRef6;
+var ringGeo2;
+var fillGeo;
+var typeGeos = {};
+function initTelegraph(scene2) {
+  sceneRef6 = scene2;
+  ringGeo2 = new THREE.RingGeometry(0.6, 0.8, 24);
+  ringGeo2.rotateX(-Math.PI / 2);
+  fillGeo = new THREE.CircleGeometry(0.6, 24);
+  fillGeo.rotateX(-Math.PI / 2);
+  typeGeos.goblin = new THREE.ConeGeometry(0.2, 0.4, 3);
+  typeGeos.skeletonArcher = new THREE.BoxGeometry(0.25, 0.25, 0.25);
+  typeGeos.stoneGolem = new THREE.CylinderGeometry(0.25, 0.25, 0.1, 6);
+  typeGeos.iceMortarImp = new THREE.SphereGeometry(0.2, 8, 8);
+}
+function createTelegraph(x, z, typeName) {
+  const color = ENEMY_TYPES[typeName] ? ENEMY_TYPES[typeName].color : 16777215;
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.6,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  const ring = new THREE.Mesh(ringGeo2, ringMat);
+  ring.position.y = 0.03;
+  group.add(ring);
+  const fillMat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  const fill = new THREE.Mesh(fillGeo, fillMat);
+  fill.position.y = 0.02;
+  group.add(fill);
+  const typeGeo = typeGeos[typeName] || typeGeos.goblin;
+  const typeMat = new THREE.MeshStandardMaterial({
+    color,
+    emissive: color,
+    emissiveIntensity: 0.6,
+    transparent: true,
+    opacity: 0.8
+  });
+  const typeIndicator = new THREE.Mesh(typeGeo, typeMat);
+  typeIndicator.position.y = 1.2;
+  if (typeName === "skeletonArcher") {
+    typeIndicator.rotation.y = Math.PI / 4;
+  }
+  group.add(typeIndicator);
+  sceneRef6.add(group);
+  return {
+    group,
+    ring,
+    ringMat,
+    fill,
+    fillMat,
+    typeIndicator,
+    typeMat,
+    baseColor: color,
+    time: 0
+  };
+}
+function updateTelegraph(telegraph, progress, dt) {
+  telegraph.time += dt;
+  telegraph.fillMat.opacity = progress * 0.4;
+  const freq = 2 + progress * 8;
+  const pulse = 0.5 + 0.5 * Math.sin(telegraph.time * freq * Math.PI * 2);
+  telegraph.ringMat.opacity = 0.3 + pulse * 0.5;
+  const scale = 1 + 0.1 * Math.sin(telegraph.time * freq * Math.PI * 2);
+  telegraph.ring.scale.set(scale, 1, scale);
+  if (progress > 0.8) {
+    const flash = Math.sin(telegraph.time * 20) > 0.5;
+    telegraph.ringMat.color.setHex(flash ? 16777215 : telegraph.baseColor);
+    telegraph.fillMat.color.setHex(flash ? 16777215 : telegraph.baseColor);
+  }
+  telegraph.typeIndicator.position.y = 1.2 + 0.15 * Math.sin(telegraph.time * 2);
+  telegraph.typeIndicator.rotation.y += dt * 1.5;
+}
+function removeTelegraph2(telegraph) {
+  if (telegraph.group.parent) {
+    sceneRef6.remove(telegraph.group);
+  }
+  telegraph.ringMat.dispose();
+  telegraph.fillMat.dispose();
+  telegraph.typeMat.dispose();
+}
+
+// src/config/door.ts
+var DOOR_CONFIG = {
+  unlockDuration: 1e3,
+  // ms — door unlock animation duration
+  interactRadius: 3.5,
+  // units — how close player must be to interact with door
+  // (door is at wall edge, player clamps ~0.5u away, so needs generous radius)
+  restPause: 2e3
+  // ms — how long before rest room door opens
+};
+
+// src/engine/door.ts
+var doorState = "none";
+var doorGroup = null;
+var doorFrameMesh = null;
+var doorPanelMesh = null;
+var doorGlowMesh = null;
+var doorAnimTimer = 0;
+var doorRoomIndex = 0;
+var sceneRef7 = null;
+var doorX = 0;
+var doorZ = 0;
+var promptEl = null;
+var promptVisible = false;
+function initDoor(scene2) {
+  sceneRef7 = scene2;
+  promptEl = document.getElementById("door-prompt");
+  if (!promptEl) {
+    promptEl = document.createElement("div");
+    promptEl.id = "door-prompt";
+    promptEl.style.cssText = `
+      position: fixed;
+      bottom: 25%;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #88bbff;
+      font-family: 'Courier New', monospace;
+      font-size: 16px;
+      font-weight: bold;
+      text-align: center;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      text-shadow: 0 0 10px rgba(136, 187, 255, 0.6);
+      z-index: 50;
+    `;
+    promptEl.textContent = "Press F to enter";
+    document.body.appendChild(promptEl);
+  }
+}
+function createDoor(arenaHalfX, arenaHalfZ, roomIndex) {
+  removeDoor();
+  doorState = "locked";
+  doorRoomIndex = roomIndex;
+  doorAnimTimer = 0;
+  doorX = 0;
+  doorZ = -arenaHalfZ + 1;
+  doorGroup = new THREE.Group();
+  doorGroup.position.set(doorX, 0, doorZ);
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: 4868714,
+    emissive: 4482730,
+    emissiveIntensity: 0.5,
+    roughness: 0.5
+  });
+  const leftPillar = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 4, 0.6),
+    frameMat
+  );
+  leftPillar.position.set(-2, 2, 0);
+  doorGroup.add(leftPillar);
+  const rightPillar = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 4, 0.6),
+    frameMat
+  );
+  rightPillar.position.set(2, 2, 0);
+  doorGroup.add(rightPillar);
+  const lintel = new THREE.Mesh(
+    new THREE.BoxGeometry(4.6, 0.5, 0.6),
+    frameMat
+  );
+  lintel.position.set(0, 4.25, 0);
+  doorGroup.add(lintel);
+  doorFrameMesh = doorGroup;
+  const panelMat = new THREE.MeshStandardMaterial({
+    color: 1710638,
+    emissive: 3359846,
+    emissiveIntensity: 0.2,
+    transparent: true,
+    opacity: 0.9,
+    roughness: 0.5
+  });
+  doorPanelMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(3.4, 3.6, 0.25),
+    panelMat
+  );
+  doorPanelMesh.position.set(0, 1.8, 0);
+  doorGroup.add(doorPanelMesh);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 8961023,
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide
+  });
+  doorGlowMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.4, 3.6),
+    glowMat
+  );
+  doorGlowMesh.position.set(0, 1.8, 0.2);
+  doorGroup.add(doorGlowMesh);
+  sceneRef7.add(doorGroup);
+}
+function unlockDoor() {
+  if (doorState !== "locked") return;
+  doorState = "unlocking";
+  doorAnimTimer = 0;
+}
+function updateDoor(dt, playerPos2, interact, playerDashing) {
+  if (doorState === "none" || !doorGroup) return false;
+  if (doorState === "unlocking") {
+    doorAnimTimer += dt * 1e3;
+    const progress = Math.min(doorAnimTimer / DOOR_CONFIG.unlockDuration, 1);
+    doorPanelMesh.position.y = 1.8 + progress * 4;
+    doorPanelMesh.material.opacity = 0.9 * (1 - progress);
+    doorGlowMesh.material.opacity = progress * 0.6;
+    doorGroup.children.forEach((child) => {
+      if (child.material && child !== doorPanelMesh && child !== doorGlowMesh) {
+        child.material.emissiveIntensity = 0.5 + progress * 0.8;
+      }
+    });
+    if (progress >= 1) {
+      doorState = "open";
+      emit({ type: "doorUnlocked", roomIndex: doorRoomIndex });
+    }
+  }
+  if (doorState === "open") {
+    doorAnimTimer += dt * 1e3;
+    const pulse = 0.4 + 0.2 * Math.sin(doorAnimTimer * 3e-3 * Math.PI * 2);
+    doorGlowMesh.material.opacity = pulse;
+    if (playerPos2) {
+      const dx = playerPos2.x - doorX;
+      const dz = playerPos2.z - doorZ;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      const nearDoor = dist < DOOR_CONFIG.interactRadius;
+      if (nearDoor) {
+        showPrompt();
+        if (interact || playerDashing) {
+          hidePrompt();
+          emit({ type: "doorEntered", roomIndex: doorRoomIndex });
+          doorState = "none";
+          return true;
+        }
+      } else {
+        hidePrompt();
+      }
+    }
+  } else {
+    hidePrompt();
+  }
+  return false;
+}
+function showPrompt() {
+  if (promptEl && !promptVisible) {
+    promptVisible = true;
+    promptEl.style.opacity = "1";
+  }
+}
+function hidePrompt() {
+  if (promptEl && promptVisible) {
+    promptVisible = false;
+    promptEl.style.opacity = "0";
+  }
+}
+function removeDoor() {
+  hidePrompt();
+  if (doorGroup && sceneRef7) {
+    sceneRef7.remove(doorGroup);
+    doorGroup.traverse((child) => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    });
+  }
+  doorGroup = null;
+  doorPanelMesh = null;
+  doorGlowMesh = null;
+  doorFrameMesh = null;
+  doorState = "none";
 }
 
 // src/engine/roomManager.ts
 var currentRoomIndex = 0;
-var currentWaveIndex = 0;
-var transitioning = false;
-var transitionTimer = 0;
-var TRANSITION_PAUSE = 1500;
+var packIndex = 0;
+var totalKills = 0;
+var roomBudgetTotal = 0;
+var roomCleared = false;
+var spawnCooldownTimer = 0;
+var finalWaveAnnounced = false;
+var restRoomTimer = 0;
+var activeTelegraphs2 = [];
 var announceEl = null;
-function initRoomManager() {
+var sceneRef8 = null;
+function initRoomManager(scene2) {
+  sceneRef8 = scene2;
   announceEl = document.getElementById("wave-announce");
+  initTelegraph(scene2);
+  initDoor(scene2);
+  on("enemyDied", () => {
+    totalKills++;
+  });
 }
 function loadRoom(index, gameState2) {
   if (index >= ROOMS.length) {
@@ -4884,9 +5318,17 @@ function loadRoom(index, gameState2) {
   }
   const room = ROOMS[index];
   currentRoomIndex = index;
-  currentWaveIndex = 0;
-  transitioning = false;
-  transitionTimer = 0;
+  packIndex = 0;
+  totalKills = 0;
+  roomCleared = false;
+  spawnCooldownTimer = 0;
+  finalWaveAnnounced = false;
+  activeTelegraphs2 = [];
+  roomBudgetTotal = room.spawnBudget.packs.reduce(
+    (sum, p) => sum + p.enemies.length,
+    0
+  );
+  restRoomTimer = 0;
   clearEnemies(gameState2);
   releaseAllProjectiles();
   clearMortarProjectiles();
@@ -4895,58 +5337,200 @@ function loadRoom(index, gameState2) {
   clearDamageNumbers();
   clearEffectGhosts();
   clearParticles();
-  setArenaConfig(room.obstacles, room.pits, room.arenaHalf);
+  removeDoor();
+  setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);
   invalidateCollisionBounds();
   rebuildArenaVisuals();
   setPlayerPosition(room.playerStart.x, room.playerStart.z);
-  spawnWave(room.waves[0], gameState2);
   gameState2.currentWave = index + 1;
   showAnnounce(room.name);
   setTimeout(hideAnnounce, 2e3);
-}
-function spawnWave(spawns, gameState2) {
-  for (const spawn of spawns) {
-    const pos = new THREE.Vector3(spawn.x, 0, spawn.z);
-    spawnEnemy(spawn.type, pos, gameState2);
-  }
-}
-function updateRoomManager(dt, gameState2) {
-  if (transitioning) {
-    transitionTimer -= dt * 1e3;
-    if (transitionTimer <= 0) {
-      transitioning = false;
-      loadRoom(currentRoomIndex + 1, gameState2);
+  if (room.isRestRoom) {
+    gameState2.playerHealth = gameState2.playerMaxHealth;
+    emit({ type: "playerHealed", amount: gameState2.playerMaxHealth, position: { x: room.playerStart.x, z: room.playerStart.z } });
+    emit({ type: "restRoomEntered", roomIndex: index });
+    roomCleared = true;
+    if (index + 1 < ROOMS.length) {
+      createDoor(room.arenaHalfX, room.arenaHalfZ, index);
+      restRoomTimer = DOOR_CONFIG.restPause;
     }
     return;
   }
-  if (gameState2.phase === "playing" && gameState2.enemies.length === 0) {
-    const room = ROOMS[currentRoomIndex];
-    const hasMoreWaves = currentWaveIndex + 1 < room.waves.length;
-    if (hasMoreWaves) {
-      currentWaveIndex++;
-      const waveNum = currentWaveIndex + 1;
-      const totalWaves = room.waves.length;
-      showAnnounce(`Wave ${waveNum}/${totalWaves}`);
-      setTimeout(hideAnnounce, 1200);
-      spawnWave(room.waves[currentWaveIndex], gameState2);
-    } else {
-      transitioning = true;
-      transitionTimer = TRANSITION_PAUSE;
-      emit({ type: "roomCleared", roomIndex: currentRoomIndex });
-      if (currentRoomIndex + 1 >= ROOMS.length) {
-        showAnnounce("VICTORY!");
-      } else {
-        showAnnounce("Room Cleared!");
-        setTimeout(hideAnnounce, 1200);
+  if (room.isVictoryRoom) {
+    showAnnounce("VICTORY!");
+    emit({ type: "roomCleared", roomIndex: index });
+    roomCleared = true;
+    return;
+  }
+  if (index + 1 < ROOMS.length) {
+    createDoor(room.arenaHalfX, room.arenaHalfZ, index);
+  }
+}
+function updateRoomManager(dt, gameState2) {
+  if (gameState2.phase !== "playing") return;
+  const room = ROOMS[currentRoomIndex];
+  if (!room) return;
+  if (room.isRestRoom && restRoomTimer > 0) {
+    restRoomTimer -= dt * 1e3;
+    if (restRoomTimer <= 0) {
+      unlockDoor();
+    }
+  }
+  const playerPos2 = getPlayerPos();
+  const input = getInputState();
+  const doorTriggered = updateDoor(dt, playerPos2, input.interact, isPlayerDashing());
+  if (doorTriggered) {
+    loadRoom(currentRoomIndex + 1, gameState2);
+    return;
+  }
+  for (let i = activeTelegraphs2.length - 1; i >= 0; i--) {
+    const tg = activeTelegraphs2[i];
+    tg.timer -= dt * 1e3;
+    const progress = 1 - tg.timer / tg.duration;
+    for (const tel of tg.telegraphs) {
+      updateTelegraph(tel, Math.min(progress, 1), dt);
+    }
+    if (tg.timer <= 0) {
+      for (const tel of tg.telegraphs) {
+        removeTelegraph2(tel);
       }
+      for (let j = 0; j < tg.pack.enemies.length; j++) {
+        const enemy = tg.pack.enemies[j];
+        const pos = tg.positions[j];
+        const spawnPos = new THREE.Vector3(pos.x, 0, pos.z);
+        spawnEnemy(enemy.type, spawnPos, gameState2);
+      }
+      emit({ type: "spawnPackSpawned", packIndex: tg.packIdx, roomIndex: currentRoomIndex });
+      activeTelegraphs2.splice(i, 1);
+    }
+  }
+  if (room.isRestRoom || room.isVictoryRoom) return;
+  const aliveCount = gameState2.enemies.length;
+  const budget = room.spawnBudget;
+  const effectiveMaxConcurrent = Math.round(budget.maxConcurrent * SPAWN_CONFIG.maxConcurrentMult);
+  if (!finalWaveAnnounced && packIndex >= budget.packs.length && activeTelegraphs2.length === 0 && aliveCount > 0) {
+    finalWaveAnnounced = true;
+    showAnnounce("FINAL WAVE");
+    setTimeout(hideAnnounce, 1500);
+  }
+  spawnCooldownTimer -= dt * 1e3;
+  if (packIndex < budget.packs.length && spawnCooldownTimer <= 0) {
+    const nextPack = budget.packs[packIndex];
+    const telegraphingCount = activeTelegraphs2.reduce(
+      (sum, tg) => sum + tg.pack.enemies.length,
+      0
+    );
+    const totalActive = aliveCount + telegraphingCount;
+    if (totalActive + nextPack.enemies.length <= effectiveMaxConcurrent + 1) {
+      const positions = resolveSpawnPositions(nextPack, room);
+      const telegraphs = positions.map(
+        (pos, idx) => createTelegraph(pos.x, pos.z, nextPack.enemies[idx].type)
+      );
+      const duration = budget.telegraphDuration || SPAWN_CONFIG.telegraphDuration;
+      activeTelegraphs2.push({
+        telegraphs,
+        pack: nextPack,
+        positions,
+        timer: duration,
+        duration,
+        packIdx: packIndex
+      });
+      emit({ type: "spawnPackTelegraph", packIndex, roomIndex: currentRoomIndex });
+      packIndex++;
+      spawnCooldownTimer = SPAWN_CONFIG.spawnCooldown;
+    }
+  }
+  if (!roomCleared && packIndex >= budget.packs.length && activeTelegraphs2.length === 0 && aliveCount === 0) {
+    roomCleared = true;
+    emit({ type: "roomCleared", roomIndex: currentRoomIndex });
+    emit({ type: "roomClearComplete", roomIndex: currentRoomIndex });
+    if (currentRoomIndex + 1 >= ROOMS.length) {
+      showAnnounce("VICTORY!");
+    } else {
+      showAnnounce("Room Cleared!");
+      setTimeout(hideAnnounce, 1500);
+      unlockDoor();
     }
   }
 }
+function resolveSpawnPositions(pack2, room) {
+  const playerPos2 = getPlayerPos();
+  const playerZ = playerPos2 ? playerPos2.z : room.playerStart.z;
+  const playerX = playerPos2 ? playerPos2.x : room.playerStart.x;
+  const hx = room.arenaHalfX - 1.5;
+  const hz = room.arenaHalfZ - 1.5;
+  return pack2.enemies.map(() => {
+    let x, z;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      switch (pack2.spawnZone) {
+        case "ahead": {
+          const aheadMin = SPAWN_CONFIG.spawnAheadMin;
+          const aheadMax = SPAWN_CONFIG.spawnAheadMax;
+          x = (Math.random() * 2 - 1) * hx;
+          z = playerZ - aheadMin - Math.random() * (aheadMax - aheadMin);
+          break;
+        }
+        case "sides": {
+          const side = Math.random() < 0.5 ? -1 : 1;
+          x = side * (hx * 0.6 + Math.random() * hx * 0.3);
+          z = playerZ - 3 - Math.random() * 10;
+          break;
+        }
+        case "far": {
+          x = (Math.random() * 2 - 1) * hx;
+          z = -hz + 2 + Math.random() * 5;
+          break;
+        }
+        case "behind": {
+          x = (Math.random() * 2 - 1) * hx;
+          z = playerZ + 5 + Math.random() * 5;
+          break;
+        }
+        default: {
+          x = (Math.random() * 2 - 1) * hx;
+          z = playerZ - 5 - Math.random() * 10;
+        }
+      }
+      x = Math.max(-hx, Math.min(hx, x));
+      z = Math.max(-hz, Math.min(hz, z));
+      if (!isInsideObstacle(x, z) && !isInsidePit(x, z)) {
+        return { x, z };
+      }
+    }
+    return { x: (Math.random() * 2 - 1) * 3, z: 0 };
+  });
+}
+function isInsideObstacle(x, z) {
+  const bounds = getBounds();
+  const obstacleCount = bounds.length - 4;
+  for (let i = 0; i < obstacleCount; i++) {
+    const b = bounds[i];
+    if (x >= b.minX - 1 && x <= b.maxX + 1 && z >= b.minZ - 1 && z <= b.maxZ + 1) {
+      return true;
+    }
+  }
+  return false;
+}
+function isInsidePit(x, z) {
+  const pits = getPits();
+  for (const p of pits) {
+    if (x >= p.minX - 0.5 && x <= p.maxX + 0.5 && z >= p.minZ - 0.5 && z <= p.maxZ + 0.5) {
+      return true;
+    }
+  }
+  return false;
+}
 function resetRoomManager() {
   currentRoomIndex = 0;
-  currentWaveIndex = 0;
-  transitioning = false;
-  transitionTimer = 0;
+  packIndex = 0;
+  totalKills = 0;
+  roomBudgetTotal = 0;
+  roomCleared = false;
+  spawnCooldownTimer = 0;
+  finalWaveAnnounced = false;
+  restRoomTimer = 0;
+  activeTelegraphs2 = [];
+  removeDoor();
 }
 function showAnnounce(text) {
   if (!announceEl) return;
@@ -5549,6 +6133,42 @@ function playEnemyImpact(intensity = 1) {
   noise.start(now);
   noise.stop(now + duration);
 }
+function playDoorUnlock() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const notes = [392, 523, 659, 784];
+  const noteLen = 0.18;
+  notes.forEach((freq, i) => {
+    const osc = ctx2.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    const gain = ctx2.createGain();
+    const start = now + i * 0.1;
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(AUDIO_CONFIG.waveClearVolume * 0.35, start + 0.01);
+    gain.gain.exponentialRampToValueAtTime(1e-3, start + noteLen);
+    osc.connect(gain);
+    gain.connect(masterGain);
+    osc.start(start);
+    osc.stop(start + noteLen);
+  });
+}
+function playHeal() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(330, now);
+  osc.frequency.linearRampToValueAtTime(660, now + 0.4);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(0.2, now + 0.05);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + 0.5);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + 0.5);
+}
 function wireEventBus2() {
   on("enemyHit", (e) => {
     if (e.type === "enemyHit") playHit(e.damage / 15);
@@ -5562,6 +6182,8 @@ function wireEventBus2() {
   });
   on("waveCleared", () => playWaveClear());
   on("roomCleared", () => playWaveClear());
+  on("roomClearComplete", () => playDoorUnlock());
+  on("playerHealed", () => playHeal());
   on("meleeSwing", () => playMeleeSwing());
   on("meleeHit", () => playMeleeHit());
   on("wallSlam", (e) => {
@@ -6574,6 +7196,98 @@ var SECTIONS = [
         tip: "Melee hit thump volume."
       }
     ]
+  },
+  {
+    section: "Spawn Pacing",
+    collapsed: true,
+    items: [
+      {
+        label: "Telegraph Dur",
+        config: () => SPAWN_CONFIG,
+        key: "telegraphDuration",
+        min: 500,
+        max: 3e3,
+        step: 100,
+        unit: "ms",
+        tip: "How long spawn warnings show before enemies appear."
+      },
+      {
+        label: "Spawn Cooldown",
+        config: () => SPAWN_CONFIG,
+        key: "spawnCooldown",
+        min: 200,
+        max: 2e3,
+        step: 100,
+        unit: "ms",
+        tip: "Minimum delay between consecutive pack dispatches."
+      },
+      {
+        label: "Max Conc. Mult",
+        config: () => SPAWN_CONFIG,
+        key: "maxConcurrentMult",
+        min: 0.5,
+        max: 2,
+        step: 0.1,
+        unit: "",
+        tip: "Multiplier on max concurrent enemies (affects all rooms)."
+      },
+      {
+        label: "Ahead Dist Min",
+        config: () => SPAWN_CONFIG,
+        key: "spawnAheadMin",
+        min: 3,
+        max: 15,
+        step: 1,
+        unit: "u",
+        tip: "Min distance ahead of player to spawn enemies."
+      },
+      {
+        label: "Ahead Dist Max",
+        config: () => SPAWN_CONFIG,
+        key: "spawnAheadMax",
+        min: 8,
+        max: 25,
+        step: 1,
+        unit: "u",
+        tip: "Max distance ahead of player to spawn enemies."
+      }
+    ]
+  },
+  {
+    section: "Door",
+    collapsed: true,
+    items: [
+      {
+        label: "Unlock Duration",
+        config: () => DOOR_CONFIG,
+        key: "unlockDuration",
+        min: 300,
+        max: 2e3,
+        step: 100,
+        unit: "ms",
+        tip: "Door unlock animation duration."
+      },
+      {
+        label: "Interact Radius",
+        config: () => DOOR_CONFIG,
+        key: "interactRadius",
+        min: 1,
+        max: 4,
+        step: 0.5,
+        unit: "u",
+        tip: "How close player must be to enter door."
+      },
+      {
+        label: "Rest Pause",
+        config: () => DOOR_CONFIG,
+        key: "restPause",
+        min: 500,
+        max: 5e3,
+        step: 500,
+        unit: "ms",
+        tip: "How long before rest room door opens."
+      }
+    ]
   }
 ];
 var enemySpeedMultiplier = 1;
@@ -7116,17 +7830,6 @@ var WAVES = [
   }
 ];
 
-// src/engine/telegraph.ts
-var sceneRef6;
-function removeTelegraph2(telegraph) {
-  if (telegraph.group.parent) {
-    sceneRef6.remove(telegraph.group);
-  }
-  telegraph.ringMat.dispose();
-  telegraph.fillMat.dispose();
-  telegraph.typeMat.dispose();
-}
-
 // src/engine/waveRunner.ts
 var waveState = {
   status: "idle",
@@ -7178,7 +7881,7 @@ function hideAnnounce2() {
 
 // src/ui/spawnEditor.ts
 console.log("[spawnEditor] v2 loaded \u2014 tabs enabled");
-var sceneRef7;
+var sceneRef9;
 var gameStateRef;
 var panel2;
 var active = false;
@@ -7381,7 +8084,7 @@ function setNestedValue2(obj, path, value) {
 }
 var lastBuiltTuningType = null;
 function initSpawnEditor(scene2, gameState2) {
-  sceneRef7 = scene2;
+  sceneRef9 = scene2;
   gameStateRef = gameState2;
   markerGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.8, 8);
   for (const [name, cfg] of Object.entries(ENEMY_TYPES)) {
@@ -7479,10 +8182,11 @@ function mouseToWorld(e) {
   return screenToWorld(ndcX, ndcY);
 }
 function clampToArena(x, z) {
-  const c = ARENA_HALF - 1.5;
+  const cx = ARENA_HALF_X - 1.5;
+  const cz = ARENA_HALF_Z - 1.5;
   return {
-    x: Math.round(Math.max(-c, Math.min(c, x))),
-    z: Math.round(Math.max(-c, Math.min(c, z)))
+    x: Math.round(Math.max(-cx, Math.min(cx, x))),
+    z: Math.round(Math.max(-cz, Math.min(cz, z)))
   };
 }
 function findNearestSpawn(worldX, worldZ, radius) {
@@ -7883,7 +8587,7 @@ function onLevelKey(e) {
 }
 function clearMarkers() {
   for (const m of markers) {
-    sceneRef7.remove(m.mesh);
+    sceneRef9.remove(m.mesh);
     m.mesh.children.forEach((c) => {
       if (c.material && c.material !== markerMats[m.type]) c.material.dispose();
     });
@@ -7912,12 +8616,12 @@ function rebuildMarkers() {
         body.position.y = 0.4;
         mesh.add(body);
         const ringColor = isSelected ? 16777215 : ENEMY_TYPES[spawn.type] ? ENEMY_TYPES[spawn.type].color : 16777215;
-        const ringGeo2 = new THREE.RingGeometry(
+        const ringGeo3 = new THREE.RingGeometry(
           isSelected ? 0.55 : 0.5,
           isSelected ? 0.75 : 0.65,
           16
         );
-        ringGeo2.rotateX(-Math.PI / 2);
+        ringGeo3.rotateX(-Math.PI / 2);
         const ringMat = new THREE.MeshBasicMaterial({
           color: ringColor,
           transparent: true,
@@ -7925,11 +8629,11 @@ function rebuildMarkers() {
           side: THREE.DoubleSide,
           depthWrite: false
         });
-        const ring = new THREE.Mesh(ringGeo2, ringMat);
+        const ring = new THREE.Mesh(ringGeo3, ringMat);
         ring.position.y = 0.02;
         mesh.add(ring);
         mesh.position.set(spawn.x, 0, spawn.z);
-        sceneRef7.add(mesh);
+        sceneRef9.add(mesh);
         markers.push({
           mesh,
           type: spawn.type,
@@ -7943,7 +8647,7 @@ function rebuildMarkers() {
 }
 function clearLevelMarkers() {
   for (const m of levelMarkers) {
-    sceneRef7.remove(m.mesh);
+    sceneRef9.remove(m.mesh);
     m.mesh.children.forEach((c) => {
       if (c.material) c.material.dispose();
       if (c.geometry) c.geometry.dispose();
@@ -7968,12 +8672,12 @@ function rebuildLevelMarkers() {
     const wireframe = new THREE.LineSegments(edgesGeo, lineMat);
     wireframe.position.y = o.h / 2;
     group.add(wireframe);
-    const ringGeo2 = new THREE.RingGeometry(
+    const ringGeo3 = new THREE.RingGeometry(
       selected ? 0.6 : 0.5,
       selected ? 0.85 : 0.7,
       16
     );
-    ringGeo2.rotateX(-Math.PI / 2);
+    ringGeo3.rotateX(-Math.PI / 2);
     const ringMat = new THREE.MeshBasicMaterial({
       color: selected ? 4521864 : 6728447,
       transparent: true,
@@ -7981,11 +8685,11 @@ function rebuildLevelMarkers() {
       side: THREE.DoubleSide,
       depthWrite: false
     });
-    const ring = new THREE.Mesh(ringGeo2, ringMat);
+    const ring = new THREE.Mesh(ringGeo3, ringMat);
     ring.position.y = 0.03;
     group.add(ring);
     group.position.set(o.x, 0, o.z);
-    sceneRef7.add(group);
+    sceneRef9.add(group);
     levelMarkers.push({ mesh: group, type: "obstacle", idx: i });
   }
   for (let i = 0; i < PITS.length; i++) {
@@ -8002,12 +8706,12 @@ function rebuildLevelMarkers() {
     wireframe.rotation.x = -Math.PI / 2;
     wireframe.position.y = 0.1;
     group.add(wireframe);
-    const ringGeo2 = new THREE.RingGeometry(
+    const ringGeo3 = new THREE.RingGeometry(
       selected ? 0.6 : 0.5,
       selected ? 0.85 : 0.7,
       16
     );
-    ringGeo2.rotateX(-Math.PI / 2);
+    ringGeo3.rotateX(-Math.PI / 2);
     const ringMat = new THREE.MeshBasicMaterial({
       color: selected ? 16729258 : 16729190,
       transparent: true,
@@ -8015,11 +8719,11 @@ function rebuildLevelMarkers() {
       side: THREE.DoubleSide,
       depthWrite: false
     });
-    const ring = new THREE.Mesh(ringGeo2, ringMat);
+    const ring = new THREE.Mesh(ringGeo3, ringMat);
     ring.position.y = 0.03;
     group.add(ring);
     group.position.set(p.x, 0, p.z);
-    sceneRef7.add(group);
+    sceneRef9.add(group);
     levelMarkers.push({ mesh: group, type: "pit", idx: i });
   }
 }
@@ -8734,7 +9438,11 @@ function buildEnemyConfigText() {
 function buildArenaConfigText() {
   let text = "// Arena layout \u2014 shared between renderer (meshes) and physics (collision)\n";
   text += "// All obstacles and walls defined here so designer can rearrange the arena\n\n";
-  text += `export const ARENA_HALF = ${ARENA_HALF};
+  text += `export let ARENA_HALF_X = ${ARENA_HALF_X};
+`;
+  text += `export let ARENA_HALF_Z = ${ARENA_HALF_Z};
+`;
+  text += `export let ARENA_HALF = ${ARENA_HALF_X}; // legacy alias
 
 `;
   text += "// Obstacles: x, z = center position; w, d = width/depth on xz plane; h = height (visual only)\n";
@@ -8785,16 +9493,17 @@ export function getCollisionBounds() {
   }
 
   // Walls
-  const h = ARENA_HALF;
+  const hx = ARENA_HALF_X;
+  const hz = ARENA_HALF_Z;
   const t = WALL_THICKNESS;
-  // North wall
-  bounds.push({ minX: -h - t/2, maxX: h + t/2, minZ: h - t/2, maxZ: h + t/2 });
-  // South wall
-  bounds.push({ minX: -h - t/2, maxX: h + t/2, minZ: -h - t/2, maxZ: -h + t/2 });
-  // East wall
-  bounds.push({ minX: h - t/2, maxX: h + t/2, minZ: -h - t/2, maxZ: h + t/2 });
-  // West wall
-  bounds.push({ minX: -h - t/2, maxX: -h + t/2, minZ: -h - t/2, maxZ: h + t/2 });
+  // North wall (far end, +Z)
+  bounds.push({ minX: -hx - t/2, maxX: hx + t/2, minZ: hz - t/2, maxZ: hz + t/2 });
+  // South wall (near end, -Z)
+  bounds.push({ minX: -hx - t/2, maxX: hx + t/2, minZ: -hz - t/2, maxZ: -hz + t/2 });
+  // East wall (+X)
+  bounds.push({ minX: hx - t/2, maxX: hx + t/2, minZ: -hz - t/2, maxZ: hz + t/2 });
+  // West wall (-X)
+  bounds.push({ minX: -hx - t/2, maxX: -hx + t/2, minZ: -hz - t/2, maxZ: hz + t/2 });
 
   return bounds;
 }
@@ -9458,7 +10167,7 @@ function init() {
     initEnemySystem(scene2);
     initMortarSystem(scene2);
     initAoeTelegraph(scene2);
-    initRoomManager();
+    initRoomManager(scene2);
     initAudio();
     initParticles(scene2);
     on("meleeHit", () => {

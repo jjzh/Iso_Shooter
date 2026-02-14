@@ -119,6 +119,18 @@ export const WALL_SLAM_SPARK: ParticleConfig = {
   shape: 'box',
 };
 
+export const DOOR_UNLOCK_BURST: ParticleConfig = {
+  count: 12,
+  lifetime: 0.5,
+  speed: 6,
+  spread: Math.PI * 0.5,
+  size: 0.08,
+  color: 0x88bbff,
+  fadeOut: true,
+  gravity: -2,   // float upward
+  shape: 'sphere',
+};
+
 // ─── Pool ───
 
 const POOL_SIZE = 80;
@@ -600,6 +612,14 @@ function wireEventBus(): void {
         e.facingAngle, e.hitArc, e.hitRange,
         e.duration
       );
+    }
+  });
+
+  on('doorUnlocked', (e: GameEvent) => {
+    if (e.type === 'doorUnlocked') {
+      // Burst particles at the door location (top of far wall)
+      // We don't have the exact position here, so emit upward from center-far
+      burst({ x: 0, y: 2, z: 0 }, DOOR_UNLOCK_BURST);
     }
   });
 }

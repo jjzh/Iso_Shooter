@@ -133,12 +133,12 @@ export function clearEffectGhosts(): void {
   effectGhosts.length = 0;
 }
 
-function getBounds(): AABB[] {
+export function getBounds(): AABB[] {
   if (!collisionBounds) collisionBounds = getCollisionBounds();
   return collisionBounds;
 }
 
-function getPits(): AABB[] {
+export function getPits(): AABB[] {
   if (!pitBounds) pitBounds = getPitBounds();
   return pitBounds;
 }

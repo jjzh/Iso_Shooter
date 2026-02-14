@@ -441,6 +441,23 @@ export interface WaveDefinition {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// INCREMENTAL SPAWNS (replaces waves for room manager)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type SpawnZone = 'ahead' | 'sides' | 'far' | 'behind';
+
+export interface SpawnPack {
+  enemies: { type: string }[];   // 2-3 enemies per pack
+  spawnZone: SpawnZone;          // where to spawn relative to player
+}
+
+export interface RoomSpawnBudget {
+  packs: SpawnPack[];            // ordered list of packs to dispatch
+  maxConcurrent: number;         // max alive enemies at once
+  telegraphDuration: number;     // ms for spawn telegraph per pack
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ARENA
 // ═══════════════════════════════════════════════════════════════════════════
 

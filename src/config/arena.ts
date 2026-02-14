@@ -1,5 +1,8 @@
 import { Obstacle, Pit, AABB } from '../types/index';
 
+export let ARENA_HALF_X = 20;
+export let ARENA_HALF_Z = 20;
+// Legacy alias — equals ARENA_HALF_X for backward compat (spawn editor export)
 export let ARENA_HALF = 20;
 
 export const OBSTACLES: Obstacle[] = [
@@ -24,12 +27,14 @@ export const PITS: Pit[] = [
   { x: 8, z: 0, w: 3, d: 9 },
 ];
 
-export function setArenaConfig(obstacles: Obstacle[], pits: Pit[], arenaHalf: number) {
+export function setArenaConfig(obstacles: Obstacle[], pits: Pit[], arenaHalfX: number, arenaHalfZ?: number) {
   OBSTACLES.length = 0;
   obstacles.forEach(o => OBSTACLES.push(o));
   PITS.length = 0;
   pits.forEach(p => PITS.push(p));
-  ARENA_HALF = arenaHalf;
+  ARENA_HALF_X = arenaHalfX;
+  ARENA_HALF_Z = arenaHalfZ ?? arenaHalfX;
+  ARENA_HALF = ARENA_HALF_X; // legacy alias
 }
 
 export function getPitBounds(): AABB[] {
@@ -53,12 +58,17 @@ export function getCollisionBounds(): AABB[] {
     });
   }
 
-  const h = ARENA_HALF;
+  const hx = ARENA_HALF_X;
+  const hz = ARENA_HALF_Z;
   const t = WALL_THICKNESS;
-  bounds.push({ minX: -h - t/2, maxX: h + t/2, minZ: h - t/2, maxZ: h + t/2 });
-  bounds.push({ minX: -h - t/2, maxX: h + t/2, minZ: -h - t/2, maxZ: -h + t/2 });
-  bounds.push({ minX: h - t/2, maxX: h + t/2, minZ: -h - t/2, maxZ: h + t/2 });
-  bounds.push({ minX: -h - t/2, maxX: -h + t/2, minZ: -h - t/2, maxZ: h + t/2 });
+  // North wall (far end, +Z)
+  bounds.push({ minX: -hx - t/2, maxX: hx + t/2, minZ: hz - t/2, maxZ: hz + t/2 });
+  // South wall (near end, -Z)
+  bounds.push({ minX: -hx - t/2, maxX: hx + t/2, minZ: -hz - t/2, maxZ: -hz + t/2 });
+  // East wall (+X)
+  bounds.push({ minX: hx - t/2, maxX: hx + t/2, minZ: -hz - t/2, maxZ: hz + t/2 });
+  // West wall (-X)
+  bounds.push({ minX: -hx - t/2, maxX: -hx + t/2, minZ: -hz - t/2, maxZ: hz + t/2 });
 
   return bounds;
 }
