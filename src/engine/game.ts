@@ -15,6 +15,8 @@ import { initSpawnEditor, checkEditorToggle, updateSpawnEditor, isEditorActive }
 import { initAudio, resumeAudio } from './audio';
 import { initParticles, updateParticles } from './particles';
 import { initBulletTime, toggleBulletTime, updateBulletTime, getBulletTimeScale, resetBulletTime } from './bulletTime';
+import { initBendMode, toggleBendMode, isBendModeActive, isBendTargeting, handleBendClick, enterTargeting, resetBendMode } from './bendMode';
+import { initRadialMenu, setOnBendSelected } from '../ui/radialMenu';
 import { PLAYER, MELEE } from '../config/player';
 import { on } from './events';
 import { applyUrlParams, snapshotDefaults } from './urlParams';
@@ -78,13 +80,25 @@ function gameLoop(timestamp: number): void {
   autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
 
-  // 1b. Bullet Time toggle + update
-  if (input.bulletTime) toggleBulletTime();
+  // 1b. Bend Mode toggle (Q key) — takes priority over bullet time
+  if (input.bendMode) toggleBendMode();
+  if (!isBendModeActive() && input.bulletTime) toggleBulletTime();
   updateBulletTime(dt);
   const gameDt = dt * getBulletTimeScale(); // slowed dt for world systems
 
+  // 1c. Bend targeting click — when bend mode is active and a bend is selected
+  if (isBendModeActive() && isBendTargeting() && input.attack) {
+    handleBendClick(input.mouseNDC, gameState);
+  }
+
   // 2. Player (uses real dt — player moves at normal speed)
-  updatePlayer(input, dt, gameState);
+  // Gate combat input when bend mode is active
+  if (isBendModeActive()) {
+    const gatedInput = { ...input, attack: false, dash: false, ultimate: false, ultimateHeld: false };
+    updatePlayer(gatedInput, dt, gameState);
+  } else {
+    updatePlayer(input, dt, gameState);
+  }
 
   // 3. Projectiles (slowed)
   updateProjectiles(gameDt);
@@ -175,6 +189,7 @@ function restart(): void {
   resetPlayer();
   resetRoomManager();
   resetBulletTime();
+  resetBendMode();
   loadRoom(0, gameState);
 }
 
@@ -195,6 +210,9 @@ function init(): void {
     initAudio();
     initParticles(scene);
     initBulletTime();
+    initRadialMenu();
+    initBendMode();
+    setOnBendSelected(() => enterTargeting());
 
     // Melee hit pause — subscribe to meleeHit event
     on('meleeHit', () => {

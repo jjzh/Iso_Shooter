@@ -15,6 +15,7 @@ const inputState = {
   interact: false,
   toggleEditor: false,
   bulletTime: false,
+  bendMode: false,
 };
 
 // Isometric basis vectors (from prototype)
@@ -53,7 +54,7 @@ export function initInput() {
     if (e.code === 'KeyE') inputState.ultimate = true;
     if (e.code === 'KeyF' || e.code === 'Enter') inputState.interact = true;
     if (e.code === 'Backquote') inputState.toggleEditor = true;
-    if (e.code === 'KeyQ') inputState.bulletTime = true;
+    if (e.code === 'KeyQ') inputState.bendMode = true;
   });
 
   window.addEventListener('keyup', (e) => {
@@ -317,6 +318,7 @@ export function consumeInput() {
   inputState.interact = false;
   inputState.toggleEditor = false;
   inputState.bulletTime = false;
+  inputState.bendMode = false;
 }
 
 export function getInputState() { return inputState; }
