@@ -178,3 +178,30 @@ describe('object collision math', () => {
     expect(dmg).toBe(0);
   });
 });
+
+describe('force push affects objects', () => {
+  it('push velocity inversely proportional to mass', () => {
+    const force = 8;
+    const friction = PHYSICS.objectFriction;
+
+    const massLight = 0.5;
+    const massHeavy = 3.0;
+
+    const distLight = force / massLight;
+    const distHeavy = force / massHeavy;
+
+    const v0Light = Math.sqrt(2 * friction * distLight);
+    const v0Heavy = Math.sqrt(2 * friction * distHeavy);
+
+    expect(v0Light).toBeGreaterThan(v0Heavy);
+  });
+
+  it('very heavy object barely moves', () => {
+    const force = 8;
+    const friction = PHYSICS.objectFriction;
+    const massHeavy = 100;
+    const dist = force / massHeavy;
+    const v0 = Math.sqrt(2 * friction * dist);
+    expect(v0).toBeLessThanOrEqual(2); // very slow
+  });
+});

@@ -984,8 +984,10 @@ export function checkCollisions(gameState: GameState): void {
     const playerX = pushEvt.x - dirX * halfLen;
     const playerZ = pushEvt.z - dirZ * halfLen;
 
-    // 1. Collect all enemies in push rectangle with push-local coordinates
-    const candidates: { enemy: any; forward: number; lateral: number }[] = [];
+    // 1. Collect all enemies AND physics objects in push rectangle
+    const candidates: { enemy: any; obj: any; forward: number; lateral: number }[] = [];
+
+    // Enemies
     for (const enemy of gameState.enemies) {
       if (enemy.health <= 0) continue;
       if ((enemy as any).isLeaping) continue;
@@ -994,9 +996,22 @@ export function checkCollisions(gameState: GameState): void {
                            pushEvt.width, pushEvt.length, pushEvt.rotation, enemyRadius)) {
         const dx = enemy.pos.x - playerX;
         const dz = enemy.pos.z - playerZ;
-        const forward = dx * dirX + dz * dirZ;  // distance along push axis
-        const lateral = dx * perpX + dz * perpZ; // offset perpendicular to push
-        candidates.push({ enemy, forward, lateral });
+        const forward = dx * dirX + dz * dirZ;
+        const lateral = dx * perpX + dz * perpZ;
+        candidates.push({ enemy, obj: null, forward, lateral });
+      }
+    }
+
+    // Physics objects
+    for (const obj of gameState.physicsObjects) {
+      if (obj.destroyed) continue;
+      if (isInRotatedRect(obj.pos.x, obj.pos.z, pushEvt.x, pushEvt.z,
+                           pushEvt.width, pushEvt.length, pushEvt.rotation, obj.radius)) {
+        const dx = obj.pos.x - playerX;
+        const dz = obj.pos.z - playerZ;
+        const forward = dx * dirX + dz * dirZ;
+        const lateral = dx * perpX + dz * perpZ;
+        candidates.push({ enemy: null, obj, forward, lateral });
       }
     }
 
@@ -1004,12 +1019,11 @@ export function checkCollisions(gameState: GameState): void {
     candidates.sort((a, b) => a.forward - b.forward);
 
     // 3. Apply knockback with wave occlusion
-    // Track pushed enemies' lateral positions for blocking checks
     const pushedLaterals: number[] = [];
     const blockRadius = PHYSICS.pushWaveBlockRadius;
 
-    for (const { enemy, lateral } of candidates) {
-      // Check if this enemy is blocked by any already-pushed enemy
+    for (const { enemy, obj, lateral } of candidates) {
+      // Check if blocked by any already-pushed target
       let blocked = false;
       for (const pushedLat of pushedLaterals) {
         if (Math.abs(lateral - pushedLat) < blockRadius) {
@@ -1017,30 +1031,38 @@ export function checkCollisions(gameState: GameState): void {
           break;
         }
       }
-      if (blocked) continue; // Wave absorbed — this enemy gets no direct push
+      if (blocked) continue;
 
-      // Not blocked — apply knockback as velocity
-      // All knockback goes through the velocity system so it naturally interacts
-      // with walls (slam), enemies (collision), and pits. No teleport.
-      const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-      const kbMult = 1 - ((enemy as any).knockbackResist ?? enemy.config.knockbackResist ?? 0);
-      const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
+      if (enemy) {
+        // Enemy push (existing behavior)
+        const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
+        const kbMult = 1 - ((enemy as any).knockbackResist ?? enemy.config.knockbackResist ?? 0);
+        const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
 
-      // v0 = sqrt(2 * friction * distance) — velocity that decays to zero over exactly kbDist
-      if (kbDist > 0) {
-        const v0 = Math.sqrt(2 * PHYSICS.friction * kbDist);
-        (enemy as any).vel.x = dirX * v0;
-        (enemy as any).vel.z = dirZ * v0;
+        if (kbDist > 0) {
+          const v0 = Math.sqrt(2 * PHYSICS.friction * kbDist);
+          (enemy as any).vel.x = dirX * v0;
+          (enemy as any).vel.z = dirZ * v0;
+        }
+        emit({ type: 'enemyPushed', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+
+        enemy.flashTimer = 100;
+        (enemy as any).bodyMesh.material.emissive.setHex(0x44ffaa);
+        if ((enemy as any).headMesh) (enemy as any).headMesh.material.emissive.setHex(0x44ffaa);
+
+        spawnDamageNumber(enemy.pos.x, enemy.pos.z, 'PUSH', '#44ffaa');
+      } else if (obj) {
+        // Object push: velocity = sqrt(2 * friction * (force / mass))
+        const kbDist = pushEvt.force / obj.mass;
+        if (kbDist > 0) {
+          const v0 = Math.sqrt(2 * PHYSICS.objectFriction * kbDist);
+          obj.vel.x = dirX * v0;
+          obj.vel.z = dirZ * v0;
+        }
+        emit({ type: 'objectPushed', object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+        spawnDamageNumber(obj.pos.x, obj.pos.z, 'PUSH', '#44ffaa');
       }
-      emit({ type: 'enemyPushed', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
 
-      enemy.flashTimer = 100;
-      (enemy as any).bodyMesh.material.emissive.setHex(0x44ffaa);
-      if ((enemy as any).headMesh) (enemy as any).headMesh.material.emissive.setHex(0x44ffaa);
-
-      spawnDamageNumber(enemy.pos.x, enemy.pos.z, 'PUSH', '#44ffaa');
-
-      // Record this enemy's lateral position for blocking checks
       pushedLaterals.push(lateral);
     }
   }
