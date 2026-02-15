@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { createPhysicsObject } from '../src/entities/physicsObject';
 
 describe('PhysicsObject type', () => {
   it('can construct a valid PhysicsObject', () => {
@@ -58,5 +59,41 @@ describe('PhysicsObjectPlacement type', () => {
       radius: 0.8,
     };
     expect(p.scale).toBeUndefined(); // optional, defaults to 1
+  });
+});
+
+describe('createPhysicsObject', () => {
+  it('creates object from placement with correct defaults', () => {
+    const obj = createPhysicsObject({
+      meshType: 'rock',
+      material: 'stone',
+      x: 3, z: -5,
+      mass: 2.0,
+      health: 50,
+      radius: 0.8,
+    });
+    expect(obj.pos).toEqual({ x: 3, z: -5 });
+    expect(obj.vel).toEqual({ x: 0, z: 0 });
+    expect(obj.mass).toBe(2.0);
+    expect(obj.health).toBe(50);
+    expect(obj.maxHealth).toBe(50);
+    expect(obj.scale).toBe(1);
+    expect(obj.destroyed).toBe(false);
+    expect(obj.fellInPit).toBe(false);
+    expect(obj.mesh).toBeNull(); // mesh created separately (needs scene)
+  });
+
+  it('respects custom scale', () => {
+    const obj = createPhysicsObject({
+      meshType: 'crate', material: 'wood',
+      x: 0, z: 0, mass: 1, health: 30, radius: 0.5, scale: 1.5,
+    });
+    expect(obj.scale).toBe(1.5);
+  });
+
+  it('assigns unique IDs', () => {
+    const a = createPhysicsObject({ meshType: 'rock', material: 'stone', x: 0, z: 0, mass: 1, health: 10, radius: 0.5 });
+    const b = createPhysicsObject({ meshType: 'rock', material: 'stone', x: 1, z: 1, mass: 1, health: 10, radius: 0.5 });
+    expect(a.id).not.toBe(b.id);
   });
 });

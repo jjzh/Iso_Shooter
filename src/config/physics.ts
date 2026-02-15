@@ -22,4 +22,14 @@ export const PHYSICS = {
   impactMinSpeed: 2,         // minimum relative speed for collision damage
   impactDamage: 5,           // damage per unit of relative speed above threshold
   impactStun: 300,           // ms stun when hit by another enemy
+
+  // Physics objects
+  objectFriction: 25,          // deceleration for physics objects
+  objectWallSlamMinSpeed: 3,   // min impact speed for wall slam damage
+  objectWallSlamDamage: 8,     // damage per unit of speed above threshold
+  objectWallSlamStun: 0,       // objects don't stun (no AI)
+  objectWallSlamBounce: 0.4,   // velocity reflection coefficient
+  objectWallSlamShake: 2,      // screen shake intensity
+  objectImpactMinSpeed: 2,     // min relative speed for impact damage
+  objectImpactDamage: 5,       // damage per unit of relative speed above threshold
 };
