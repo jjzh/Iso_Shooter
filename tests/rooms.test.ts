@@ -288,3 +288,20 @@ describe('Rectangular collision bounds', () => {
     setArenaConfig([], [], 20, 20);
   });
 });
+
+// ─── Physics Objects in Rooms ───
+
+describe('room physics objects', () => {
+  it('Room 1 has physics object placements', () => {
+    const room1 = ROOMS[0];
+    expect(room1.physicsObjects).toBeDefined();
+    expect(room1.physicsObjects!.length).toBeGreaterThan(0);
+  });
+
+  it('Room 1 has a destructible obstacle', () => {
+    const room1 = ROOMS[0];
+    const destructible = room1.obstacles.filter(o => o.destructible);
+    expect(destructible.length).toBeGreaterThan(0);
+    expect(destructible[0].health).toBeGreaterThan(0);
+  });
+});

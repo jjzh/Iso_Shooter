@@ -23,6 +23,7 @@ import { createTelegraph, updateTelegraph, removeTelegraph, initTelegraph } from
 import { initDoor, createDoor, unlockDoor, updateDoor, removeDoor } from './door';
 import { DOOR_CONFIG } from '../config/door';
 import { SpawnPack } from '../types/index';
+import { createPhysicsObject, clearPhysicsObjects, resetPhysicsObjectIds } from '../entities/physicsObject';
 
 // ─── State ───
 
@@ -87,6 +88,7 @@ export function loadRoom(index: number, gameState: any) {
 
   // Clear everything from previous room
   clearEnemies(gameState);
+  clearPhysicsObjects(gameState, sceneRef);
   releaseAllProjectiles();
   clearMortarProjectiles();
   clearIcePatches();
@@ -100,6 +102,16 @@ export function loadRoom(index: number, gameState: any) {
   setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);
   invalidateCollisionBounds();
   rebuildArenaVisuals();
+
+  // Spawn physics objects for this room
+  resetPhysicsObjectIds();
+  if (room.physicsObjects) {
+    for (const placement of room.physicsObjects) {
+      const obj = createPhysicsObject(placement);
+      // Mesh creation will be handled by renderer (Task 8)
+      gameState.physicsObjects.push(obj);
+    }
+  }
 
   // Set player position
   setPlayerPosition(room.playerStart.x, room.playerStart.z);

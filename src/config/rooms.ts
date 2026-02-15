@@ -3,7 +3,7 @@
 // Rooms are rectangular (longer on Z) — player enters from +Z (bottom-left in iso),
 // progresses toward -Z (top-right in iso), exits through a door at the far end
 
-import { Obstacle, Pit, SpawnPack, RoomSpawnBudget } from '../types/index';
+import { Obstacle, Pit, SpawnPack, RoomSpawnBudget, PhysicsObjectPlacement } from '../types/index';
 
 export interface RoomDefinition {
   name: string;
@@ -13,6 +13,7 @@ export interface RoomDefinition {
   pits: Pit[];
   spawnBudget: RoomSpawnBudget;
   playerStart: { x: number; z: number };
+  physicsObjects?: PhysicsObjectPlacement[];
   isRestRoom?: boolean;
   isVictoryRoom?: boolean;
 }
@@ -49,11 +50,15 @@ export const ROOMS: RoomDefinition[] = [
     arenaHalfZ: 22,
     obstacles: [
       { x: -4, z: 5, w: 1.5, h: 2, d: 1.5 },    // pillar left near entrance
-      { x: 4, z: -5, w: 1.5, h: 2, d: 1.5 },     // pillar right mid
+      { x: 4, z: -5, w: 1.5, h: 2, d: 1.5, destructible: true, health: 50, maxHealth: 50, material: 'stone' as const },  // destructible pillar right mid
       { x: 0, z: -12, w: 3, h: 1, d: 1 },         // low wall far
     ],
     pits: [
       { x: 5, z: -8, w: 3, d: 3 },                // small pit mid-right (teaches force push)
+    ],
+    physicsObjects: [
+      { meshType: 'rock', material: 'stone', x: -2, z: -2, mass: 2.0, health: 9999, radius: 0.8 },
+      { meshType: 'barrel', material: 'wood', x: 3, z: -6, mass: 0.5, health: 20, radius: 0.5, scale: 0.8 },
     ],
     spawnBudget: {
       maxConcurrent: 4,
