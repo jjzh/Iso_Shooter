@@ -501,8 +501,9 @@ function updateCharge(inputState: any, dt: number, gameState: any) {
     mat.emissiveIntensity = 0.6 + chargeT * 0.4;
   }
 
-  // Auto-fire at max charge OR release key (100ms grace period prevents instant-fire)
-  if (chargeT >= 1 || (chargeTimer > 100 && !inputState.ultimateHeld)) {
+  // Fire on key release (100ms grace period prevents instant-fire)
+  // Player can hold at max charge indefinitely — fires when they release
+  if (chargeTimer > 100 && !inputState.ultimateHeld) {
     fireChargePush(chargeT, gameState);
   }
 }
