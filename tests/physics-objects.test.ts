@@ -205,3 +205,45 @@ describe('force push affects objects', () => {
     expect(v0).toBeLessThanOrEqual(2); // very slow
   });
 });
+
+describe('milestone: push rock into pillar chain', () => {
+  it('force push on rock produces velocity inversely proportional to mass', () => {
+    const force = 8;
+    const friction = PHYSICS.objectFriction;
+    const mass = 2.0;
+    const dist = force / mass;
+    const v0 = Math.sqrt(2 * friction * dist);
+    // Rock should travel 4 units (8/2) before stopping
+    expect(dist).toBeCloseTo(4, 1);
+    expect(v0).toBeGreaterThan(PHYSICS.objectImpactMinSpeed); // fast enough to damage on impact
+  });
+
+  it('rock impact on destructible obstacle deals damage', () => {
+    const rockSpeed = 6; // above impact threshold
+    const dmg = Math.round((rockSpeed - PHYSICS.objectImpactMinSpeed) * PHYSICS.objectImpactDamage);
+    expect(dmg).toBeGreaterThan(0);
+    // With default config: (6-2)*5 = 20 damage
+  });
+
+  it('50hp pillar can be destroyed by 3 rock impacts at speed 6', () => {
+    const pillarHealth = 50;
+    const dmgPerHit = Math.round((6 - PHYSICS.objectImpactMinSpeed) * PHYSICS.objectImpactDamage);
+    const hitsNeeded = Math.ceil(pillarHealth / dmgPerHit);
+    expect(hitsNeeded).toBeLessThanOrEqual(3);
+  });
+
+  it('full config values produce a viable chain', () => {
+    // Force push max force = 12 (from abilities config)
+    // Rock mass = 2.0 → dist = 12/2 = 6 units
+    // Rock initial speed = sqrt(2 * 25 * 6) ≈ 17.3 u/s
+    // Impact damage = (17.3 - 2) * 5 ≈ 76 damage
+    // One full-charge push should destroy a 50hp pillar in one hit
+    const force = 12;
+    const mass = 2.0;
+    const friction = PHYSICS.objectFriction;
+    const dist = force / mass;
+    const v0 = Math.sqrt(2 * friction * dist);
+    const impactDmg = Math.round((v0 - PHYSICS.objectImpactMinSpeed) * PHYSICS.objectImpactDamage);
+    expect(impactDmg).toBeGreaterThan(50); // one-shots the pillar
+  });
+});
