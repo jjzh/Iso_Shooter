@@ -81,6 +81,29 @@ export function createPhysicsObjectMesh(obj: PhysicsObject, scene: any): void {
   obj.mesh = group;
 }
 
+export function applyBendVisuals(obj: PhysicsObject, tintColor: number): void {
+  if (!obj.mesh) return;
+  obj.mesh.scale.set(obj.scale, obj.scale, obj.scale);
+  obj.mesh.traverse((child: any) => {
+    if (child.isMesh && child.material) {
+      child.material.emissive.setHex(tintColor);
+      child.material.emissiveIntensity = 0.6;
+    }
+  });
+}
+
+export function clearBendVisuals(obj: PhysicsObject): void {
+  if (!obj.mesh) return;
+  obj.mesh.scale.set(1, 1, 1);
+  const colors = MATERIAL_COLORS[obj.material] || MATERIAL_COLORS.stone;
+  obj.mesh.traverse((child: any) => {
+    if (child.isMesh && child.material) {
+      child.material.emissive.setHex(colors.emissive);
+      child.material.emissiveIntensity = 0.3;
+    }
+  });
+}
+
 export function clearPhysicsObjects(gameState: any, scene: any): void {
   for (const obj of gameState.physicsObjects) {
     if (obj.mesh) {
