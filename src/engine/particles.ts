@@ -326,7 +326,7 @@ function initEnemyArcDecals(scene: any): void {
   }
 }
 
-function spawnEnemyArcDecal(x: number, z: number, facingAngle: number, hitArc: number, hitRange: number, durationMs: number): void {
+function spawnEnemyArcDecal(x: number, z: number, rotationY: number, hitArc: number, hitRange: number, durationMs: number): void {
   // Find inactive decal in pool
   let decal: EnemyArcDecal | null = null;
   for (const d of enemyArcPool) {
@@ -335,8 +335,7 @@ function spawnEnemyArcDecal(x: number, z: number, facingAngle: number, hitArc: n
   if (!decal) return;
 
   // Replace geometry with correct arc shape for this enemy
-  // CircleGeometry arc is in XY plane, centered on +X axis
-  // Offset by PI/2 so arc center aligns with +Z (matches rotation.y convention)
+  // Arc centered at PI/2 → points +Z after rotateX(-PI/2), same convention as vision cone
   const newGeo = new THREE.CircleGeometry(hitRange, 24, Math.PI / 2 - hitArc / 2, hitArc);
   newGeo.rotateX(-Math.PI / 2);
   decal.mesh.geometry.dispose();
@@ -348,7 +347,8 @@ function spawnEnemyArcDecal(x: number, z: number, facingAngle: number, hitArc: n
   decal.mesh.visible = true;
   decal.mesh.position.set(x, 0.05, z);
   decal.mesh.scale.set(1, 1, 1);
-  decal.mesh.rotation.set(0, facingAngle, 0);
+  // Geometry faces -Z at rotation.y=0 (same as model). Just apply rotation.y directly.
+  decal.mesh.rotation.set(0, rotationY, 0);
   decal.mesh.material.opacity = 0.35;
 }
 
@@ -609,7 +609,7 @@ function wireEventBus(): void {
     if (e.type === 'enemyMeleeTelegraph') {
       spawnEnemyArcDecal(
         e.position.x, e.position.z,
-        e.facingAngle, e.hitArc, e.hitRange,
+        e.rotationY, e.hitArc, e.hitRange,
         e.duration
       );
     }

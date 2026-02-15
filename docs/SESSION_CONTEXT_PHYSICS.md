@@ -479,3 +479,58 @@ Both modes are essential. A prototype session often starts in exploration mode a
 ---
 
 *Appended from explore/hades design exploration session, February 2026*
+
+---
+---
+
+# Part 3: Scoping Principles for Big Pivots
+
+> Captures a prototyping principle Jeff articulated when working through a large directional change. Appended to document how Jeff thinks about scoping effort during exploratory pivots.
+
+---
+
+## The "Just Goblins" Scoping Principle
+
+During a session involving a significant directional pivot, Jeff articulated a clear scoping rule:
+
+> "In situations where we're making large, huge pivots... it's not necessary to apply that to the entirety of the game... unless I explicitly say so. Like... what we need just nails like hey, how would this feel if it was just goblins?"
+
+### What This Means
+
+When prototyping a big pivot — changing the fundamental feel or direction of a system — **scope the change to a single representative enemy type** (typically goblins, the simplest and most numerous enemy). Do NOT propagate the change across all enemy types, room configs, or game systems unless Jeff explicitly asks for it.
+
+### The Reasoning
+
+1. **Faster feel evaluation.** You can tell whether a direction works by testing it against one enemy type. You don't need all four enemy types behaving differently to answer "does this feel right?"
+
+2. **Avoid wasted work.** Big pivots are exploratory — there's a real chance the direction will change again. Every hour spent propagating changes to skeleton archers, ice mortar imps, and stone golems is wasted if the pivot doesn't stick.
+
+3. **Tighter feedback loop.** Fewer moving parts means less debugging, fewer interactions to reason about, and faster iteration cycles.
+
+### When to Propagate
+
+Only propagate a pivot to other enemy types / systems when:
+- Jeff explicitly says "apply this to all enemies" or similar
+- Jeff has playtested the scoped version and confirmed the direction feels right
+- The scoped prototype has stabilized enough that propagation is mechanical, not exploratory
+
+### How This Connects to Existing Principles
+
+| Existing Principle | Connection |
+|---|---|
+| **Genre is scaffolding** | Don't over-invest in scaffolding (all enemy types) when you're evaluating a twist (the pivot direction) |
+| **Iteration speed** | Scoping to one enemy type is faster to build, test, and throw away |
+| **Done is better than perfect** | A goblin-only prototype that answers the design question is more valuable than a fully-propagated system that took 3x longer |
+| **Phasing as decision management** | Scoped implementation is like a sub-phase — answer "does this feel right?" before answering "how does this work across the full game?" |
+| **Over-specifying before playtesting** (anti-pattern) | Propagating to all enemies before Jeff has even confirmed the direction is a form of over-specifying |
+
+### Implications for Claude
+
+- **Default to scoped.** When implementing a big directional change, target goblins only unless told otherwise.
+- **Call it out in the plan.** When presenting a build plan for a pivot, explicitly state: "Scoping this to goblins for initial feel evaluation. Will propagate to other enemy types if the direction holds."
+- **Don't silently propagate.** If a change naturally touches all enemy types (e.g., a system-level refactor), flag it: "This will affect all enemies — want me to scope it to goblins instead?"
+- **Treat propagation as a separate task.** If Jeff confirms the direction and asks to propagate, that's a new work item with its own plan — not a footnote on the original task.
+
+---
+
+*Appended from explore/hades pivot scoping session, February 2026*

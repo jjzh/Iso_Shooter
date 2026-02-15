@@ -6,4 +6,5 @@ export const SPAWN_CONFIG = {
   maxConcurrentMult: 1.0,    // multiplier on per-room maxConcurrent
   spawnAheadMin: 8,          // minimum distance ahead of player to spawn enemies (Z units)
   spawnAheadMax: 15,         // maximum distance ahead of player to spawn enemies (Z units)
+  minPlayerDist: 6,          // minimum spawn distance from player (prevents spawning on top of you)
 };

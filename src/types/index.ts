@@ -206,6 +206,7 @@ export interface EnemyConfig {
   knockbackResist: number;
   mass?: number;            // physics mass (default 1.0) — heavier enemies resist momentum transfer
   behavior: string;
+  aggroRadius?: number;        // detection radius before enemy aggros (undefined = always active)
   size: SizeConfig;
   drops: DropsConfig;
   immunities?: string[];
@@ -285,6 +286,12 @@ export interface EnemyConfig {
     leapSpeed: number;
     arcHeight: number;
     cooldown: number;
+  };
+  patrol?: {
+    distance: number;
+    speed: number;
+    pauseMin: number;
+    pauseMax: number;
   };
 }
 

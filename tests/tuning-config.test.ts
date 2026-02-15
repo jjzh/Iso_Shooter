@@ -8,6 +8,10 @@ import { ABILITIES } from '../src/config/abilities';
 import { C as ANIM } from '../src/entities/playerAnimator';
 import { AUDIO_CONFIG } from '../src/engine/audio';
 import { PHYSICS } from '../src/config/physics';
+import { VISION_CONE_CONFIG } from '../src/engine/visionCone';
+import { BULLET_TIME } from '../src/engine/bulletTime';
+import { SPAWN_CONFIG } from '../src/config/spawn';
+import { ENEMY_TYPES } from '../src/config/enemies';
 
 // ─── Mirrored slider definitions from tuning.ts ───
 // We duplicate the key/config pairs here so the test validates the contract
@@ -33,7 +37,7 @@ const SLIDER_CHECKS: SliderCheck[] = [
   { section: 'Player', label: 'Move Speed', config: PLAYER, key: 'speed', min: 2, max: 16 },
 
   // Dash
-  { section: 'Dash', label: 'Cooldown',     config: ABILITIES.dash, key: 'cooldown',             min: 500,  max: 10000 },
+  { section: 'Dash', label: 'Cooldown',     config: ABILITIES.dash, key: 'cooldown',             min: 0,    max: 10000 },
   { section: 'Dash', label: 'Duration',     config: ABILITIES.dash, key: 'duration',             min: 50,   max: 500 },
   { section: 'Dash', label: 'Distance',     config: ABILITIES.dash, key: 'distance',             min: 1,    max: 15 },
   { section: 'Dash', label: 'End Lag',      config: ABILITIES.dash, key: 'endLag',               min: 0,    max: 300 },
@@ -98,6 +102,31 @@ const SLIDER_CHECKS: SliderCheck[] = [
   { section: 'Physics', label: 'Impact Min Spd', config: PHYSICS, key: 'impactMinSpeed',   min: 0,  max: 10 },
   { section: 'Physics', label: 'Impact Damage',  config: PHYSICS, key: 'impactDamage',     min: 1,  max: 20 },
   { section: 'Physics', label: 'Impact Stun',    config: PHYSICS, key: 'impactStun',       min: 0,  max: 1000 },
+
+  // Aggro — Vision Cone
+  { section: 'Aggro', label: 'Detect Time', config: VISION_CONE_CONFIG, key: 'detectionThreshold', min: 0, max: 1000 },
+  { section: 'Aggro', label: 'Aggro Hold',  config: VISION_CONE_CONFIG, key: 'aggroHoldDuration',  min: 0, max: 1000 },
+  { section: 'Aggro', label: 'Cone Angle',  config: VISION_CONE_CONFIG, key: 'angle',              min: 0.3, max: 3.14 },
+  { section: 'Aggro', label: 'Cone Opacity',config: VISION_CONE_CONFIG, key: 'opacity',            min: 0.01, max: 0.3 },
+  { section: 'Aggro', label: 'Scan Speed',  config: VISION_CONE_CONFIG, key: 'idleTurnRate',       min: 0, max: 2 },
+  { section: 'Aggro', label: 'Scan Arc',    config: VISION_CONE_CONFIG, key: 'idleScanArc',        min: 0, max: 3.14 },
+
+  // Aggro — Patrol
+  { section: 'Aggro', label: 'Patrol Dist',  config: ENEMY_TYPES.goblin.patrol!, key: 'distance', min: 2, max: 15 },
+  { section: 'Aggro', label: 'Patrol Speed', config: ENEMY_TYPES.goblin.patrol!, key: 'speed',    min: 0.5, max: 4 },
+  { section: 'Aggro', label: 'Pause Min',    config: ENEMY_TYPES.goblin.patrol!, key: 'pauseMin', min: 100, max: 3000 },
+  { section: 'Aggro', label: 'Turn Speed',   config: VISION_CONE_CONFIG,         key: 'turnSpeed', min: 0.5, max: 10 },
+
+  // Bullet Time
+  { section: 'Bullet Time', label: 'Time Scale',  config: BULLET_TIME, key: 'timeScale',         min: 0.05, max: 0.8 },
+  { section: 'Bullet Time', label: 'Max Resource', config: BULLET_TIME, key: 'maxResource',       min: 500, max: 10000 },
+  { section: 'Bullet Time', label: 'Drain Rate',   config: BULLET_TIME, key: 'drainRate',         min: 200, max: 3000 },
+  { section: 'Bullet Time', label: 'Kill Refill',  config: BULLET_TIME, key: 'killRefill',        min: 100, max: 2000 },
+  { section: 'Bullet Time', label: 'Min Activate', config: BULLET_TIME, key: 'activationMinimum', min: 0,   max: 1000 },
+  { section: 'Bullet Time', label: 'Infinite',     config: BULLET_TIME, key: 'infinite',          min: 0,   max: 1 },
+
+  // Spawn Pacing
+  { section: 'Spawn Pacing', label: 'Min Player Dist', config: SPAWN_CONFIG, key: 'minPlayerDist', min: 0, max: 15 },
 
   // Audio
   { section: 'Audio', label: 'Master Vol',  config: AUDIO_CONFIG, key: 'masterVolume',      min: 0, max: 1 },

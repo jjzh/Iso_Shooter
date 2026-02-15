@@ -4,8 +4,13 @@ import {
   triggerDash, triggerUltimate, setUltimateHeld,
   setAimFromScreenDrag, setAbilityDirOverride, clearAbilityDirOverride
 } from '../engine/input';
+import { isBulletTimeActive, getBulletTimeResource, getBulletTimeMax } from '../engine/bulletTime';
+import { on } from '../engine/events';
 
 let healthBar: any, healthText: any, waveIndicator: any, currencyCount: any, abilityBar: any;
+let bulletTimeMeter: any, bulletTimeFill: any;
+let btVignette: any, btCeremony: any;
+let btCeremonyTimeout: any = null;
 
 // Mobile action button refs
 let mobileBtnDash: any, mobileBtnUlt: any;
@@ -35,6 +40,105 @@ export function initHUD() {
   if (hasTouch) {
     initMobileButtons();
   }
+
+  // Bullet time meter bar — positioned top-left below health bar
+  bulletTimeMeter = document.createElement('div');
+  bulletTimeMeter.id = 'bullet-time-meter';
+  bulletTimeMeter.style.cssText = `
+    position: fixed;
+    top: 44px;
+    left: 20px;
+    width: 220px;
+    height: 6px;
+    background: rgba(20, 20, 40, 0.7);
+    border: 1px solid rgba(100, 140, 255, 0.3);
+    border-radius: 3px;
+    z-index: 50;
+    overflow: hidden;
+  `;
+  bulletTimeFill = document.createElement('div');
+  bulletTimeFill.style.cssText = `
+    width: 100%;
+    height: 100%;
+    background: #6688ff;
+    border-radius: 2px;
+    transition: background-color 0.15s ease;
+  `;
+  bulletTimeMeter.appendChild(bulletTimeFill);
+
+  // Label — right side
+  const btLabel = document.createElement('div');
+  btLabel.style.cssText = `
+    position: absolute;
+    top: -1px;
+    right: -50px;
+    font-size: 8px;
+    color: rgba(100, 140, 255, 0.6);
+    letter-spacing: 1px;
+    font-family: 'Courier New', monospace;
+    pointer-events: none;
+  `;
+  btLabel.textContent = 'Q — SLOW';
+  bulletTimeMeter.appendChild(btLabel);
+
+  document.body.appendChild(bulletTimeMeter);
+
+  // ─── Bullet time vignette overlay ───
+  btVignette = document.createElement('div');
+  btVignette.id = 'bt-vignette';
+  btVignette.style.cssText = `
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    z-index: 40;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    background: radial-gradient(ellipse at center, transparent 50%, rgba(100, 140, 255, 0.15) 100%);
+    box-shadow: inset 0 0 80px rgba(100, 140, 255, 0.2);
+  `;
+  document.body.appendChild(btVignette);
+
+  // ─── Bullet time ceremony text ───
+  btCeremony = document.createElement('div');
+  btCeremony.id = 'bt-ceremony';
+  btCeremony.style.cssText = `
+    position: fixed;
+    top: 18%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 14px;
+    font-family: 'Courier New', monospace;
+    color: rgba(100, 160, 255, 0.9);
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    text-shadow: 0 0 12px rgba(100, 140, 255, 0.6), 0 0 30px rgba(100, 140, 255, 0.3);
+    pointer-events: none;
+    z-index: 55;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  `;
+  document.body.appendChild(btCeremony);
+
+  // Subscribe to bullet time events for vignette + ceremony
+  on('bulletTimeActivated', () => {
+    if (btVignette) btVignette.style.opacity = '1';
+    showBTCeremony('BULLET TIME ENGAGED', 1200);
+  });
+  on('bulletTimeDeactivated', () => {
+    if (btVignette) btVignette.style.opacity = '0';
+    showBTCeremony('BULLET TIME ENDED', 800);
+  });
+}
+
+function showBTCeremony(text: string, durationMs: number) {
+  if (!btCeremony) return;
+  if (btCeremonyTimeout) clearTimeout(btCeremonyTimeout);
+  btCeremony.textContent = text;
+  btCeremony.style.opacity = '1';
+  btCeremonyTimeout = setTimeout(() => {
+    btCeremony.style.opacity = '0';
+    btCeremonyTimeout = null;
+  }, durationMs);
 }
 
 // Drag-to-aim constants
@@ -183,6 +287,19 @@ export function updateHUD(gameState: any) {
 
   // Currency
   currencyCount.textContent = gameState.currency;
+
+  // Bullet time meter
+  if (bulletTimeFill) {
+    const btPct = getBulletTimeResource() / getBulletTimeMax();
+    bulletTimeFill.style.width = (btPct * 100) + '%';
+    const btActive = isBulletTimeActive();
+    bulletTimeFill.style.backgroundColor = btActive ? '#ffcc44' : '#6688ff';
+    if (bulletTimeMeter) {
+      bulletTimeMeter.style.borderColor = btActive
+        ? 'rgba(255, 204, 68, 0.6)'
+        : 'rgba(100, 140, 255, 0.3)';
+    }
+  }
 
   // Ability cooldowns — update both desktop slots and mobile buttons
   for (const [key, state] of Object.entries(gameState.abilities)) {

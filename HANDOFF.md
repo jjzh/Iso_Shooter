@@ -43,12 +43,12 @@ None identified yet for Phase 1. Phase 2/3 will add this. See `docs/DESIGN_EXPLO
 ## Branch Info
 - **Branch:** `explore/hades`
 - **Forked from:** `main`
-- **Last updated:** 2026-02-13
+- **Last updated:** 2026-02-14
 
 ## Current State
-**Phase 1 COMPLETE + Room & Spawn Rework COMPLETE. Ready for playtesting.**
+**Phase 1 COMPLETE + Room & Spawn Rework COMPLETE + Stealth Feel Pass COMPLETE. Ready for playtesting.**
 
-The full action roguelike loop is functional with a physics-first combat system and a reworked room/spawn system:
+The full action roguelike loop is functional with a physics-first combat system, reworked room/spawn system, and a stealth feel pass that makes enemy awareness readable and manipulable:
 - Click-to-attack melee with generous arc, auto-targeting, hit pause
 - 4 enemy types with telegraph → attack → recovery state machines (all used)
 - **5 rectangular rooms** with escalating difficulty — player enters from one end, progresses forward
@@ -58,7 +58,17 @@ The full action roguelike loop is functional with a physics-first combat system 
 - **Victory room** (Room 5) — empty celebration, boss designed separately
 - **Ice Mortar Imp** integrated into Room 3 for area denial variety
 - Physics-based knockback, wall slam, enemy collision, force push wave occlusion, pit falls
-- All 552 automated tests passing, clean typecheck, clean build
+- **Vision cone LOS occlusion** — enemies cannot detect through walls/obstacles
+- **Detection timer** — 250ms in-cone+LOS required before aggro (no instant clips)
+- **Detection color ramp** — cone fills green→yellow→orange→red as detection builds
+- **Tighter cones** — 48° half-angle (down from 60°), reduced aggro radii across all enemies
+- **Aggro ceremony** — red flash hold + "!" indicator above enemy on aggro
+- **Goblin patrol** — back-and-forth patrol along facing axis with terrain collision reversal
+- **Spawn safety** — enemies won't spawn within 6 units of player
+- **Additional cover** — ~10 new pillars across rooms 1-3 for LOS breaks
+- **Bullet time polish** — infinite mode, relocated meter, screen vignette, ceremony text
+- **Facing system rearchitected** — `mesh.rotation.y` is single source of truth, `facingAngle` eliminated entirely
+- All 620 automated tests passing, clean typecheck, clean build
 
 ## Phase 1 Build Plan — COMPLETED
 
@@ -126,16 +136,37 @@ The full action roguelike loop is functional with a physics-first combat system 
 - `tests/physics-velocity.test.ts` — 24 tests: velocity formula, friction stop distance, wall slam thresholds, knockback math
 - `tests/physics-collision.test.ts` — 22 tests: enemy collision config, mass-weighted separation, elastic collision, impact damage
 - `tests/push-wave.test.ts` — 15 tests: wave occlusion logic, lateral blocking, edge cases
-- **Total: 509 tests (all passing)**
+- **Total: 616 tests (all passing)**
 
 ## What Feels Good
 - Force push bowling — pushing a goblin into another goblin is satisfying
 - Wall slam feedback — screen shake + damage number + particles + sound on impact
 - Wave occlusion — intuitive blocking behavior, front enemies shield back enemies
+- Detection color ramp — green→yellow→orange→red makes awareness state instantly readable
+- LOS occlusion — ducking behind a pillar to break detection feels intentional and satisfying
+- Goblin patrol — random facing + staggered pauses make goblins feel alive, not scripted
+- Aggro ceremony — the "!" pop + red flash gives a clear "you've been spotted" moment
+- Cover play — new pillars create stealth corridors and meaningful positioning choices
+- Bullet time vignette — screen effect sells the time-slow with minimal visual overhead
 
 ## What Doesn't Work Yet
 - Melee knockback removed (was competing with force push for same design role) — melee is now pure damage
 - Need more playtesting to tune physics values (friction, wall slam damage, impact thresholds)
+- Detection timer value (250ms) may need per-enemy tuning — one size fits all might not work for archers vs goblins
+- Goblin patrol distance/speed relative to room size needs playtesting — might patrol off meaningful sightlines
+- Cover pillar placement is hand-tuned — no procedural cover generation yet
+
+### ✅ RESOLVED: Enemy Facing / Movement / Vision Cone — Rearchitected
+**Status: Rearchitected. `facingAngle` eliminated, `mesh.rotation.y` is single source of truth. Needs visual playtesting to confirm fix.**
+
+The old system maintained two angle spaces (`facingAngle` in atan2-space, `mesh.rotation.y` in THREE-space) with a fragile conversion formula. This caused persistent moonwalking bugs across 5+ fix attempts. The root cause: `sin(facingAngle)/cos(facingAngle)` produced the opposite direction from what the visual `mesh.rotation.y` showed.
+
+**New architecture:** Two helper functions define the entire angle system:
+```typescript
+getForward(rotY)  → { x: -sin(rotY), z: -cos(rotY) }  // forward from rotation.y
+rotationToFace(dx, dz) → atan2(-dx, -dz)               // rotation.y to face direction
+```
+All behaviors, vision cone checks, and movement use these two functions. No angle conversion anywhere. Cone geometry also fixed to face -Z at rotation.y=0 (matching the model), so copying rotation.y from model to cone aligns them without any offset.
 
 ## Key Config Values
 - `PHYSICS.friction: 25` — deceleration rate, higher = snappier stop
@@ -144,6 +175,13 @@ The full action roguelike loop is functional with a physics-first combat system 
 - `PHYSICS.enemyBounce: 0.4` — enemy-enemy restitution
 - `PHYSICS.pushWaveBlockRadius: 0.8` — lateral blocking distance for wave occlusion
 - Enemy masses: goblin 1.0, archer 0.8, imp 0.9, golem 3.0
+- Vision cone half-angle: 48° (down from 60°)
+- Aggro radii: goblin 8 (was 10), archer 11 (was 14), imp 13 (was 16), golem 6 (was 8)
+- Detection timer: 250ms (tunable via slider)
+- Aggro hold timer: 250ms red flash before 1s fade
+- Goblin patrol: distance 6, speed 1.2, pauseMin 500ms, pauseMax 1500ms
+- Spawn `minPlayerDist: 6` — minimum distance from player for enemy spawns
+- `BULLET_TIME.infinite: 1` — skips meter drain (tunable, 0 to disable)
 
 ## Open Questions
 - Melee swing animation: how elaborate does it need to be for the swing to read clearly?
@@ -151,6 +189,11 @@ The full action roguelike loop is functional with a physics-first combat system 
 - Room transition: should there be a brief screen effect (flash/fade) or is instant swap fine?
 - Physics tuning: are current friction/damage/stun values in the right ballpark?
 - Should the push instant ratio slider be removed entirely now that we've committed to pure velocity?
+- Detection timer: should it be per-enemy-type? Archers (long range) might want longer detection than goblins (close patrol)
+- Patrol: should other enemy types patrol, or is it goblin-only flavor?
+- Cover generation: should rooms 4+ get procedural cover placement, or keep hand-tuned?
+- Bullet time infinite mode: is this for dev/tuning only, or does it stay as a gameplay option?
+- Aggro ceremony: does the "!" indicator need to persist longer for readability at a glance?
 
 ## Merge Candidates
 - Room system (`roomManager.ts`, `rooms.ts` data format) — will be needed by heist and other prototypes
@@ -159,16 +202,22 @@ The full action roguelike loop is functional with a physics-first combat system 
 - `MOB_GLOBAL` multiplier pattern — useful for any prototype with enemies
 - `meleemath.ts` pure arc detection — testable, no THREE dependency
 - **Physics system** (velocity, wall slam, enemy collision, wave occlusion) — general-purpose for any action prototype
+- **Vision cone LOS system** (detection timer, color ramp, LOS raycast) — directly needed by heist prototype for stealth gameplay
+- **Patrol behavior** (back-and-forth with terrain collision) — useful for heist guard routes, souls enemy placement
+- **Spawn safety** (`minPlayerDist`) — should be on main, prevents frustrating spawn-on-top-of-player moments
 
 ## What To Do Next
-1. **Playtest the new room flow** — walk through all 5 rooms, check spawn pacing and escalation
-2. **Tune spawn pacing** — use "Spawn Pacing" tuning section (telegraph duration, cooldown, max concurrent multiplier, spawn distances)
-3. **Tune door feel** — use "Door" tuning section (unlock duration, interact radius, rest pause)
-4. **Camera check** — verify isometric camera handles the longer rectangular rooms well, adjust frustum if needed
-5. **Tune enemy feel** — adjust MOB_GLOBAL multipliers for each room's encounter pacing
-6. **Evaluate scaffolding** — does the 5-room loop feel good enough to layer a twist on top?
-7. **Design boss encounter** — Room 5 is currently empty; design the golem boss fight separately
-8. **If ready for twist:** choose from `docs/DESIGN_EXPLORATION.md`, start Phase 2
+1. **🔴 PLAYTEST: Verify facing rearchitecture in-game** — facing system was rearchitected (facingAngle → mesh.rotation.y single source of truth). Needs visual verification: do goblins patrol without moonwalking? Do cones point where models face? Does aggro trigger correctly? If cone looks backward, flip `thetaStart` back in visionCone.ts (see risk note below).
+2. **Playtest with stealth feel** — walk through rooms 1-3, test LOS cover play, patrol timing, detection ramp readability
+3. **Tune detection values** — use new tuning sliders: detect time, aggro hold, patrol dist/speed/pause
+4. **Tune spawn pacing** — use "Spawn Pacing" tuning section (telegraph duration, cooldown, max concurrent multiplier, spawn distances)
+5. **Tune door feel** — use "Door" tuning section (unlock duration, interact radius, rest pause)
+6. **Evaluate stealth + combat balance** — does the detection timer make stealth viable without making combat too easy to avoid?
+7. **Cover layout iteration** — are the new pillars creating interesting stealth routes, or just clutter?
+8. **Camera check** — verify isometric camera handles the longer rectangular rooms well, adjust frustum if needed
+9. **Design boss encounter** — Room 5 is currently empty; design the golem boss fight separately
+10. **Evaluate scaffolding** — does the 5-room loop feel good enough to layer a twist on top?
+11. **If ready for twist:** choose from `docs/DESIGN_EXPLORATION.md`, start Phase 2
 
 ## Systems Added (Room & Spawn Rework Session)
 - **Rectangular arena** (`src/config/arena.ts`) — `ARENA_HALF_X` + `ARENA_HALF_Z` for different width vs depth. `setArenaConfig` accepts both dimensions.
@@ -202,3 +251,25 @@ The full action roguelike loop is functional with a physics-first combat system 
 - **2026-02-12** — Completed Phase 1 (all 5 steps). Melee combat with hit detection, auto-targeting, animation, audio. Enemy rework with telegraph/attack/recovery state machines, MOB_GLOBAL multipliers, archer real projectile. Room system with 2 rooms, auto-transition, death restart. 395 tests passing, clean build.
 - **2026-02-12** — Physics session. Built velocity knockback, wall slam, enemy-enemy collision, force push wave occlusion, pit falls from knockback. Removed melee knockback (competing with force push). Committed to pure velocity (pushInstantRatio=0, no teleport). 509 tests passing, clean build. Session context captured in `docs/SESSION_CONTEXT_PHYSICS.md`.
 - **2026-02-13** — Room & spawn rework. Rectangular arena (ARENA_HALF_X/Z), 5 rooms with escalating difficulty, incremental pack spawn system with telegraphs, door system with unlock animation + audio + particles, rest room (heal to full), victory room. Added ice mortar imp to Room 3. New tuning sections: "Spawn Pacing" and "Door". New configs: `spawn.ts`, `door.ts`. New file: `door.ts`. Rewrote `roomManager.ts` with pack dispatch algorithm. 552 tests passing, clean build.
+- **2026-02-13** — Stealth feel pass. Vision cone LOS occlusion (enemies can't detect through walls), detection timer (250ms in-cone+LOS before aggro), detection color ramp (green→yellow→orange→red), tighter cones (48° from 60°), reduced aggro radii. Aggro ceremony (red flash hold + "!" indicator). Goblin patrol (back-and-forth with terrain collision). Spawn safety (minPlayerDist: 6), ~10 additional cover pillars. Bullet time polish (infinite mode, meter relocation, vignette, ceremony text). 8 new tuning sliders, 64 new tests. 616 tests passing, clean build.
+- **2026-02-14** — Facing/rotation fix session (2 sessions). Fixed 180° model+cone inversion with `-facingAngle + Math.PI` formula and cone-copies-model approach. Attempted moonwalk fix by switching movement from `_toPlayer` vector to `sin(facingAngle)/cos(facingAngle)` forward vector, and changing retreat to turn-away-then-walk-forward. Moonwalking persists despite all changes. Math spot-checks verify the formula but user reports it's wrong visually in-game. **Decision: needs ground-up rearchitect with visual test harness.** 620 tests passing, clean build.
+- **2026-02-14** — Facing system rearchitecture. Eliminated `facingAngle` entirely — `mesh.rotation.y` is now the single source of truth. Added `getForward(rotY)` and `rotationToFace(dx,dz)` helper functions. Updated all 13 turnToward() callers, 6 forward vector computations, vision cone angle check, idle scan, cone geometry thetaStart (now faces -Z matching model), enemy arc decal geometry+rotation, event types. Zero `facingAngle` references remain. Files changed: enemy.ts (major), visionCone.ts (moderate), events.ts, particles.ts, enemy-rework.test.ts (minor). Key risk: cone thetaStart change — if cone looks backward in-game, flip it back. 620 tests passing, clean build. **Next: visual playtest to confirm moonwalking is fixed.**
+
+## Systems Added (Stealth Feel Pass)
+- **Vision cone LOS** (`src/entities/enemy.ts`) — `raycastTerrainDist()` slab-method ray-AABB checks whether player is visible through obstacles. Detection blocked when LOS is occluded.
+- **Detection timer** (`src/entities/enemy.ts`) — 250ms cumulative in-cone+LOS time required before aggro. Timer resets when player leaves cone or LOS breaks. Tunable via slider.
+- **Detection color ramp** (`src/engine/visionCone.ts`) — cone material transitions green→yellow→orange→red as detection timer fills. Provides instant readability of enemy awareness state.
+- **Aggro hold timer** (`src/engine/visionCone.ts`) — 250ms solid red hold before 1s fade on aggro trigger. Prevents the red flash from being too brief to notice.
+- **Aggro indicator** (`src/entities/enemy.ts`) — red cone+dot "!" pops above enemy on `enemyAggroed` event. Bobs and fades over ~1s. Subscribes to event bus.
+- **Goblin patrol** (`src/entities/enemy.ts`) — back-and-forth patrol along initial facing axis. Config: distance 6, speed 1.2, pauseMin 500ms, pauseMax 1500ms. Terrain collision reversal via `pointHitsTerrain()`. Random initial facing + random pause durations.
+- **Patrol-aware cone scan** (`src/engine/visionCone.ts`) — idle sinusoidal scan skipped for patrolling enemies; patrol controls facing directly.
+- **Facing system** (`src/entities/enemy.ts`) — `mesh.rotation.y` is single source of truth. `getForward()` and `rotationToFace()` helpers replace all angle conversion. `facingAngle` property eliminated entirely.
+- **Spawn safety** (`src/engine/roomManager.ts`, `src/config/spawn.ts`) — `minPlayerDist: 6` prevents enemies from spawning within 6 units of player.
+- **Additional cover** (`src/config/rooms.ts`) — ~10 new obstacle pillars in rooms 1-3 for LOS breaks and stealth corridors.
+- **Bullet time infinite mode** (`src/engine/bulletTime.ts`) — `infinite: 1` in BULLET_TIME config skips meter drain. Tunable via slider.
+- **Bullet time meter relocation** (`src/ui/hud.ts`) — meter moved from bottom-center to top-left (below health bar, 220px wide).
+- **Bullet time vignette** (`src/ui/hud.ts`) — blue radial gradient + inner glow overlay during bullet time with 0.3s CSS transition.
+- **Bullet time ceremony text** (`src/ui/hud.ts`) — "BULLET TIME ENGAGED" / "BULLET TIME ENDED" at top-center with letter-spacing + glow effect.
+- **Patrol type** (`src/types/index.ts`) — `patrol?` optional field added to `EnemyConfig`.
+- **8 new tuning sliders** (`src/ui/tuning.ts`) — detect time, aggro hold, patrol dist/speed/pauseMin, infinite BT, min player dist.
+- **64 new slider validation tests** (`tests/tuning-config.test.ts`) — validates all new tuning slider configs.

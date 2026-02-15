@@ -128,8 +128,8 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     return;
   }
 
-  // Trigger dash
-  if (inputState.dash && gameState.abilities.dash.cooldownRemaining <= 0) {
+  // Trigger dash (endLag guard prevents spamming during recovery)
+  if (inputState.dash && gameState.abilities.dash.cooldownRemaining <= 0 && endLagTimer <= 0) {
     startDash(inputState, gameState);
   }
 

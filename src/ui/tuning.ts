@@ -10,6 +10,9 @@ import { C as ANIM } from '../entities/playerAnimator';
 import { AUDIO_CONFIG, setMasterVolume } from '../engine/audio';
 import { SPAWN_CONFIG } from '../config/spawn';
 import { DOOR_CONFIG } from '../config/door';
+import { VISION_CONE_CONFIG } from '../engine/visionCone';
+import { BULLET_TIME } from '../engine/bulletTime';
+import { HAZARD_CONFIG } from '../engine/dynamicHazards';
 import { buildShareUrl } from '../engine/urlParams';
 
 // ─── Slider Section Definitions ───
@@ -96,13 +99,49 @@ const SECTIONS: SliderSection[] = [
     ]
   },
 
+  // ── Aggro ──
+  {
+    section: 'Aggro',
+    collapsed: true,
+    items: [
+      { label: 'Goblin',      config: () => ENEMY_TYPES.goblin,          key: 'aggroRadius',  min: 2,  max: 30, step: 1,
+        unit: 'u', tip: 'Detection radius before goblin aggros.' },
+      { label: 'Archer',      config: () => ENEMY_TYPES.skeletonArcher,  key: 'aggroRadius',  min: 2,  max: 30, step: 1,
+        unit: 'u', tip: 'Detection radius before skeleton archer aggros.' },
+      { label: 'Imp',         config: () => ENEMY_TYPES.iceMortarImp,    key: 'aggroRadius',  min: 2,  max: 30, step: 1,
+        unit: 'u', tip: 'Detection radius before ice mortar imp aggros.' },
+      { label: 'Golem',       config: () => ENEMY_TYPES.stoneGolem,      key: 'aggroRadius',  min: 2,  max: 30, step: 1,
+        unit: 'u', tip: 'Detection radius before stone golem aggros.' },
+      { label: 'Cone Angle',   config: () => VISION_CONE_CONFIG,          key: 'angle',        min: 0.3, max: 3.14, step: 0.05,
+        unit: 'rad', tip: 'Vision cone angle (π/3 = 60°). Narrower = harder to detect.' },
+      { label: 'Cone Opacity', config: () => VISION_CONE_CONFIG,         key: 'opacity',      min: 0.01, max: 0.3, step: 0.01,
+        unit: '', tip: 'Vision cone idle opacity.' },
+      { label: 'Scan Speed',  config: () => VISION_CONE_CONFIG,          key: 'idleTurnRate', min: 0, max: 2, step: 0.05,
+        unit: 'r/s', tip: 'How fast idle enemies sweep their vision cone.' },
+      { label: 'Scan Arc',    config: () => VISION_CONE_CONFIG,          key: 'idleScanArc',  min: 0, max: 3.14, step: 0.05,
+        unit: 'rad', tip: 'How far idle enemies sweep from their base facing.' },
+      { label: 'Detect Time', config: () => VISION_CONE_CONFIG,         key: 'detectionThreshold', min: 0, max: 1000, step: 25,
+        unit: 'ms', tip: 'How long player must be in cone+LOS before aggro fires. 0 = instant.' },
+      { label: 'Aggro Hold',  config: () => VISION_CONE_CONFIG,         key: 'aggroHoldDuration',  min: 0, max: 1000, step: 25,
+        unit: 'ms', tip: 'Red flash hold time before fade starts on aggro.' },
+      { label: 'Patrol Dist', config: () => ENEMY_TYPES.goblin.patrol!, key: 'distance',           min: 2, max: 15,   step: 1,
+        unit: 'u', tip: 'Total patrol distance for goblins.' },
+      { label: 'Patrol Speed',config: () => ENEMY_TYPES.goblin.patrol!, key: 'speed',              min: 0.5, max: 4,  step: 0.1,
+        unit: 'u/s', tip: 'Goblin patrol movement speed.' },
+      { label: 'Pause Min',   config: () => ENEMY_TYPES.goblin.patrol!, key: 'pauseMin',           min: 100, max: 3000, step: 100,
+        unit: 'ms', tip: 'Minimum pause at patrol turn-around.' },
+      { label: 'Turn Speed',  config: () => VISION_CONE_CONFIG,         key: 'turnSpeed',          min: 0.5, max: 10,   step: 0.25,
+        unit: 'r/s', tip: 'How fast enemies rotate toward their target facing. Lower = more readable cone sweeps.' },
+    ]
+  },
+
   // ── Dash / Abilities ──
   {
     section: 'Dash',
     collapsed: true,
     items: [
-      { label: 'Cooldown',     config: () => ABILITIES.dash,  key: 'cooldown',             min: 500,  max: 10000, step: 100,
-        unit: 'ms', tip: 'Dash cooldown in milliseconds.' },
+      { label: 'Cooldown',     config: () => ABILITIES.dash,  key: 'cooldown',             min: 0,  max: 10000, step: 100,
+        unit: 'ms', tip: 'Dash cooldown in milliseconds. 0 = no cooldown (use end lag for lockout).' },
       { label: 'Duration',     config: () => ABILITIES.dash,  key: 'duration',             min: 50,   max: 500,   step: 10,
         unit: 'ms', tip: 'How long the dash lasts.' },
       { label: 'Distance',     config: () => ABILITIES.dash,  key: 'distance',             min: 1,    max: 15,    step: 0.5,
@@ -139,6 +178,44 @@ const SECTIONS: SliderSection[] = [
         unit: 'u', tip: 'Knockback force at full charge.' },
       { label: 'Move Mult',    config: () => ABILITIES.ultimate,  key: 'chargeMoveSpeedMult', min: 0,   max: 1,     step: 0.05,
         unit: 'x', tip: 'Movement speed multiplier while charging.' },
+    ]
+  },
+
+  // ── Bullet Time ──
+  {
+    section: 'Bullet Time',
+    collapsed: true,
+    items: [
+      { label: 'Time Scale',   config: () => BULLET_TIME, key: 'timeScale',          min: 0.05, max: 0.8,  step: 0.05,
+        unit: 'x', tip: 'How slow the world runs during bullet time (0.25 = 25% speed).' },
+      { label: 'Max Resource',  config: () => BULLET_TIME, key: 'maxResource',        min: 500,  max: 10000, step: 500,
+        unit: 'ms', tip: 'Total bullet time available at full bar.' },
+      { label: 'Drain Rate',    config: () => BULLET_TIME, key: 'drainRate',          min: 200,  max: 3000,  step: 100,
+        unit: 'ms/s', tip: 'How fast the bar drains per real second.' },
+      { label: 'Kill Refill',   config: () => BULLET_TIME, key: 'killRefill',         min: 100,  max: 2000,  step: 100,
+        unit: 'ms', tip: 'Resource refilled per enemy kill.' },
+      { label: 'Min Activate',  config: () => BULLET_TIME, key: 'activationMinimum',  min: 0,    max: 1000,  step: 50,
+        unit: 'ms', tip: 'Minimum resource required to activate bullet time.' },
+      { label: 'Infinite',      config: () => BULLET_TIME, key: 'infinite',           min: 0,    max: 1,     step: 1,
+        unit: '', tip: '1 = infinite bullet time (no drain). 0 = normal drain.' },
+    ]
+  },
+
+  // ── Dynamic Hazards ──
+  {
+    section: 'Dynamic Hazards',
+    collapsed: true,
+    items: [
+      { label: 'Spawn Chance',   config: () => HAZARD_CONFIG,  key: 'spawnChance',        min: 0,    max: 1,    step: 0.1,
+        unit: '', tip: 'Probability of spawning a pit per enemy pack.' },
+      { label: 'Pit Width',      config: () => HAZARD_CONFIG,  key: 'pitWidth',           min: 1,    max: 5,    step: 0.5,
+        unit: 'u', tip: 'Width of dynamic pits.' },
+      { label: 'Pit Depth',      config: () => HAZARD_CONFIG,  key: 'pitDepth',           min: 1,    max: 5,    step: 0.5,
+        unit: 'u', tip: 'Depth (Z size) of dynamic pits.' },
+      { label: 'Telegraph Dur',  config: () => HAZARD_CONFIG,  key: 'telegraphDuration',  min: 200,  max: 2000, step: 100,
+        unit: 'ms', tip: 'Warning time before pit materializes.' },
+      { label: 'Offset Range',   config: () => HAZARD_CONFIG,  key: 'offsetRange',        min: 1,    max: 8,    step: 0.5,
+        unit: 'u', tip: 'Max offset from pack center for pit placement.' },
     ]
   },
 
@@ -293,6 +370,8 @@ const SECTIONS: SliderSection[] = [
         unit: 'u', tip: 'Min distance ahead of player to spawn enemies.' },
       { label: 'Ahead Dist Max',    config: () => SPAWN_CONFIG, key: 'spawnAheadMax',      min: 8,    max: 25,   step: 1,
         unit: 'u', tip: 'Max distance ahead of player to spawn enemies.' },
+      { label: 'Min Player Dist',  config: () => SPAWN_CONFIG, key: 'minPlayerDist',      min: 0,    max: 15,   step: 1,
+        unit: 'u', tip: 'Minimum distance from player when spawning enemies.' },
     ]
   },
   {

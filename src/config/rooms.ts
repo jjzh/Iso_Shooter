@@ -51,6 +51,11 @@ export const ROOMS: RoomDefinition[] = [
       { x: -4, z: 5, w: 1.5, h: 2, d: 1.5 },    // pillar left near entrance
       { x: 4, z: -5, w: 1.5, h: 2, d: 1.5 },     // pillar right mid
       { x: 0, z: -12, w: 3, h: 1, d: 1 },         // low wall far
+      // Cover pillars for stealth corridors
+      { x: -7, z: -2, w: 1.2, h: 2, d: 1.2 },    // left side cover
+      { x: 2, z: -8, w: 1, h: 2, d: 1 },          // mid cover (LOS break near pit)
+      { x: -3, z: -16, w: 1.2, h: 2, d: 1.2 },   // far left cover
+      { x: 6, z: -14, w: 1, h: 2, d: 1 },         // far right cover
     ],
     pits: [
       { x: 5, z: -8, w: 3, d: 3 },                // small pit mid-right (teaches force push)
@@ -84,6 +89,10 @@ export const ROOMS: RoomDefinition[] = [
       { x: 6, z: 0, w: 2, h: 2, d: 2 },           // cover pillar right
       { x: 0, z: -10, w: 4, h: 1.5, d: 1 },       // mid wall (toward far/exit end)
       { x: -3, z: 10, w: 1.5, h: 2, d: 1.5 },     // pillar near entrance
+      // Cover pillars for flank-cover and LOS breaks
+      { x: 3, z: 6, w: 1, h: 2, d: 1 },           // entrance right cover
+      { x: -8, z: -6, w: 1.2, h: 2, d: 1.2 },     // left flank cover
+      { x: 8, z: -12, w: 1, h: 2, d: 1 },          // far right cover
     ],
     pits: [
       { x: -8, z: -8, w: 3, d: 4 },               // pit left mid (toward exit)
@@ -123,6 +132,10 @@ export const ROOMS: RoomDefinition[] = [
       { x: 0, z: -5, w: 1.5, h: 2.5, d: 1.5 },   // tall center pillar
       { x: -8, z: -10, w: 3, h: 1, d: 1 },        // low wall far left
       { x: 8, z: -10, w: 3, h: 1, d: 1 },         // low wall far right
+      // Cover pillars for stealth corridors
+      { x: -3, z: 1, w: 1, h: 2, d: 1 },          // mid-left cover
+      { x: 7, z: -2, w: 1.2, h: 2, d: 1.2 },      // right side cover
+      { x: -10, z: -16, w: 1, h: 2, d: 1 },        // far left cover
     ],
     pits: [
       { x: 0, z: 3, w: 5, d: 3 },                 // central pit (forces flanking)

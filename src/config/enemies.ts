@@ -18,6 +18,7 @@ export const ENEMY_TYPES: Record<string, EnemyConfig> = {
     attackRange: 1.5,
     attackRate: 800,
     behavior: "rush",
+    aggroRadius: 8,
     knockbackResist: 0,
     mass: 1.0,
     color: 16729190,
@@ -39,7 +40,13 @@ export const ENEMY_TYPES: Record<string, EnemyConfig> = {
       leapSpeed: 7,
       arcHeight: 2,
       cooldown: 4000
-    }
+    },
+    patrol: {
+      distance: 6,
+      speed: 1.2,
+      pauseMin: 500,
+      pauseMax: 1500,
+    },
   },
   skeletonArcher: {
     name: "Skeleton Archer",
@@ -49,6 +56,7 @@ export const ENEMY_TYPES: Record<string, EnemyConfig> = {
     attackRange: 12,
     attackRate: 2500,
     behavior: "kite",
+    aggroRadius: 11,
     knockbackResist: 0.1,
     mass: 0.8,
     color: 11176191,
@@ -75,6 +83,7 @@ export const ENEMY_TYPES: Record<string, EnemyConfig> = {
     attackRange: 15.5,
     attackRate: 3000,
     behavior: "mortar",
+    aggroRadius: 13,
     knockbackResist: 0.1,
     mass: 0.9,
     color: 4513279,
@@ -114,6 +123,7 @@ export const ENEMY_TYPES: Record<string, EnemyConfig> = {
     attackRange: 2,
     attackRate: 1200,
     behavior: "tank",
+    aggroRadius: 6,
     knockbackResist: 0.6,
     mass: 3.0,
     color: 16746547,

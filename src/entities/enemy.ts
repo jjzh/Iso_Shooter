@@ -1,5 +1,5 @@
 import { ENEMY_TYPES, MOB_GLOBAL } from '../config/enemies';
-import { getCollisionBounds, getPitBounds } from '../config/arena';
+import { getCollisionBounds, getPitBounds, ARENA_HALF_X, ARENA_HALF_Z } from '../config/arena';
 import { applyAoeEffect } from '../engine/aoeTelegraph';
 import { getPlayerPos, isPlayerInvincible } from './player';
 import { screenShake } from '../engine/renderer';
@@ -7,7 +7,9 @@ import { spawnDamageNumber } from '../ui/damageNumbers';
 import { fireMortarProjectile, getIceEffects } from './mortarProjectile';
 import { fireProjectile } from './projectile';
 import { buildEnemyModel, createHitReaction, triggerHitReaction, updateHitReaction } from './enemyRig';
-import { emit } from '../engine/events';
+import { emit, on } from '../engine/events';
+import { initVisionCones, addVisionCone, removeVisionCone, updateVisionCones, updateIdleFacing, clearVisionCones, isInsideVisionCone, VISION_CONE_CONFIG } from '../engine/visionCone';
+import { pointHitsTerrain } from '../engine/physics';
 
 let sceneRef: any;
 
@@ -20,8 +22,144 @@ let _mortarFillGeoShared: any = null;
 // Shared death telegraph fill geometry
 let _deathFillGeoShared: any = null;
 
+// ─── Aggro Indicator ("!") ───
+// Red exclamation mark pops above enemy when they detect the player
+
+interface AggroIndicator {
+  group: any;         // THREE.Group containing the "!" meshes
+  enemy: any;
+  elapsed: number;    // ms since spawned
+  duration: number;   // total ms before removal
+}
+
+const AGGRO_IND = {
+  popDuration: 120,    // ms for scale pop-in
+  holdDuration: 600,   // ms at full size before fade
+  fadeDuration: 400,   // ms to fade out
+  bobSpeed: 6,         // oscillation speed (rad/s)
+  bobAmp: 0.08,        // oscillation amplitude (world units)
+  heightAbove: 2.2,    // y position above enemy
+  color: 0xff4444,     // red
+  emissive: 0xff2222,
+  popScale: 1.4,       // overshoot scale during pop
+};
+
+const aggroIndicators: AggroIndicator[] = [];
+
+// Shared geometry for "!" — a cone (body) + small sphere (dot)
+let _exclGeoBody: any = null;
+let _exclGeoDot: any = null;
+
+function getExclGeo() {
+  if (!_exclGeoBody) {
+    _exclGeoBody = new THREE.ConeGeometry(0.12, 0.45, 6);
+    _exclGeoBody.translate(0, 0.25, 0);
+  }
+  if (!_exclGeoDot) {
+    _exclGeoDot = new THREE.SphereGeometry(0.06, 6, 4);
+  }
+  return { body: _exclGeoBody, dot: _exclGeoDot };
+}
+
+function showAggroIndicator(enemy: any) {
+  if (!sceneRef) return;
+  const geo = getExclGeo();
+
+  const mat = new THREE.MeshStandardMaterial({
+    color: AGGRO_IND.color,
+    emissive: AGGRO_IND.emissive,
+    emissiveIntensity: 0.6,
+    transparent: true,
+    opacity: 1,
+    depthWrite: false,
+  });
+
+  const bodyMesh = new THREE.Mesh(geo.body, mat);
+  const dotMesh = new THREE.Mesh(geo.dot, mat.clone());
+  dotMesh.position.y = -0.05; // dot below the cone body
+
+  const group = new THREE.Group();
+  group.add(bodyMesh);
+  group.add(dotMesh);
+  group.position.set(enemy.pos.x, AGGRO_IND.heightAbove, enemy.pos.z);
+  group.scale.set(0, 0, 0); // start at zero for pop-in
+
+  sceneRef.add(group);
+
+  const totalDuration = AGGRO_IND.popDuration + AGGRO_IND.holdDuration + AGGRO_IND.fadeDuration;
+  aggroIndicators.push({ group, enemy, elapsed: 0, duration: totalDuration });
+}
+
+function updateAggroIndicators(dt: number) {
+  for (let i = aggroIndicators.length - 1; i >= 0; i--) {
+    const ind = aggroIndicators[i];
+    ind.elapsed += dt * 1000;
+
+    // Track enemy position
+    ind.group.position.x = ind.enemy.pos.x;
+    ind.group.position.z = ind.enemy.pos.z;
+
+    // Bob
+    const bobY = AGGRO_IND.heightAbove + Math.sin(ind.elapsed * 0.001 * AGGRO_IND.bobSpeed) * AGGRO_IND.bobAmp;
+    ind.group.position.y = bobY;
+
+    // Phase: pop → hold → fade
+    if (ind.elapsed < AGGRO_IND.popDuration) {
+      // Pop-in with overshoot
+      const t = ind.elapsed / AGGRO_IND.popDuration;
+      const easeOut = 1 - (1 - t) * (1 - t); // quadratic ease out
+      const s = easeOut * AGGRO_IND.popScale;
+      ind.group.scale.set(s, s, s);
+    } else if (ind.elapsed < AGGRO_IND.popDuration + AGGRO_IND.holdDuration) {
+      // Settle to 1.0 scale
+      const t = (ind.elapsed - AGGRO_IND.popDuration) / Math.min(AGGRO_IND.holdDuration, 100);
+      const s = AGGRO_IND.popScale + (1 - AGGRO_IND.popScale) * Math.min(t, 1);
+      ind.group.scale.set(s, s, s);
+    } else {
+      // Fade out
+      const fadeElapsed = ind.elapsed - AGGRO_IND.popDuration - AGGRO_IND.holdDuration;
+      const fadeT = Math.min(fadeElapsed / AGGRO_IND.fadeDuration, 1);
+      const opacity = 1 - fadeT;
+      const s = 1 - fadeT * 0.3; // slight shrink during fade
+      ind.group.scale.set(s, s, s);
+
+      // Update opacity on all children
+      ind.group.children.forEach((child: any) => {
+        if (child.material) child.material.opacity = opacity;
+      });
+    }
+
+    // Remove when done
+    if (ind.elapsed >= ind.duration) {
+      ind.group.children.forEach((child: any) => {
+        if (child.material) child.material.dispose();
+      });
+      sceneRef.remove(ind.group);
+      aggroIndicators.splice(i, 1);
+    }
+  }
+}
+
+function clearAggroIndicators() {
+  for (const ind of aggroIndicators) {
+    ind.group.children.forEach((child: any) => {
+      if (child.material) child.material.dispose();
+    });
+    if (sceneRef) sceneRef.remove(ind.group);
+  }
+  aggroIndicators.length = 0;
+}
+
 export function initEnemySystem(scene: any) {
   sceneRef = scene;
+  initVisionCones(scene, raycastTerrainDist);
+
+  // Subscribe to aggro event — show "!" indicator
+  on('enemyAggroed', (event: any) => {
+    if (event.type === 'enemyAggroed') {
+      showAggroIndicator(event.enemy);
+    }
+  });
 }
 
 function createShieldMesh(cfg: any) {
@@ -114,6 +252,17 @@ export function spawnEnemy(typeName: string, position: any, gameState: any) {
     // Hit reaction (squash/bounce)
     hitReaction: createHitReaction(),
     allMaterials: model.allMaterials,
+    // Aggro system — enemies idle until player enters detection radius
+    aggroed: false,
+    detectionTimer: 0,         // ms player has been continuously in cone + LOS
+    // Patrol state (enemies with config.patrol)
+    patrolOriginX: position.x,
+    patrolOriginZ: position.z,
+    patrolProgress: 0,          // -1 to +1 along patrol axis
+    patrolDir: 1,               // +1 or -1 (forward/backward)
+    patrolPauseTimer: 0,        // ms remaining in pause at turn-around
+    patrolAxis: 0,              // rotation.y of patrol path direction (set from mesh.rotation.y at spawn)
+    patrolTargetAngle: null as number | null,  // target angle for smooth turn during patrol
   };
 
   // Initialize shield if config has one
@@ -125,7 +274,17 @@ export function spawnEnemy(typeName: string, position: any, gameState: any) {
     group.add(enemy.shieldMesh);
   }
 
+  // Initialize facing direction (random) — mesh.rotation.y is the single source of truth
+  enemy.mesh.rotation.y = (Math.random() - 0.5) * Math.PI * 2;
+  enemy.idleBaseRotY = enemy.mesh.rotation.y;
+  enemy.idleScanPhase = Math.random() * Math.PI * 2;
+  enemy._facingInitialized = true;
+
   gameState.enemies.push(enemy);
+
+  // Add vision cone overlay
+  addVisionCone(enemy);
+
   return enemy;
 }
 
@@ -228,7 +387,7 @@ function pitAwareDir(x: number, z: number, dx: number, dz: number, lookahead: nu
  * Returns the distance, or maxDist if nothing is hit.
  * Uses slab method for ray-AABB intersection on the XZ plane.
  */
-function raycastTerrainDist(ox: number, oz: number, dx: number, dz: number, maxDist: number) {
+export function raycastTerrainDist(ox: number, oz: number, dx: number, dz: number, maxDist: number) {
   if (!_collisionBounds) _collisionBounds = getCollisionBounds();
 
   let closest = maxDist;
@@ -274,14 +433,165 @@ function raycastTerrainDist(ox: number, oz: number, dx: number, dz: number, maxD
   return closest;
 }
 
+// ─── Facing Helpers ───
+// Single source of truth: mesh.rotation.y. Model faces -Z at rotation.y=0.
+// These two functions are the ONLY place angle↔direction conversion happens.
+
+/** Forward direction vector from rotation.y. Model faces -Z at rotation.y=0. */
+export function getForward(rotY: number): { x: number; z: number } {
+  return { x: -Math.sin(rotY), z: -Math.cos(rotY) };
+}
+
+/** rotation.y that makes the model face toward direction (dx, dz). */
+export function rotationToFace(dx: number, dz: number): number {
+  return Math.atan2(-dx, -dz);
+}
+
+// ─── Turn Speed System ───
+// Enemies rotate mesh.rotation.y smoothly toward a target instead of snapping.
+// This makes cone sweeps readable — the player can see the turn coming.
+
+/**
+ * Smoothly rotate enemy.mesh.rotation.y toward targetRotY at turnSpeed rad/s.
+ * Returns true if the enemy is within 0.05 rad of the target (i.e. "close enough").
+ */
+function turnToward(enemy: any, targetRotY: number, dt: number): boolean {
+  const turnSpeed = VISION_CONE_CONFIG.turnSpeed;
+  const maxStep = turnSpeed * dt;
+
+  // Shortest angular difference (-π to π)
+  let diff = targetRotY - enemy.mesh.rotation.y;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+
+  if (Math.abs(diff) <= maxStep) {
+    enemy.mesh.rotation.y = targetRotY;
+  } else {
+    enemy.mesh.rotation.y += Math.sign(diff) * maxStep;
+  }
+
+  // Normalize to [-π, π]
+  while (enemy.mesh.rotation.y > Math.PI) enemy.mesh.rotation.y -= Math.PI * 2;
+  while (enemy.mesh.rotation.y < -Math.PI) enemy.mesh.rotation.y += Math.PI * 2;
+
+  return Math.abs(diff) < 0.05;
+}
+
+// ─── Patrol Behavior ───
+// Non-aggroed enemies with config.patrol walk back and forth along their initial facing axis.
+// They pause at each end, then reverse. Terrain collision triggers early reversal.
+
+function updatePatrol(enemy: any, dt: number) {
+  const patrol = enemy.config.patrol;
+  if (!patrol) return;
+
+  // Initialize patrol axis from mesh.rotation.y on first call
+  if (enemy.patrolAxis === 0 && enemy._facingInitialized) {
+    enemy.patrolAxis = enemy.mesh.rotation.y;
+  }
+
+  // Pause at turn-around points — keep turning during pause
+  if (enemy.patrolPauseTimer > 0) {
+    enemy.patrolPauseTimer -= dt * 1000;
+    if (enemy.patrolTargetAngle != null) {
+      turnToward(enemy, enemy.patrolTargetAngle, dt);
+    }
+    return;
+  }
+
+  const speed = patrol.speed;
+  const halfDist = patrol.distance / 2;
+
+  // Target facing for movement direction
+  const moveAngle = enemy.patrolAxis + (enemy.patrolDir < 0 ? Math.PI : 0);
+  enemy.patrolTargetAngle = moveAngle;
+  turnToward(enemy, moveAngle, dt);
+
+  // Move FORWARD in facing direction (like a car — no moonwalking)
+  const fwd = getForward(enemy.mesh.rotation.y);
+  const nextX = enemy.pos.x + fwd.x * speed * dt;
+  const nextZ = enemy.pos.z + fwd.z * speed * dt;
+
+  // Check terrain collision at next position (with enemy radius margin)
+  const radius = enemy.config.size.radius || 0.3;
+  const blocked = pointHitsTerrain(nextX + fwd.x * radius, nextZ + fwd.z * radius);
+
+  // Check if we've exceeded patrol distance
+  const dx = nextX - enemy.patrolOriginX;
+  const dz = nextZ - enemy.patrolOriginZ;
+  const distFromOrigin = Math.sqrt(dx * dx + dz * dz);
+  const exceededDist = distFromOrigin >= halfDist;
+
+  if (blocked || exceededDist) {
+    // Reverse direction + random pause
+    enemy.patrolDir *= -1;
+    enemy.patrolPauseTimer = patrol.pauseMin + Math.random() * (patrol.pauseMax - patrol.pauseMin);
+
+    // Set target facing for the new direction — will turn during pause
+    enemy.patrolTargetAngle = enemy.patrolAxis + (enemy.patrolDir < 0 ? Math.PI : 0);
+    turnToward(enemy, enemy.patrolTargetAngle, dt);
+  } else {
+    // Move forward
+    enemy.pos.x = nextX;
+    enemy.pos.z = nextZ;
+  }
+}
+
 export function updateEnemies(dt: number, playerPos: any, gameState: any) {
+  // Update idle facing BEFORE aggro checks so mesh.rotation.y matches the visual cone
+  updateIdleFacing(gameState.enemies, dt);
+
   for (let i = gameState.enemies.length - 1; i >= 0; i--) {
     const enemy = gameState.enemies[i];
+
+    // Aggro check — enemies idle until player is in their vision cone + LOS for detectionThreshold ms
+    if (!enemy.aggroed) {
+      const aggroRadius = enemy.config.aggroRadius;
+      if (aggroRadius != null && aggroRadius > 0) {
+        let inConeAndLOS = false;
+
+        if (isInsideVisionCone(enemy.pos.x, enemy.pos.z, enemy.mesh.rotation.y, playerPos.x, playerPos.z, aggroRadius)) {
+          // LOS check: cast ray from enemy toward player, see if terrain blocks it
+          const adx = playerPos.x - enemy.pos.x;
+          const adz = playerPos.z - enemy.pos.z;
+          const adist = Math.sqrt(adx * adx + adz * adz);
+          if (adist > 0.1) {
+            const ndx = adx / adist;
+            const ndz = adz / adist;
+            const terrainDist = raycastTerrainDist(enemy.pos.x, enemy.pos.z, ndx, ndz, adist);
+            inConeAndLOS = terrainDist >= adist; // no terrain blocking
+          } else {
+            inConeAndLOS = true; // basically on top of enemy
+          }
+        }
+
+        if (inConeAndLOS) {
+          // Increment detection timer
+          enemy.detectionTimer = (enemy.detectionTimer || 0) + dt * 1000;
+          const threshold = VISION_CONE_CONFIG.detectionThreshold;
+          if (enemy.detectionTimer >= threshold) {
+            enemy.aggroed = true;
+            emit({ type: 'enemyAggroed', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+          }
+        } else {
+          // Reset detection timer when player leaves cone or LOS
+          enemy.detectionTimer = 0;
+        }
+      } else {
+        // No aggro radius configured — always active (backward compatible)
+        enemy.aggroed = true;
+      }
+    }
 
     // Pit leap update — runs independently of stun (can't stun mid-air)
     if (enemy.isLeaping) {
       updateLeap(enemy, dt);
       // Skip normal behavior/movement but still check death below
+    } else if (!enemy.aggroed) {
+      // Not aggroed — patrol if configured, otherwise stand idle
+      if (enemy.config.patrol) {
+        updatePatrol(enemy, dt);
+      }
     } else if (enemy.stunTimer > 0) {
       // Stun check — stunned enemies cannot move or attack
       enemy.stunTimer -= dt * 1000;
@@ -295,9 +605,11 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
       }
     }
 
-    // Arena clamp
-    enemy.pos.x = Math.max(-19, Math.min(19, enemy.pos.x));
-    enemy.pos.z = Math.max(-19, Math.min(19, enemy.pos.z));
+    // Arena clamp (dynamic per room size)
+    const enemyClampX = ARENA_HALF_X - 1;
+    const enemyClampZ = ARENA_HALF_Z - 1;
+    enemy.pos.x = Math.max(-enemyClampX, Math.min(enemyClampX, enemy.pos.x));
+    enemy.pos.z = Math.max(-enemyClampZ, Math.min(enemyClampZ, enemy.pos.z));
     if (enemy.isLeaping) {
       // Sync clamped XZ but preserve arc Y set by updateLeap
       enemy.mesh.position.x = enemy.pos.x;
@@ -368,6 +680,7 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
       // If pushed into a pit during telegraph, cancel explosion and remove immediately
       if (enemy.fellInPit) {
         removeDeathTelegraph(enemy);
+        removeVisionCone(enemy);
         if (enemy.shieldMesh) {
           enemy.shieldMesh.geometry.dispose();
           enemy.shieldMesh.material.dispose();
@@ -389,6 +702,7 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
           onDeathExplosion(enemy, gameState);
         }
         removeDeathTelegraph(enemy);
+        removeVisionCone(enemy);
 
         // Clean up shield mesh
         if (enemy.shieldMesh) {
@@ -426,6 +740,8 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
 
       emit({ type: 'enemyDied', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
 
+      // Clean up vision cone
+      removeVisionCone(enemy);
       // Clean up shield mesh
       if (enemy.shieldMesh) {
         enemy.shieldMesh.geometry.dispose();
@@ -443,6 +759,12 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
       );
     }
   }
+
+  // Update vision cone overlays
+  updateVisionCones(gameState.enemies, dt);
+
+  // Update "!" aggro indicators
+  updateAggroIndicators(dt);
 }
 
 // ─── Enemy Melee State Machine ───
@@ -464,7 +786,7 @@ function startEnemyMelee(enemy: any) {
   emit({
     type: 'enemyMeleeTelegraph',
     position: { x: enemy.pos.x, z: enemy.pos.z },
-    facingAngle: enemy.mesh.rotation.y,
+    rotationY: enemy.mesh.rotation.y,
     hitArc: meleeCfg.hitArc,
     hitRange: meleeCfg.hitRange,
     duration: telegraphDur + meleeCfg.attackDuration,  // visible through telegraph + attack
@@ -515,9 +837,8 @@ function updateEnemyMelee(enemy: any, dt: number, playerPos: any, gameState: any
 
       if (dist < meleeCfg.hitRange && !isPlayerInvincible()) {
         // Check arc
-        const angleToPlayer = Math.atan2(-dx, -dz);
-        const facingAngle = enemy.mesh.rotation.y;
-        let angleDiff = angleToPlayer - facingAngle;
+        const angleToPlayer = Math.atan2(-dx, -dz);  // rotation.y space
+        let angleDiff = angleToPlayer - enemy.mesh.rotation.y;
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
 
@@ -584,18 +905,22 @@ function behaviorRush(enemy: any, playerPos: any, dt: number, gameState: any) {
     }
   }
 
-  if (dist > stopDist) {
+  // Face player (smooth turn) — BEFORE movement so we don't walk backwards
+  if (dist > 0.1) {
     _toPlayer.normalize();
+    turnToward(enemy, rotationToFace(_toPlayer.x, _toPlayer.z), dt);
+  }
+
+  // Move FORWARD in the direction the enemy is facing (like a car — no moonwalking).
+  // The smooth turn above gradually steers rotation.y toward the player,
+  // so the enemy naturally arcs toward the player instead of sliding sideways.
+  if (dist > stopDist) {
+    const fwd = getForward(enemy.mesh.rotation.y);
     const slideBoost = enemy.wasDeflected ? 1.175 : 1.0;
     const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
     const speed = enemy.config.speed * MOB_GLOBAL.speedMult * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
-    enemy.pos.x += _toPlayer.x * speed * dt;
-    enemy.pos.z += _toPlayer.z * speed * dt;
-  }
-
-  // Face player
-  if (dist > 0.1) {
-    enemy.mesh.rotation.y = Math.atan2(-_toPlayer.x, -_toPlayer.z);
+    enemy.pos.x += fwd.x * speed * dt;
+    enemy.pos.z += fwd.z * speed * dt;
   }
 
   // --- Pit leap detection ---
@@ -677,11 +1002,11 @@ function updateLeap(enemy: any, dt: number) {
   const arcY = 4 * enemy.leapArcHeight * t * (1 - t);
   enemy.mesh.position.set(enemy.pos.x, arcY, enemy.pos.z);
 
-  // Face direction of travel
+  // Face direction of travel (smooth turn during leap)
   const dx = enemy.leapTargetX - enemy.leapStartX;
   const dz = enemy.leapTargetZ - enemy.leapStartZ;
   if (dx * dx + dz * dz > 0.01) {
-    enemy.mesh.rotation.y = Math.atan2(-dx, -dz);
+    turnToward(enemy, rotationToFace(dx, dz), dt);
   }
 
   // Landing
@@ -703,33 +1028,36 @@ function behaviorKite(enemy: any, playerPos: any, dt: number, gameState: any) {
 
   const isTelegraphing = enemy.sniperPhase === 'telegraphing';
 
-  // Movement: maintain preferred range (freeze during telegraph — lining up the shot)
-  if (!isTelegraphing) {
+  // Determine if we need to retreat or approach
+  const kiteNeedsRetreat = !isTelegraphing && dist < preferredRange - (kite.retreatBuffer || 1);
+  const kiteNeedsAdvance = !isTelegraphing && dist > preferredRange + (kite.advanceBuffer || 3);
+
+  // Face target: aim direction during telegraph, AWAY from player during retreat, toward player otherwise
+  if (isTelegraphing) {
+    turnToward(enemy, enemy.sniperAimAngle, dt);
+  } else if (kiteNeedsRetreat && dist > 0.1) {
+    // Turn to face AWAY from player (so we walk forward to retreat — no moonwalking)
+    const nx = _toPlayer.x / dist;
+    const nz = _toPlayer.z / dist;
+    turnToward(enemy, rotationToFace(-nx, -nz), dt);
+  } else if (dist > 0.1) {
+    // Face player for aiming / approaching
+    const nx = _toPlayer.x / dist;
+    const nz = _toPlayer.z / dist;
+    turnToward(enemy, rotationToFace(nx, nz), dt);
+  }
+
+  // Movement: walk FORWARD in facing direction (like a car — no moonwalking).
+  // Retreat and advance both use facing direction so the model always walks where it looks.
+  if (!isTelegraphing && (kiteNeedsRetreat || kiteNeedsAdvance)) {
     const slideBoost = enemy.wasDeflected ? 1.175 : 1.0;
     const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
     const speed = enemy.config.speed * MOB_GLOBAL.speedMult * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
-    if (dist < preferredRange - (kite.retreatBuffer || 1)) {
-      // Too close — retreat (pit-aware)
-      _toPlayer.normalize();
-      const retreat = pitAwareDir(enemy.pos.x, enemy.pos.z, -_toPlayer.x, -_toPlayer.z, 2.5);
-      enemy.pos.x += retreat.dx * speed * dt;
-      enemy.pos.z += retreat.dz * speed * dt;
-    } else if (dist > preferredRange + (kite.advanceBuffer || 3)) {
-      // Too far — approach (pit-aware)
-      _toPlayer.normalize();
-      const advance = pitAwareDir(enemy.pos.x, enemy.pos.z, _toPlayer.x, _toPlayer.z, 2.5);
-      enemy.pos.x += advance.dx * speed * dt;
-      enemy.pos.z += advance.dz * speed * dt;
-    }
-  }
-
-  // Always face player (or locked aim direction during telegraph)
-  if (isTelegraphing) {
-    enemy.mesh.rotation.y = enemy.sniperAimAngle + Math.PI;
-  } else if (dist > 0.1) {
-    const nx = _toPlayer.x / dist;
-    const nz = _toPlayer.z / dist;
-    enemy.mesh.rotation.y = Math.atan2(-nx, -nz);
+    // Walk forward in facing direction (pit-aware)
+    const fwd = getForward(enemy.mesh.rotation.y);
+    const dir = pitAwareDir(enemy.pos.x, enemy.pos.z, fwd.x, fwd.z, 2.5);
+    enemy.pos.x += dir.dx * speed * dt;
+    enemy.pos.z += dir.dz * speed * dt;
   }
 
   // Sniper attack logic
@@ -742,9 +1070,8 @@ function behaviorKite(enemy: any, playerPos: any, dt: number, gameState: any) {
       enemy.sniperPhase = 'telegraphing';
       enemy.sniperTimer = (sniper.telegraphDuration || 800) * MOB_GLOBAL.telegraphMult;
 
-      // Calculate aim direction
-      const aimAngle = Math.atan2(playerPos.x - enemy.pos.x, playerPos.z - enemy.pos.z);
-      enemy.sniperAimAngle = aimAngle;
+      // Calculate aim direction (rotation.y space)
+      enemy.sniperAimAngle = rotationToFace(playerPos.x - enemy.pos.x, playerPos.z - enemy.pos.z);
 
       // Flash emissive to signal telegraph start
       enemy.flashTimer = enemy.sniperTimer;
@@ -769,10 +1096,9 @@ function behaviorKite(enemy: any, playerPos: any, dt: number, gameState: any) {
       enemy.sniperPhase = 'idle';
       enemy.lastAttackTime = now;
 
-      const dirX = Math.sin(enemy.sniperAimAngle);
-      const dirZ = Math.cos(enemy.sniperAimAngle);
+      const aim = getForward(enemy.sniperAimAngle);
       const origin = { x: enemy.pos.x, y: 0.5, z: enemy.pos.z };
-      const direction = { x: dirX, y: 0, z: dirZ };
+      const direction = { x: aim.x, y: 0, z: aim.z };
       const projConfig = {
         speed: 12,
         damage: (sniper.damage || 15) * MOB_GLOBAL.damageMult,
@@ -798,35 +1124,39 @@ function behaviorMortar(enemy: any, playerPos: any, dt: number, gameState: any) 
 
   const isAiming = enemy.mortarPhase === 'aiming';
 
-  // Movement: kite like an archer (freeze during aim to line up the shot, pit-aware)
-  if (!isAiming) {
-    const slideBoost = enemy.wasDeflected ? 1.175 : 1.0;
-    const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-    const speed = enemy.config.speed * MOB_GLOBAL.speedMult * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
-    if (dist < preferredRange - (kite.retreatBuffer || 1.5)) {
-      _toPlayer.normalize();
-      const retreat = pitAwareDir(enemy.pos.x, enemy.pos.z, -_toPlayer.x, -_toPlayer.z, 2.5);
-      enemy.pos.x += retreat.dx * speed * dt;
-      enemy.pos.z += retreat.dz * speed * dt;
-    } else if (dist > preferredRange + (kite.advanceBuffer || 3)) {
-      _toPlayer.normalize();
-      const advance = pitAwareDir(enemy.pos.x, enemy.pos.z, _toPlayer.x, _toPlayer.z, 2.5);
-      enemy.pos.x += advance.dx * speed * dt;
-      enemy.pos.z += advance.dz * speed * dt;
-    }
-  }
+  // Determine if we need to retreat or approach
+  const mortarNeedsRetreat = !isAiming && dist < preferredRange - (kite.retreatBuffer || 1.5);
+  const mortarNeedsAdvance = !isAiming && dist > preferredRange + (kite.advanceBuffer || 3);
 
-  // Face player (or target during aim)
+  // Face target: aim target during aim, AWAY from player during retreat, toward player otherwise
   if (isAiming) {
     const dx = enemy.mortarTarget.x - enemy.pos.x;
     const dz = enemy.mortarTarget.z - enemy.pos.z;
     if (Math.abs(dx) > 0.01 || Math.abs(dz) > 0.01) {
-      enemy.mesh.rotation.y = Math.atan2(-dx, -dz);
+      turnToward(enemy, rotationToFace(dx, dz), dt);
     }
-  } else if (dist > 0.1) {
+  } else if (mortarNeedsRetreat && dist > 0.1) {
+    // Turn to face AWAY from player (so we walk forward to retreat — no moonwalking)
     const nx = _toPlayer.x / dist;
     const nz = _toPlayer.z / dist;
-    enemy.mesh.rotation.y = Math.atan2(-nx, -nz);
+    turnToward(enemy, rotationToFace(-nx, -nz), dt);
+  } else if (dist > 0.1) {
+    // Face player for aiming / approaching
+    const nx = _toPlayer.x / dist;
+    const nz = _toPlayer.z / dist;
+    turnToward(enemy, rotationToFace(nx, nz), dt);
+  }
+
+  // Movement: walk FORWARD in facing direction (like a car — no moonwalking).
+  if (!isAiming && (mortarNeedsRetreat || mortarNeedsAdvance)) {
+    const slideBoost = enemy.wasDeflected ? 1.175 : 1.0;
+    const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
+    const speed = enemy.config.speed * MOB_GLOBAL.speedMult * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
+    // Walk forward in facing direction (pit-aware)
+    const fwd = getForward(enemy.mesh.rotation.y);
+    const dir = pitAwareDir(enemy.pos.x, enemy.pos.z, fwd.x, fwd.z, 2.5);
+    enemy.pos.x += dir.dx * speed * dt;
+    enemy.pos.z += dir.dz * speed * dt;
   }
 
   // Mortar attack logic
@@ -844,9 +1174,9 @@ function behaviorMortar(enemy: any, playerPos: any, dt: number, gameState: any) 
       enemy.mortarTarget.x = playerPos.x + Math.cos(angle) * Math.random() * inaccuracy;
       enemy.mortarTarget.z = playerPos.z + Math.sin(angle) * Math.random() * inaccuracy;
 
-      // Clamp target to arena
-      enemy.mortarTarget.x = Math.max(-19, Math.min(19, enemy.mortarTarget.x));
-      enemy.mortarTarget.z = Math.max(-19, Math.min(19, enemy.mortarTarget.z));
+      // Clamp target to arena (dynamic per room size)
+      enemy.mortarTarget.x = Math.max(-(ARENA_HALF_X - 1), Math.min(ARENA_HALF_X - 1, enemy.mortarTarget.x));
+      enemy.mortarTarget.z = Math.max(-(ARENA_HALF_Z - 1), Math.min(ARENA_HALF_Z - 1, enemy.mortarTarget.z));
 
       // Flash emissive to signal aim start
       enemy.flashTimer = mortar.aimDuration || 1200;
@@ -1214,10 +1544,14 @@ function behaviorTank(enemy: any, playerPos: any, dt: number, gameState: any) {
   const baseSpeed = enemy.config.speed * MOB_GLOBAL.speedMult;
 
   if (enemy.isCharging) {
-    // Charge forward at multiplied speed
+    // Face charge direction during charge (smooth turn — keeps model aligned with movement)
+    turnToward(enemy, rotationToFace(enemy.chargeDir.x, enemy.chargeDir.z), dt);
+
+    // Charge forward in facing direction at multiplied speed
     const speedMult = tank.chargeSpeedMult || 3;
-    enemy.pos.x += enemy.chargeDir.x * baseSpeed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
-    enemy.pos.z += enemy.chargeDir.z * baseSpeed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
+    const fwd = getForward(enemy.mesh.rotation.y);
+    enemy.pos.x += fwd.x * baseSpeed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
+    enemy.pos.z += fwd.z * baseSpeed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
     enemy.chargeTimer -= dt * 1000;
 
     if (enemy.chargeTimer <= 0) {
@@ -1237,11 +1571,21 @@ function behaviorTank(enemy: any, playerPos: any, dt: number, gameState: any) {
       }
     }
 
-    // Normal slow movement toward player
+    // Face player (smooth turn) — BEFORE movement
+    if (dist > 0.1) {
+      const nx = (playerPos.x - enemy.pos.x);
+      const nz = (playerPos.z - enemy.pos.z);
+      const l = Math.sqrt(nx * nx + nz * nz);
+      if (l > 0) {
+        turnToward(enemy, rotationToFace(nx / l, nz / l), dt);
+      }
+    }
+
+    // Walk FORWARD in facing direction (like a car — no moonwalking)
     if (dist > 1) {
-      _toPlayer.normalize();
-      enemy.pos.x += _toPlayer.x * baseSpeed * slowFactor * slideBoost * iceEffects.speedMult * dt;
-      enemy.pos.z += _toPlayer.z * baseSpeed * slowFactor * slideBoost * iceEffects.speedMult * dt;
+      const fwd = getForward(enemy.mesh.rotation.y);
+      enemy.pos.x += fwd.x * baseSpeed * slowFactor * slideBoost * iceEffects.speedMult * dt;
+      enemy.pos.z += fwd.z * baseSpeed * slowFactor * slideBoost * iceEffects.speedMult * dt;
     }
 
     // Charge cooldown
@@ -1255,21 +1599,14 @@ function behaviorTank(enemy: any, playerPos: any, dt: number, gameState: any) {
       _toPlayer.subVectors(playerPos, enemy.pos).normalize();
       enemy.chargeDir.copy(_toPlayer);
 
+      // Snap facing to charge direction immediately (charge should launch facing forward)
+      enemy.mesh.rotation.y = rotationToFace(_toPlayer.x, _toPlayer.z);
+
       // Telegraph flash
       const telegraphMs = tank.telegraphDuration || 300;
       enemy.flashTimer = telegraphMs;
       enemy.bodyMesh.material.emissive.setHex(0xffffff);
       if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(0xffffff);
-    }
-  }
-
-  // Face movement direction
-  if (dist > 0.1) {
-    const nx = (playerPos.x - enemy.pos.x);
-    const nz = (playerPos.z - enemy.pos.z);
-    const l = Math.sqrt(nx * nx + nz * nz);
-    if (l > 0) {
-      enemy.mesh.rotation.y = Math.atan2(-nx / l, -nz / l);
     }
   }
 }
@@ -1327,6 +1664,12 @@ export function clearEnemies(gameState: any) {
     sceneRef.remove(enemy.mesh);
   }
   gameState.enemies.length = 0;
+
+  // Clear all vision cones
+  clearVisionCones();
+
+  // Clear aggro indicators
+  clearAggroIndicators();
 
   // Invalidate cached bounds (level editor may have changed arena)
   _collisionBounds = null;

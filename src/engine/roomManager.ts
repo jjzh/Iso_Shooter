@@ -22,6 +22,7 @@ import { emit, on } from './events';
 import { createTelegraph, updateTelegraph, removeTelegraph, initTelegraph } from './telegraph';
 import { initDoor, createDoor, unlockDoor, updateDoor, removeDoor } from './door';
 import { DOOR_CONFIG } from '../config/door';
+import { initDynamicHazards, trySpawnHazard, clearDynamicHazards } from './dynamicHazards';
 import { SpawnPack } from '../types/index';
 
 // ─── State ───
@@ -56,6 +57,7 @@ export function initRoomManager(scene: any) {
   announceEl = document.getElementById('wave-announce');
   initTelegraph(scene);
   initDoor(scene);
+  initDynamicHazards(scene);
 
   // Track enemy deaths for spawn dispatch
   on('enemyDied', () => {
@@ -94,6 +96,7 @@ export function loadRoom(index: number, gameState: any) {
   clearDamageNumbers();
   clearEffectGhosts();
   clearParticles();
+  clearDynamicHazards();
   removeDoor();
 
   // Swap arena layout
@@ -187,6 +190,16 @@ export function updateRoomManager(dt: number, gameState: any) {
         spawnEnemy(enemy.type, spawnPos, gameState);
       }
       emit({ type: 'spawnPackSpawned', packIndex: tg.packIdx, roomIndex: currentRoomIndex });
+
+      // Try spawning a dynamic hazard pit near the pack center
+      if (tg.positions.length > 0) {
+        let cx = 0, cz = 0;
+        for (const p of tg.positions) { cx += p.x; cz += p.z; }
+        cx /= tg.positions.length;
+        cz /= tg.positions.length;
+        trySpawnHazard(cx, cz);
+      }
+
       activeTelegraphs.splice(i, 1);
     }
   }
@@ -310,8 +323,12 @@ function resolveSpawnPositions(pack: SpawnPack, room: RoomDefinition): { x: numb
       x = Math.max(-hx, Math.min(hx, x));
       z = Math.max(-hz, Math.min(hz, z));
 
-      // Validate: not inside obstacle or pit
-      if (!isInsideObstacle(x, z) && !isInsidePit(x, z)) {
+      // Validate: not inside obstacle or pit, and not too close to player
+      const pdx = x - playerX;
+      const pdz = z - playerZ;
+      const playerDistSq = pdx * pdx + pdz * pdz;
+      const minDist = SPAWN_CONFIG.minPlayerDist;
+      if (!isInsideObstacle(x, z) && !isInsidePit(x, z) && playerDistSq >= minDist * minDist) {
         return { x, z };
       }
     }

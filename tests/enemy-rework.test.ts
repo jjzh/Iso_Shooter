@@ -214,7 +214,7 @@ describe('Enemy melee arc check', () => {
   // angleToPlayer = atan2(-dx, -dz), compared to enemy.mesh.rotation.y
 
   function isInArc(
-    enemyX: number, enemyZ: number, facingAngle: number,
+    enemyX: number, enemyZ: number, rotationY: number,
     targetX: number, targetZ: number, hitRange: number, hitArc: number
   ): boolean {
     const dx = targetX - enemyX;
@@ -223,7 +223,7 @@ describe('Enemy melee arc check', () => {
     if (dist > hitRange) return false;
 
     const angleToTarget = Math.atan2(-dx, -dz);
-    let angleDiff = angleToTarget - facingAngle;
+    let angleDiff = angleToTarget - rotationY;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     return Math.abs(angleDiff) <= hitArc / 2;
