@@ -130,3 +130,51 @@ describe('object velocity kinematics', () => {
     expect(damage).toBe(0);
   });
 });
+
+describe('object collision math', () => {
+  it('circle-circle overlap detection', () => {
+    const ax = 0, az = 0, aRadius = 0.8;
+    const bx = 1, bz = 0, bRadius = 0.8;
+    const dx = bx - ax, dz = bz - az;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    const minDist = aRadius + bRadius;
+    expect(dist).toBeLessThan(minDist); // overlapping
+  });
+
+  it('mass-weighted separation: lighter moves more', () => {
+    const massA = 1.0, massB = 3.0;
+    const totalMass = massA + massB;
+    const ratioA = massB / totalMass; // 0.75
+    const ratioB = massA / totalMass; // 0.25
+    expect(ratioA).toBeGreaterThan(ratioB); // lighter (A) moves more
+  });
+
+  it('elastic collision transfers momentum correctly', () => {
+    // Object A moving right at speed 5, B stationary
+    // After collision: A should slow down, B should speed up
+    const massA = 1.0, massB = 1.0;
+    const e = PHYSICS.enemyBounce; // restitution
+    const velAx = 5, velBx = 0;
+    const nx = 1; // collision normal: A->B along x
+    const relVelDotN = (velAx - velBx) * nx;
+    const impulse = (1 + e) * relVelDotN / (massA + massB);
+
+    const newVelAx = velAx - impulse * massB * nx;
+    const newVelBx = velBx + impulse * massA * nx;
+
+    expect(newVelBx).toBeGreaterThan(0); // B gained velocity
+    expect(newVelAx).toBeLessThan(velAx); // A lost velocity
+  });
+
+  it('impact damage above speed threshold', () => {
+    const relSpeed = 5;
+    const dmg = Math.round((relSpeed - PHYSICS.objectImpactMinSpeed) * PHYSICS.objectImpactDamage);
+    expect(dmg).toBeGreaterThan(0);
+  });
+
+  it('no impact damage below speed threshold', () => {
+    const relSpeed = 1;
+    const dmg = Math.max(0, Math.round((relSpeed - PHYSICS.objectImpactMinSpeed) * PHYSICS.objectImpactDamage));
+    expect(dmg).toBe(0);
+  });
+});

@@ -548,6 +548,146 @@ export function resolveEnemyCollisions(gameState: GameState): void {
   }
 }
 
+// ─── PhysicsObject Collisions (Object-Object + Object-Enemy) ───
+
+export function resolveObjectCollisions(gameState: GameState): void {
+  const objects = gameState.physicsObjects;
+  const enemies = gameState.enemies;
+
+  // Object-Object collisions
+  for (let i = 0; i < objects.length; i++) {
+    const a = objects[i];
+    if (a.destroyed) continue;
+
+    for (let j = i + 1; j < objects.length; j++) {
+      const b = objects[j];
+      if (b.destroyed) continue;
+
+      const dx = b.pos.x - a.pos.x;
+      const dz = b.pos.z - a.pos.z;
+      const distSq = dx * dx + dz * dz;
+      const minDist = a.radius + b.radius;
+
+      if (distSq >= minDist * minDist) continue;
+
+      const dist = Math.sqrt(distSq);
+      if (dist < 0.01) continue;
+
+      const overlap = minDist - dist;
+      const nx = dx / dist;
+      const nz = dz / dist;
+
+      const totalMass = a.mass + b.mass;
+      const ratioA = b.mass / totalMass;
+      const ratioB = a.mass / totalMass;
+
+      // Separate
+      a.pos.x -= nx * overlap * ratioA;
+      a.pos.z -= nz * overlap * ratioA;
+      b.pos.x += nx * overlap * ratioB;
+      b.pos.z += nz * overlap * ratioB;
+
+      // Momentum transfer
+      const relVelX = a.vel.x - b.vel.x;
+      const relVelZ = a.vel.z - b.vel.z;
+      const relVelDotN = relVelX * nx + relVelZ * nz;
+      if (relVelDotN <= 0) continue;
+
+      const e = PHYSICS.objectWallSlamBounce;
+      const impulse = (1 + e) * relVelDotN / totalMass;
+
+      a.vel.x -= impulse * b.mass * nx;
+      a.vel.z -= impulse * b.mass * nz;
+      b.vel.x += impulse * a.mass * nx;
+      b.vel.z += impulse * a.mass * nz;
+
+      // Sync meshes
+      if (a.mesh) a.mesh.position.set(a.pos.x, 0, a.pos.z);
+      if (b.mesh) b.mesh.position.set(b.pos.x, 0, b.pos.z);
+    }
+  }
+
+  // Object-Enemy collisions
+  for (const obj of objects) {
+    if (obj.destroyed) continue;
+
+    for (const enemy of enemies) {
+      if (enemy.health <= 0) continue;
+      if ((enemy as any).isLeaping) continue;
+
+      const dx = enemy.pos.x - obj.pos.x;
+      const dz = enemy.pos.z - obj.pos.z;
+      const distSq = dx * dx + dz * dz;
+      const radObj = obj.radius;
+      const radEnemy = enemy.config.size.radius;
+      const minDist = radObj + radEnemy;
+
+      if (distSq >= minDist * minDist) continue;
+
+      const dist = Math.sqrt(distSq);
+      if (dist < 0.01) continue;
+
+      const overlap = minDist - dist;
+      const nx = dx / dist;
+      const nz = dz / dist;
+
+      const massObj = obj.mass;
+      const massEnemy = enemy.config.mass ?? 1.0;
+      const totalMass = massObj + massEnemy;
+      const ratioObj = massEnemy / totalMass;
+      const ratioEnemy = massObj / totalMass;
+
+      // Separate
+      obj.pos.x -= nx * overlap * ratioObj;
+      obj.pos.z -= nz * overlap * ratioObj;
+      enemy.pos.x += nx * overlap * ratioEnemy;
+      enemy.pos.z += nz * overlap * ratioEnemy;
+
+      // Momentum transfer
+      const velEnemy = (enemy as any).vel;
+      if (!velEnemy) continue;
+
+      const relVelX = obj.vel.x - velEnemy.x;
+      const relVelZ = obj.vel.z - velEnemy.z;
+      const relVelDotN = relVelX * nx + relVelZ * nz;
+      if (relVelDotN <= 0) continue;
+
+      const e = obj.restitution ?? PHYSICS.enemyBounce;
+      const impulse = (1 + e) * relVelDotN / totalMass;
+
+      obj.vel.x -= impulse * massEnemy * nx;
+      obj.vel.z -= impulse * massEnemy * nz;
+      velEnemy.x += impulse * massObj * nx;
+      velEnemy.z += impulse * massObj * nz;
+
+      // Impact damage to enemy (if relative speed high enough)
+      const relSpeed = Math.sqrt(relVelX * relVelX + relVelZ * relVelZ);
+      if (relSpeed > PHYSICS.objectImpactMinSpeed) {
+        const dmg = Math.round((relSpeed - PHYSICS.objectImpactMinSpeed) * PHYSICS.objectImpactDamage);
+        if (dmg > 0) {
+          applyDamageToEnemy(enemy, dmg, gameState);
+          enemy.flashTimer = 100;
+          if ((enemy as any).bodyMesh) (enemy as any).bodyMesh.material.emissive.setHex(0xffaa44);
+          if ((enemy as any).headMesh) (enemy as any).headMesh.material.emissive.setHex(0xffaa44);
+          spawnDamageNumber(enemy.pos.x, enemy.pos.z, dmg, '#ffaa44');
+          screenShake(2, 80);
+
+          emit({
+            type: 'objectImpact',
+            objectA: obj, objectB: enemy,
+            speed: relSpeed, damage: dmg,
+            position: { x: (obj.pos.x + enemy.pos.x) / 2, z: (obj.pos.z + enemy.pos.z) / 2 }
+          });
+        }
+      }
+
+      // Sync mesh positions
+      if (obj.mesh) obj.mesh.position.set(obj.pos.x, 0, obj.pos.z);
+      (enemy as any).mesh.position.copy(enemy.pos);
+    }
+  }
+}
+
 export function pointInPit(px: number, pz: number): boolean {
   const pits = getPits();
   for (const pit of pits) {
