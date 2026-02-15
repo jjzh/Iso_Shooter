@@ -53,7 +53,7 @@ export function initRadialMenu(): void {
 
   // Build option circles arranged in a line (2 options = left and right)
   const angleStep = (2 * Math.PI) / BENDS.length;
-  const startAngle = -Math.PI / 2; // top
+  const startAngle = Math.PI; // left — so 2 options go left/right
 
   for (let i = 0; i < BENDS.length; i++) {
     const bend = BENDS[i];
@@ -131,9 +131,10 @@ function createOptionElement(bend: RuleBend, offsetX: number, offsetY: number): 
     el.style.transform = 'scale(1)';
   });
 
-  // Click = select
-  el.addEventListener('click', (e) => {
+  // Click = select (mousedown to prevent attack input from firing)
+  el.addEventListener('mousedown', (e) => {
     e.stopPropagation();
+    e.preventDefault();
     selectBend(bend.id);
   });
 
@@ -191,7 +192,7 @@ export function showRadialMenu(): void {
 export function hideRadialMenu(): void {
   if (!containerEl) return;
   visible = false;
-  selectedBendId = null;
+  // NOTE: do NOT clear selectedBendId here — targeting mode needs it after menu hides
   containerEl.style.display = 'none';
 }
 
