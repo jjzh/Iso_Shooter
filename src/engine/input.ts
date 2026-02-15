@@ -14,6 +14,7 @@ const inputState = {
   ultimateHeld: false,
   interact: false,
   toggleEditor: false,
+  bulletTime: false,
 };
 
 // Isometric basis vectors (from prototype)
@@ -52,6 +53,7 @@ export function initInput() {
     if (e.code === 'KeyE') inputState.ultimate = true;
     if (e.code === 'KeyF' || e.code === 'Enter') inputState.interact = true;
     if (e.code === 'Backquote') inputState.toggleEditor = true;
+    if (e.code === 'KeyQ') inputState.bulletTime = true;
   });
 
   window.addEventListener('keyup', (e) => {
@@ -261,6 +263,11 @@ function pollGamepad() {
   if (interactBtn && !prevGamepadButtons.interact) inputState.interact = true;
   prevGamepadButtons.interact = !!interactBtn;
 
+  // Bullet Time: LT (6)
+  const btBtn = buttons[6] && buttons[6].pressed;
+  if (btBtn && !prevGamepadButtons.bulletTime) inputState.bulletTime = true;
+  prevGamepadButtons.bulletTime = !!btBtn;
+
   // Ultimate held (for charge release detection)
   if (ultBtn) inputState.ultimateHeld = true;
 }
@@ -309,6 +316,7 @@ export function consumeInput() {
   inputState.ultimate = false;
   inputState.interact = false;
   inputState.toggleEditor = false;
+  inputState.bulletTime = false;
 }
 
 export function getInputState() { return inputState; }

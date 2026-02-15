@@ -888,9 +888,9 @@ function fireProjectile(origin, direction, config, isEnemy) {
 function updateProjectiles(dt) {
   const maxLife = 2;
   for (const pool3 of [playerPool, enemyPool]) {
-    const active2 = pool3.getActive();
-    for (let i = active2.length - 1; i >= 0; i--) {
-      const p = active2[i];
+    const active3 = pool3.getActive();
+    for (let i = active3.length - 1; i >= 0; i--) {
+      const p = active3[i];
       p.mesh.position.x += p.dir.x * p.speed * dt;
       p.mesh.position.z += p.dir.z * p.speed * dt;
       p.life += dt;
@@ -3439,7 +3439,8 @@ var inputState = {
   ultimate: false,
   ultimateHeld: false,
   interact: false,
-  toggleEditor: false
+  toggleEditor: false,
+  bulletTime: false
 };
 var INV_SQRT2 = 1 / Math.SQRT2;
 var ISO_RIGHT_X = INV_SQRT2;
@@ -3469,6 +3470,7 @@ function initInput() {
     if (e.code === "KeyE") inputState.ultimate = true;
     if (e.code === "KeyF" || e.code === "Enter") inputState.interact = true;
     if (e.code === "Backquote") inputState.toggleEditor = true;
+    if (e.code === "KeyQ") inputState.bulletTime = true;
   });
   window.addEventListener("keyup", (e) => {
     keys[e.code] = false;
@@ -3618,6 +3620,9 @@ function pollGamepad() {
   const interactBtn = buttons[3] && buttons[3].pressed;
   if (interactBtn && !prevGamepadButtons.interact) inputState.interact = true;
   prevGamepadButtons.interact = !!interactBtn;
+  const btBtn = buttons[6] && buttons[6].pressed;
+  if (btBtn && !prevGamepadButtons.bulletTime) inputState.bulletTime = true;
+  prevGamepadButtons.bulletTime = !!btBtn;
   if (ultBtn) inputState.ultimateHeld = true;
 }
 function updateInput() {
@@ -3649,6 +3654,7 @@ function consumeInput() {
   inputState.ultimate = false;
   inputState.interact = false;
   inputState.toggleEditor = false;
+  inputState.bulletTime = false;
 }
 function getInputState() {
   return inputState;
@@ -5542,12 +5548,87 @@ function hideAnnounce() {
   announceEl.classList.remove("visible");
 }
 
+// src/engine/bulletTime.ts
+var BULLET_TIME = {
+  timeScale: 0.25,
+  // how slow the world runs (0.25 = 25% speed)
+  maxResource: 3e3,
+  // ms of bullet time available at full bar
+  drainRate: 1e3,
+  // resource drained per real second while active
+  killRefill: 600,
+  // resource refilled per enemy kill
+  activationMinimum: 300,
+  // minimum resource required to activate
+  infinite: 1
+  // 1 = infinite resource (skip drain), 0 = normal drain
+};
+var resource = BULLET_TIME.maxResource;
+var active = false;
+var initialized = false;
+function initBulletTime() {
+  if (initialized) return;
+  initialized = true;
+  on("enemyDied", () => {
+    refillBulletTime(BULLET_TIME.killRefill);
+  });
+}
+function activateBulletTime() {
+  if (active) return;
+  if (resource >= BULLET_TIME.activationMinimum) {
+    active = true;
+    emit({ type: "bulletTimeActivated" });
+  }
+}
+function toggleBulletTime() {
+  if (active) {
+    active = false;
+    emit({ type: "bulletTimeDeactivated" });
+  } else {
+    activateBulletTime();
+  }
+}
+function updateBulletTime(realDt) {
+  if (!active) return;
+  if (BULLET_TIME.infinite >= 1) return;
+  resource -= BULLET_TIME.drainRate * realDt;
+  if (resource <= 0) {
+    resource = 0;
+    active = false;
+    emit({ type: "bulletTimeDeactivated" });
+  }
+}
+function getBulletTimeScale() {
+  return active ? BULLET_TIME.timeScale : 1;
+}
+function refillBulletTime(amount) {
+  resource = Math.min(resource + amount, BULLET_TIME.maxResource);
+}
+function resetBulletTime() {
+  resource = BULLET_TIME.maxResource;
+  active = false;
+}
+function isBulletTimeActive() {
+  return active;
+}
+function getBulletTimeResource() {
+  return resource;
+}
+function getBulletTimeMax() {
+  return BULLET_TIME.maxResource;
+}
+
 // src/ui/hud.ts
 var healthBar;
 var healthText;
 var waveIndicator;
 var currencyCount;
 var abilityBar;
+var bulletTimeMeter;
+var bulletTimeFill;
+var btVignette;
+var btCeremony;
+var btCeremonyTimeout = null;
 var mobileBtnDash;
 var mobileBtnUlt;
 function initHUD() {
@@ -5567,6 +5648,93 @@ function initHUD() {
   if (hasTouch) {
     initMobileButtons();
   }
+  bulletTimeMeter = document.createElement("div");
+  bulletTimeMeter.id = "bullet-time-meter";
+  bulletTimeMeter.style.cssText = `
+    position: fixed;
+    top: 44px;
+    left: 20px;
+    width: 220px;
+    height: 6px;
+    background: rgba(20, 20, 40, 0.7);
+    border: 1px solid rgba(100, 140, 255, 0.3);
+    border-radius: 3px;
+    z-index: 50;
+    overflow: hidden;
+  `;
+  bulletTimeFill = document.createElement("div");
+  bulletTimeFill.style.cssText = `
+    width: 100%;
+    height: 100%;
+    background: #6688ff;
+    border-radius: 2px;
+    transition: background-color 0.15s ease;
+  `;
+  bulletTimeMeter.appendChild(bulletTimeFill);
+  const btLabel = document.createElement("div");
+  btLabel.style.cssText = `
+    position: absolute;
+    top: -1px;
+    right: -50px;
+    font-size: 8px;
+    color: rgba(100, 140, 255, 0.6);
+    letter-spacing: 1px;
+    font-family: 'Courier New', monospace;
+    pointer-events: none;
+  `;
+  btLabel.textContent = "Q \u2014 SLOW";
+  bulletTimeMeter.appendChild(btLabel);
+  document.body.appendChild(bulletTimeMeter);
+  btVignette = document.createElement("div");
+  btVignette.id = "bt-vignette";
+  btVignette.style.cssText = `
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    z-index: 40;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    background: radial-gradient(ellipse at center, transparent 50%, rgba(100, 140, 255, 0.15) 100%);
+    box-shadow: inset 0 0 80px rgba(100, 140, 255, 0.2);
+  `;
+  document.body.appendChild(btVignette);
+  btCeremony = document.createElement("div");
+  btCeremony.id = "bt-ceremony";
+  btCeremony.style.cssText = `
+    position: fixed;
+    top: 18%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 14px;
+    font-family: 'Courier New', monospace;
+    color: rgba(100, 160, 255, 0.9);
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    text-shadow: 0 0 12px rgba(100, 140, 255, 0.6), 0 0 30px rgba(100, 140, 255, 0.3);
+    pointer-events: none;
+    z-index: 55;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  `;
+  document.body.appendChild(btCeremony);
+  on("bulletTimeActivated", () => {
+    if (btVignette) btVignette.style.opacity = "1";
+    showBTCeremony("BULLET TIME ENGAGED", 1200);
+  });
+  on("bulletTimeDeactivated", () => {
+    if (btVignette) btVignette.style.opacity = "0";
+    showBTCeremony("BULLET TIME ENDED", 800);
+  });
+}
+function showBTCeremony(text, durationMs) {
+  if (!btCeremony) return;
+  if (btCeremonyTimeout) clearTimeout(btCeremonyTimeout);
+  btCeremony.textContent = text;
+  btCeremony.style.opacity = "1";
+  btCeremonyTimeout = setTimeout(() => {
+    btCeremony.style.opacity = "0";
+    btCeremonyTimeout = null;
+  }, durationMs);
 }
 var DRAG_THRESHOLD = 15;
 var DRAG_MAX_RADIUS = 80;
@@ -5677,6 +5845,15 @@ function updateHUD(gameState2) {
   healthText.textContent = Math.ceil(gameState2.playerHealth) + " / " + gameState2.playerMaxHealth;
   waveIndicator.textContent = "Wave " + gameState2.currentWave;
   currencyCount.textContent = gameState2.currency;
+  if (bulletTimeFill) {
+    const btPct = getBulletTimeResource() / getBulletTimeMax();
+    bulletTimeFill.style.width = btPct * 100 + "%";
+    const btActive = isBulletTimeActive();
+    bulletTimeFill.style.backgroundColor = btActive ? "#ffcc44" : "#6688ff";
+    if (bulletTimeMeter) {
+      bulletTimeMeter.style.borderColor = btActive ? "rgba(255, 204, 68, 0.6)" : "rgba(100, 140, 255, 0.3)";
+    }
+  }
   for (const [key, state] of Object.entries(gameState2.abilities)) {
     if (!ABILITIES[key]) continue;
     const cfg = ABILITIES[key];
@@ -5802,15 +5979,15 @@ var AUDIO_CONFIG = {
 };
 var ctx2 = null;
 var masterGain = null;
-var initialized = false;
+var initialized2 = false;
 function initAudio() {
-  if (initialized) return;
+  if (initialized2) return;
   try {
     ctx2 = new (window.AudioContext || window.webkitAudioContext)();
     masterGain = ctx2.createGain();
     masterGain.gain.value = AUDIO_CONFIG.masterVolume;
     masterGain.connect(ctx2.destination);
-    initialized = true;
+    initialized2 = true;
     wireEventBus2();
     const muteBtn = document.getElementById("mute-btn");
     if (muteBtn) {
@@ -6674,6 +6851,73 @@ var SECTIONS = [
         step: 0.05,
         unit: "x",
         tip: "Movement speed multiplier while charging."
+      }
+    ]
+  },
+  // ── Bullet Time ──
+  {
+    section: "Bullet Time",
+    collapsed: true,
+    items: [
+      {
+        label: "Time Scale",
+        config: () => BULLET_TIME,
+        key: "timeScale",
+        min: 0.05,
+        max: 0.8,
+        step: 0.05,
+        unit: "x",
+        tip: "How slow the world runs during bullet time (0.25 = 25% speed)."
+      },
+      {
+        label: "Max Resource",
+        config: () => BULLET_TIME,
+        key: "maxResource",
+        min: 500,
+        max: 1e4,
+        step: 500,
+        unit: "ms",
+        tip: "Total bullet time available at full bar."
+      },
+      {
+        label: "Drain Rate",
+        config: () => BULLET_TIME,
+        key: "drainRate",
+        min: 200,
+        max: 3e3,
+        step: 100,
+        unit: "ms/s",
+        tip: "How fast the bar drains per real second."
+      },
+      {
+        label: "Kill Refill",
+        config: () => BULLET_TIME,
+        key: "killRefill",
+        min: 100,
+        max: 2e3,
+        step: 100,
+        unit: "ms",
+        tip: "Resource refilled per enemy kill."
+      },
+      {
+        label: "Min Activate",
+        config: () => BULLET_TIME,
+        key: "activationMinimum",
+        min: 0,
+        max: 1e3,
+        step: 50,
+        unit: "ms",
+        tip: "Minimum resource required to activate bullet time."
+      },
+      {
+        label: "Infinite",
+        config: () => BULLET_TIME,
+        key: "infinite",
+        min: 0,
+        max: 1,
+        step: 1,
+        unit: "",
+        tip: "1 = infinite bullet time (no drain). 0 = normal drain."
       }
     ]
   },
@@ -7884,7 +8128,7 @@ console.log("[spawnEditor] v2 loaded \u2014 tabs enabled");
 var sceneRef9;
 var gameStateRef;
 var panel2;
-var active = false;
+var active2 = false;
 var previousPhase = "playing";
 var currentTab = "spawn";
 var editorState = {
@@ -8118,7 +8362,7 @@ function checkEditorToggle() {
   }
 }
 function toggleEditor() {
-  if (active) {
+  if (active2) {
     exitEditor();
   } else {
     enterEditor();
@@ -8130,7 +8374,7 @@ function onEditorWheel(e) {
   setZoom(getCurrentFrustum() + delta);
 }
 function enterEditor() {
-  active = true;
+  active2 = true;
   previousPhase = gameStateRef.phase;
   gameStateRef.phase = "editorPaused";
   panel2.classList.remove("hidden");
@@ -8144,7 +8388,7 @@ function enterEditor() {
   refreshUI();
 }
 function exitEditor() {
-  active = false;
+  active2 = false;
   gameStateRef.phase = previousPhase;
   panel2.classList.add("hidden");
   bannerEl.classList.remove("visible");
@@ -8254,7 +8498,7 @@ function findNearestLevelObject(worldX, worldZ, radius) {
   return { type: bestType, idx: bestIdx };
 }
 function onMouseDown(e) {
-  if (!active) return;
+  if (!active2) return;
   if (e.target.closest("#spawn-editor")) return;
   if (currentTab === "level") {
     onLevelMouseDown(e);
@@ -8354,7 +8598,7 @@ function onLevelMouseDown(e) {
   }
 }
 function onMouseMove(e) {
-  if (!active || !isDragging) return;
+  if (!active2 || !isDragging) return;
   if (currentTab === "level") {
     onLevelMouseMove(e);
     return;
@@ -8403,7 +8647,7 @@ function onLevelMouseMove(e) {
   }
 }
 function onMouseUp(e) {
-  if (!active) return;
+  if (!active2) return;
   if (currentTab === "level") {
     if (isDragging && dragStarted) {
       onArenaChanged();
@@ -8503,7 +8747,7 @@ async function deletePreset(name) {
   }
 }
 function onEditorKey(e) {
-  if (!active) return;
+  if (!active2) return;
   if (e.code === "KeyZ" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
     e.preventDefault();
     popUndo();
@@ -9081,7 +9325,7 @@ function wireEvents() {
     saveToFile("config/arena.js", text, document.getElementById("se-save-arena"));
   });
   window.addEventListener("contextmenu", (e) => {
-    if (active) e.preventDefault();
+    if (active2) e.preventDefault();
   });
   const tooltipEl = document.getElementById("se-tooltip");
   let tooltipTarget = null;
@@ -10116,20 +10360,23 @@ function gameLoop(timestamp) {
   updateInput();
   autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
+  if (input.bulletTime) toggleBulletTime();
+  updateBulletTime(dt);
+  const gameDt = dt * getBulletTimeScale();
   updatePlayer(input, dt, gameState);
-  updateProjectiles(dt);
-  updateRoomManager(dt, gameState);
-  updateEnemies(dt, getPlayerPos(), gameState);
+  updateProjectiles(gameDt);
+  updateRoomManager(gameDt, gameState);
+  updateEnemies(gameDt, getPlayerPos(), gameState);
   checkCollisions(gameState);
-  applyVelocities(dt, gameState);
+  applyVelocities(gameDt, gameState);
   resolveEnemyCollisions(gameState);
   checkPitFalls(gameState);
-  updateEffectGhosts(dt);
-  updateParticles(dt);
-  updateAoeTelegraphs(dt);
-  updatePendingEffects(dt);
-  updateMortarProjectiles(dt);
-  updateIcePatches(dt);
+  updateEffectGhosts(gameDt);
+  updateParticles(gameDt);
+  updateAoeTelegraphs(gameDt);
+  updatePendingEffects(gameDt);
+  updateMortarProjectiles(gameDt);
+  updateIcePatches(gameDt);
   if (gameState.phase === "gameOver") {
     showGameOver(gameState);
   }
@@ -10138,7 +10385,7 @@ function gameLoop(timestamp) {
   checkEditorToggle();
   consumeInput();
   getRendererInstance().render(getScene(), getCamera());
-  updateDamageNumbers(dt);
+  updateDamageNumbers(gameDt);
 }
 function restart() {
   gameState.phase = "playing";
@@ -10154,6 +10401,7 @@ function restart() {
   gameState.abilities.ultimate.chargeT = 0;
   resetPlayer();
   resetRoomManager();
+  resetBulletTime();
   loadRoom(0, gameState);
 }
 function init() {
@@ -10170,6 +10418,7 @@ function init() {
     initRoomManager(scene2);
     initAudio();
     initParticles(scene2);
+    initBulletTime();
     on("meleeHit", () => {
       hitPauseTimer = MELEE.hitPause;
     });

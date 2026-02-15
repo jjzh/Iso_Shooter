@@ -14,6 +14,7 @@ import { initTuningPanel } from '../ui/tuning';
 import { initSpawnEditor, checkEditorToggle, updateSpawnEditor, isEditorActive } from '../ui/spawnEditor';
 import { initAudio, resumeAudio } from './audio';
 import { initParticles, updateParticles } from './particles';
+import { initBulletTime, toggleBulletTime, updateBulletTime, getBulletTimeScale, resetBulletTime } from './bulletTime';
 import { PLAYER, MELEE } from '../config/player';
 import { on } from './events';
 import { applyUrlParams, snapshotDefaults } from './urlParams';
@@ -74,23 +75,28 @@ function gameLoop(timestamp: number): void {
   autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
 
-  // 2. Player
+  // 1b. Bullet Time toggle + update
+  if (input.bulletTime) toggleBulletTime();
+  updateBulletTime(dt);
+  const gameDt = dt * getBulletTimeScale(); // slowed dt for world systems
+
+  // 2. Player (uses real dt — player moves at normal speed)
   updatePlayer(input, dt, gameState);
 
-  // 3. Projectiles
-  updateProjectiles(dt);
+  // 3. Projectiles (slowed)
+  updateProjectiles(gameDt);
 
-  // 4. Room Manager (replaces wave runner)
-  updateRoomManager(dt, gameState);
+  // 4. Room Manager (slowed)
+  updateRoomManager(gameDt, gameState);
 
-  // 5. Enemies
-  updateEnemies(dt, getPlayerPos(), gameState);
+  // 5. Enemies (slowed)
+  updateEnemies(gameDt, getPlayerPos(), gameState);
 
   // 6. Collisions
   checkCollisions(gameState);
 
-  // 6a. Physics velocities (knockback sliding, wall slam detection)
-  applyVelocities(dt, gameState);
+  // 6a. Physics velocities — knockback sliding, wall slam detection (slowed)
+  applyVelocities(gameDt, gameState);
 
   // 6a2. Enemy-enemy collision (separation + momentum transfer)
   resolveEnemyCollisions(gameState);
@@ -98,28 +104,28 @@ function gameLoop(timestamp: number): void {
   // 6b. Pit falls
   checkPitFalls(gameState);
 
-  // 6c. Effect ghosts
-  updateEffectGhosts(dt);
+  // 6c. Effect ghosts (slowed)
+  updateEffectGhosts(gameDt);
 
-  // 6d. Particles
-  updateParticles(dt);
+  // 6d. Particles (slowed)
+  updateParticles(gameDt);
 
-  // 7. AoE telegraphs
-  updateAoeTelegraphs(dt);
-  updatePendingEffects(dt);
+  // 7. AoE telegraphs (slowed)
+  updateAoeTelegraphs(gameDt);
+  updatePendingEffects(gameDt);
 
-  // 8. Mortar projectiles
-  updateMortarProjectiles(dt);
+  // 8. Mortar projectiles (slowed)
+  updateMortarProjectiles(gameDt);
 
-  // 8b. Ice patches
-  updateIcePatches(dt);
+  // 8b. Ice patches (slowed)
+  updateIcePatches(gameDt);
 
   // 9. Check for game over (phase may have changed during collision checks)
   if ((gameState.phase as string) === 'gameOver') {
     showGameOver(gameState);
   }
 
-  // 10. Camera
+  // 10. Camera (real dt — smooth camera)
   updateCamera(getPlayerPos(), dt);
 
   // 11. HUD
@@ -134,8 +140,8 @@ function gameLoop(timestamp: number): void {
   // 14. Render
   getRendererInstance().render(getScene(), getCamera());
 
-  // 15. Damage numbers
-  updateDamageNumbers(dt);
+  // 15. Damage numbers (slowed)
+  updateDamageNumbers(gameDt);
 }
 
 function restart(): void {
@@ -153,6 +159,7 @@ function restart(): void {
 
   resetPlayer();
   resetRoomManager();
+  resetBulletTime();
   loadRoom(0, gameState);
 }
 
@@ -172,6 +179,7 @@ function init(): void {
     initRoomManager(scene);
     initAudio();
     initParticles(scene);
+    initBulletTime();
 
     // Melee hit pause — subscribe to meleeHit event
     on('meleeHit', () => {

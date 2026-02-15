@@ -30,7 +30,9 @@ export type GameEvent =
   | { type: 'playerHealed'; amount: number; position: { x: number; z: number } }
   | { type: 'enemyMeleeTelegraph'; position: { x: number; z: number }; facingAngle: number; hitArc: number; hitRange: number; duration: number }
   | { type: 'wallSlam'; enemy: any; speed: number; damage: number; position: { x: number; z: number } }
-  | { type: 'enemyImpact'; enemyA: any; enemyB: any; speed: number; damage: number; position: { x: number; z: number } };
+  | { type: 'enemyImpact'; enemyA: any; enemyB: any; speed: number; damage: number; position: { x: number; z: number } }
+  | { type: 'bulletTimeActivated' }
+  | { type: 'bulletTimeDeactivated' };
 
 // ─── Bus Implementation ───
 

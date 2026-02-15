@@ -10,6 +10,7 @@ import { C as ANIM } from '../entities/playerAnimator';
 import { AUDIO_CONFIG, setMasterVolume } from '../engine/audio';
 import { SPAWN_CONFIG } from '../config/spawn';
 import { DOOR_CONFIG } from '../config/door';
+import { BULLET_TIME } from '../engine/bulletTime';
 import { buildShareUrl } from '../engine/urlParams';
 
 // ─── Slider Section Definitions ───
@@ -139,6 +140,26 @@ const SECTIONS: SliderSection[] = [
         unit: 'u', tip: 'Knockback force at full charge.' },
       { label: 'Move Mult',    config: () => ABILITIES.ultimate,  key: 'chargeMoveSpeedMult', min: 0,   max: 1,     step: 0.05,
         unit: 'x', tip: 'Movement speed multiplier while charging.' },
+    ]
+  },
+
+  // ── Bullet Time ──
+  {
+    section: 'Bullet Time',
+    collapsed: true,
+    items: [
+      { label: 'Time Scale',   config: () => BULLET_TIME, key: 'timeScale',          min: 0.05, max: 0.8,  step: 0.05,
+        unit: 'x', tip: 'How slow the world runs during bullet time (0.25 = 25% speed).' },
+      { label: 'Max Resource',  config: () => BULLET_TIME, key: 'maxResource',        min: 500,  max: 10000, step: 500,
+        unit: 'ms', tip: 'Total bullet time available at full bar.' },
+      { label: 'Drain Rate',    config: () => BULLET_TIME, key: 'drainRate',          min: 200,  max: 3000,  step: 100,
+        unit: 'ms/s', tip: 'How fast the bar drains per real second.' },
+      { label: 'Kill Refill',   config: () => BULLET_TIME, key: 'killRefill',         min: 100,  max: 2000,  step: 100,
+        unit: 'ms', tip: 'Resource refilled per enemy kill.' },
+      { label: 'Min Activate',  config: () => BULLET_TIME, key: 'activationMinimum',  min: 0,    max: 1000,  step: 50,
+        unit: 'ms', tip: 'Minimum resource required to activate bullet time.' },
+      { label: 'Infinite',      config: () => BULLET_TIME, key: 'infinite',           min: 0,    max: 1,     step: 1,
+        unit: '', tip: '1 = infinite bullet time (no drain). 0 = normal drain.' },
     ]
   },
 
