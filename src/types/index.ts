@@ -410,6 +410,7 @@ export interface GameState {
   currency: number;
   currentWave: number;
   enemies: Enemy[];
+  physicsObjects: PhysicsObject[];
   abilities: {
     dash: AbilityState;
     ultimate: AbilityState;
@@ -461,12 +462,18 @@ export interface RoomSpawnBudget {
 // ARENA
 // ═══════════════════════════════════════════════════════════════════════════
 
+export type ObstacleMaterial = 'stone' | 'wood' | 'metal' | 'ice';
+
 export interface Obstacle {
   x: number;
   z: number;
   w: number;
   h: number;
   d: number;
+  destructible?: boolean;
+  health?: number;
+  maxHealth?: number;
+  material?: ObstacleMaterial;
 }
 
 export interface Pit {
@@ -481,6 +488,34 @@ export interface AABB {
   maxX: number;
   minZ: number;
   maxZ: number;
+}
+
+export interface PhysicsObject {
+  id: number;
+  pos: { x: number; z: number };
+  vel: { x: number; z: number };
+  radius: number;
+  mass: number;
+  health: number;
+  maxHealth: number;
+  material: ObstacleMaterial;
+  meshType: 'rock' | 'crate' | 'barrel' | 'pillar';
+  scale: number;
+  restitution?: number;
+  mesh: any;
+  destroyed: boolean;
+  fellInPit: boolean;
+}
+
+export interface PhysicsObjectPlacement {
+  meshType: 'rock' | 'crate' | 'barrel' | 'pillar';
+  material: ObstacleMaterial;
+  x: number;
+  z: number;
+  mass: number;
+  health: number;
+  radius: number;
+  scale?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

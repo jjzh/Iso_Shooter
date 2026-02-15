@@ -27,6 +27,7 @@ const gameState: GameState = {
   currency: 0,
   currentWave: 1,
   enemies: [],
+  physicsObjects: [],
   abilities: {
     dash:     { cooldownRemaining: 0 },
     ultimate: { cooldownRemaining: 0, active: false, activeRemaining: 0, charging: false, chargeT: 0 }
