@@ -25,6 +25,7 @@ export const AUDIO_CONFIG = {
   enemyImpactVolume: 0.4,
   objectImpactVolume: 0.4,
   obstacleBreakVolume: 0.5,
+  bendApplyVolume: 0.3,
   enabled: true,
 };
 
@@ -549,6 +550,40 @@ export function playObstacleBreak(): void {
   noise.stop(now + duration);
 }
 
+// Bend apply: rising shimmer — two detuned sine oscillators, quick frequency ramp
+export function playBendApply(): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const duration = 0.3;
+  const vol = AUDIO_CONFIG.bendApplyVolume;
+
+  // Oscillator 1 — sine, ramp 400→800Hz
+  const osc1 = ctx.createOscillator();
+  osc1.type = 'sine';
+  osc1.frequency.setValueAtTime(400, now);
+  osc1.frequency.exponentialRampToValueAtTime(800, now + duration * 0.6);
+  const gain1 = ctx.createGain();
+  gain1.gain.setValueAtTime(vol * 0.4, now);
+  gain1.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc1.connect(gain1);
+  gain1.connect(masterGain);
+  osc1.start(now);
+  osc1.stop(now + duration);
+
+  // Oscillator 2 — detuned sine, slight shimmer
+  const osc2 = ctx.createOscillator();
+  osc2.type = 'sine';
+  osc2.frequency.setValueAtTime(406, now); // +6Hz detuning for shimmer
+  osc2.frequency.exponentialRampToValueAtTime(812, now + duration * 0.6);
+  const gain2 = ctx.createGain();
+  gain2.gain.setValueAtTime(vol * 0.3, now);
+  gain2.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc2.connect(gain2);
+  gain2.connect(masterGain);
+  osc2.start(now);
+  osc2.stop(now + duration);
+}
+
 // ─── Event Bus Integration ───
 
 function wireEventBus(): void {
@@ -599,4 +634,6 @@ function wireEventBus(): void {
   on('obstacleDestroyed', () => playObstacleBreak());
 
   on('objectPitFall', () => playDeath()); // reuse pit fall sound
+
+  on('bendApplied', () => playBendApply());
 }

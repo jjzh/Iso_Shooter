@@ -5,12 +5,14 @@ import {
   setAimFromScreenDrag, setAbilityDirOverride, clearAbilityDirOverride
 } from '../engine/input';
 import { isBulletTimeActive, getBulletTimeResource, getBulletTimeMax } from '../engine/bulletTime';
+import { getBendsRemaining, getMaxBends } from '../engine/bendMode';
 import { on } from '../engine/events';
 
 let healthBar: any, healthText: any, waveIndicator: any, currencyCount: any, abilityBar: any;
 let bulletTimeMeter: any, bulletTimeFill: any;
 let btVignette: any, btCeremony: any;
 let btCeremonyTimeout: any = null;
+let bendCounter: any = null;
 
 // Mobile action button refs
 let mobileBtnDash: any, mobileBtnUlt: any;
@@ -118,6 +120,24 @@ export function initHUD() {
     transition: opacity 0.2s ease;
   `;
   document.body.appendChild(btCeremony);
+
+  // Bend counter — top right, below BT meter area
+  bendCounter = document.createElement('div');
+  bendCounter.id = 'bend-counter';
+  bendCounter.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: rgba(100, 160, 255, 0.9);
+    letter-spacing: 1px;
+    text-shadow: 0 0 6px rgba(100, 140, 255, 0.4);
+    z-index: 50;
+    pointer-events: none;
+  `;
+  bendCounter.textContent = 'Bends: 3/3';
+  document.body.appendChild(bendCounter);
 
   // Subscribe to bullet time events for vignette + ceremony
   on('bulletTimeActivated', () => {
@@ -268,6 +288,14 @@ function findTouch(touchList: any, id: number) {
 }
 
 export function updateHUD(gameState: any) {
+  // Bend counter
+  if (bendCounter) {
+    const remaining = getBendsRemaining();
+    const max = getMaxBends();
+    bendCounter.textContent = `Bends: ${remaining}/${max}`;
+    bendCounter.style.display = gameState.phase === 'playing' ? 'block' : 'none';
+  }
+
   // Health bar
   const pct = Math.max(0, gameState.playerHealth / gameState.playerMaxHealth);
   healthBar.style.width = (pct * 100) + '%';

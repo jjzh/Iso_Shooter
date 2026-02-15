@@ -131,6 +131,18 @@ export const OBSTACLE_BREAK_BURST: ParticleConfig = {
   shape: 'box',
 };
 
+export const BEND_APPLY_BURST: ParticleConfig = {
+  count: 10,
+  lifetime: 0.4,
+  speed: 3,
+  spread: Math.PI,
+  size: 0.1,
+  color: 0x4488ff,  // will be overridden per-bend
+  fadeOut: true,
+  gravity: -2,      // float upward
+  shape: 'sphere',
+};
+
 export const DOOR_UNLOCK_BURST: ParticleConfig = {
   count: 12,
   lifetime: 0.5,
@@ -658,6 +670,16 @@ function wireEventBus(): void {
       burst(
         { x: e.position.x, y: 0.4, z: e.position.z },
         { ...ENEMY_IMPACT_SPARK, count: Math.round(3 + (e.speed / 5) * 3) }
+      );
+    }
+  });
+
+  on('bendApplied', (e: GameEvent) => {
+    if (e.type === 'bendApplied') {
+      const color = e.bendId === 'enlarge' ? 0x4488ff : 0xffcc44;
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        { ...BEND_APPLY_BURST, color }
       );
     }
   });
