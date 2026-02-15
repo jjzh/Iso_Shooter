@@ -59,6 +59,8 @@ export const ROOMS: RoomDefinition[] = [
     physicsObjects: [
       { meshType: 'rock', material: 'stone', x: -2, z: -2, mass: 2.0, health: 9999, radius: 0.8 },
       { meshType: 'barrel', material: 'wood', x: 3, z: -6, mass: 0.5, health: 20, radius: 0.5, scale: 0.8 },
+      { meshType: 'crate', material: 'wood', x: -5, z: -8, mass: 0.8, health: 30, radius: 0.6 },
+      { meshType: 'barrel', material: 'metal', x: 6, z: 2, mass: 1.0, health: 40, radius: 0.5 },
     ],
     spawnBudget: {
       maxConcurrent: 4,
@@ -112,6 +114,11 @@ export const ROOMS: RoomDefinition[] = [
         pack(goblins(3), 'sides'),
       ],
     },
+    physicsObjects: [
+      { meshType: 'barrel', material: 'wood', x: -3, z: 5, mass: 0.5, health: 20, radius: 0.5 },
+      { meshType: 'rock', material: 'stone', x: 7, z: -3, mass: 1.5, health: 9999, radius: 0.7 },
+      { meshType: 'crate', material: 'metal', x: -7, z: -5, mass: 1.2, health: 50, radius: 0.6 },
+    ],
     playerStart: { x: 0, z: 20 },
   },
 
@@ -153,6 +160,12 @@ export const ROOMS: RoomDefinition[] = [
         pack([...archers(1), ...goblins(1)], 'sides'),
       ],
     },
+    physicsObjects: [
+      { meshType: 'pillar', material: 'stone', x: -3, z: 0, mass: 3.0, health: 9999, radius: 0.5 },
+      { meshType: 'barrel', material: 'wood', x: 6, z: -8, mass: 0.5, health: 20, radius: 0.5, scale: 0.9 },
+      { meshType: 'crate', material: 'wood', x: -6, z: -12, mass: 0.8, health: 25, radius: 0.6 },
+      { meshType: 'rock', material: 'ice', x: 3, z: 12, mass: 1.0, health: 15, radius: 0.6 },
+    ],
     playerStart: { x: 0, z: 21 },
   },
 

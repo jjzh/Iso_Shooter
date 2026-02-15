@@ -142,14 +142,22 @@ function clearObstacleMeshes() {
 }
 function createObstacles() {
   clearObstacleMeshes();
-  const mat = new THREE.MeshStandardMaterial({
+  const normalMat = new THREE.MeshStandardMaterial({
     color: 2763338,
     emissive: 2241365,
     emissiveIntensity: 0.3,
     roughness: 0.7,
     metalness: 0.2
   });
+  const destructibleMat = new THREE.MeshStandardMaterial({
+    color: 4864554,
+    emissive: 5583650,
+    emissiveIntensity: 0.3,
+    roughness: 0.8,
+    metalness: 0.1
+  });
   for (const o of OBSTACLES) {
+    const mat = o.destructible ? destructibleMat.clone() : normalMat;
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(o.w, o.h, o.d), mat);
     mesh.position.set(o.x, o.h / 2, o.z);
     scene.add(mesh);
@@ -888,9 +896,9 @@ function fireProjectile(origin, direction, config, isEnemy) {
 function updateProjectiles(dt) {
   const maxLife = 2;
   for (const pool3 of [playerPool, enemyPool]) {
-    const active3 = pool3.getActive();
-    for (let i = active3.length - 1; i >= 0; i--) {
-      const p = active3[i];
+    const active4 = pool3.getActive();
+    for (let i = active4.length - 1; i >= 0; i--) {
+      const p = active4[i];
       p.mesh.position.x += p.dir.x * p.speed * dt;
       p.mesh.position.z += p.dir.z * p.speed * dt;
       p.life += dt;
@@ -3326,7 +3334,7 @@ function updateCharge(inputState2, dt, gameState2) {
   for (const mat of rig.materials) {
     mat.emissiveIntensity = 0.6 + chargeT * 0.4;
   }
-  if (chargeT >= 1 || chargeTimer > 100 && !inputState2.ultimateHeld) {
+  if (chargeTimer > 100 && !inputState2.ultimateHeld) {
     fireChargePush(chargeT, gameState2);
   }
 }
@@ -3440,7 +3448,8 @@ var inputState = {
   ultimateHeld: false,
   interact: false,
   toggleEditor: false,
-  bulletTime: false
+  bulletTime: false,
+  bendMode: false
 };
 var INV_SQRT2 = 1 / Math.SQRT2;
 var ISO_RIGHT_X = INV_SQRT2;
@@ -3470,7 +3479,7 @@ function initInput() {
     if (e.code === "KeyE") inputState.ultimate = true;
     if (e.code === "KeyF" || e.code === "Enter") inputState.interact = true;
     if (e.code === "Backquote") inputState.toggleEditor = true;
-    if (e.code === "KeyQ") inputState.bulletTime = true;
+    if (e.code === "KeyQ") inputState.bendMode = true;
   });
   window.addEventListener("keyup", (e) => {
     keys[e.code] = false;
@@ -3655,6 +3664,7 @@ function consumeInput() {
   inputState.interact = false;
   inputState.toggleEditor = false;
   inputState.bulletTime = false;
+  inputState.bendMode = false;
 }
 function getInputState() {
   return inputState;
@@ -3741,14 +3751,20 @@ var ROOMS = [
     obstacles: [
       { x: -4, z: 5, w: 1.5, h: 2, d: 1.5 },
       // pillar left near entrance
-      { x: 4, z: -5, w: 1.5, h: 2, d: 1.5 },
-      // pillar right mid
+      { x: 4, z: -5, w: 1.5, h: 2, d: 1.5, destructible: true, health: 50, maxHealth: 50, material: "stone" },
+      // destructible pillar right mid
       { x: 0, z: -12, w: 3, h: 1, d: 1 }
       // low wall far
     ],
     pits: [
       { x: 5, z: -8, w: 3, d: 3 }
       // small pit mid-right (teaches force push)
+    ],
+    physicsObjects: [
+      { meshType: "rock", material: "stone", x: -2, z: -2, mass: 2, health: 9999, radius: 0.8 },
+      { meshType: "barrel", material: "wood", x: 3, z: -6, mass: 0.5, health: 20, radius: 0.5, scale: 0.8 },
+      { meshType: "crate", material: "wood", x: -5, z: -8, mass: 0.8, health: 30, radius: 0.6 },
+      { meshType: "barrel", material: "metal", x: 6, z: 2, mass: 1, health: 40, radius: 0.5 }
     ],
     spawnBudget: {
       maxConcurrent: 4,
@@ -3807,6 +3823,11 @@ var ROOMS = [
         pack(goblins(3), "sides")
       ]
     },
+    physicsObjects: [
+      { meshType: "barrel", material: "wood", x: -3, z: 5, mass: 0.5, health: 20, radius: 0.5 },
+      { meshType: "rock", material: "stone", x: 7, z: -3, mass: 1.5, health: 9999, radius: 0.7 },
+      { meshType: "crate", material: "metal", x: -7, z: -5, mass: 1.2, health: 50, radius: 0.6 }
+    ],
     playerStart: { x: 0, z: 20 }
   },
   // ══════════════════════════════════════════════════════════════════════
@@ -3855,6 +3876,12 @@ var ROOMS = [
         pack([...archers(1), ...goblins(1)], "sides")
       ]
     },
+    physicsObjects: [
+      { meshType: "pillar", material: "stone", x: -3, z: 0, mass: 3, health: 9999, radius: 0.5 },
+      { meshType: "barrel", material: "wood", x: 6, z: -8, mass: 0.5, health: 20, radius: 0.5, scale: 0.9 },
+      { meshType: "crate", material: "wood", x: -6, z: -12, mass: 0.8, health: 25, radius: 0.6 },
+      { meshType: "rock", material: "ice", x: 3, z: 12, mass: 1, health: 15, radius: 0.6 }
+    ],
     playerStart: { x: 0, z: 21 }
   },
   // ══════════════════════════════════════════════════════════════════════
@@ -3937,8 +3964,25 @@ var PHYSICS = {
   // minimum relative speed for collision damage
   impactDamage: 5,
   // damage per unit of relative speed above threshold
-  impactStun: 300
+  impactStun: 300,
   // ms stun when hit by another enemy
+  // Physics objects
+  objectFriction: 25,
+  // deceleration for physics objects
+  objectWallSlamMinSpeed: 3,
+  // min impact speed for wall slam damage
+  objectWallSlamDamage: 8,
+  // damage per unit of speed above threshold
+  objectWallSlamStun: 0,
+  // objects don't stun (no AI)
+  objectWallSlamBounce: 0.4,
+  // velocity reflection coefficient
+  objectWallSlamShake: 2,
+  // screen shake intensity
+  objectImpactMinSpeed: 2,
+  // min relative speed for impact damage
+  objectImpactDamage: 5
+  // damage per unit of relative speed above threshold
 };
 
 // src/engine/meleemath.ts
@@ -4194,6 +4238,71 @@ function applyVelocities(dt, gameState2) {
     }
   }
 }
+function applyObjectVelocities(dt, gameState2) {
+  for (const obj of gameState2.physicsObjects) {
+    if (obj.destroyed) continue;
+    const vel = obj.vel;
+    const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    if (speed < PHYSICS.minVelocity) {
+      vel.x = 0;
+      vel.z = 0;
+      continue;
+    }
+    const moveDist = speed * dt;
+    const moveSteps = Math.ceil(moveDist / obj.radius);
+    const subDt = dt / Math.max(moveSteps, 1);
+    let result = { x: obj.pos.x, z: obj.pos.z, hitWall: false, normalX: 0, normalZ: 0 };
+    let fellInPit = false;
+    for (let s = 0; s < moveSteps; s++) {
+      obj.pos.x += vel.x * subDt;
+      obj.pos.z += vel.z * subDt;
+      if (pointInPit(obj.pos.x, obj.pos.z)) {
+        fellInPit = true;
+        break;
+      }
+      result = resolveTerrainCollisionEx(obj.pos.x, obj.pos.z, obj.radius);
+      obj.pos.x = result.x;
+      obj.pos.z = result.z;
+      if (result.hitWall) break;
+    }
+    if (obj.mesh) {
+      obj.mesh.position.set(obj.pos.x, 0, obj.pos.z);
+    }
+    if (fellInPit) {
+      obj.destroyed = true;
+      obj.fellInPit = true;
+      emit({ type: "objectPitFall", object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+      if (obj.mesh) obj.mesh.visible = false;
+      vel.x = 0;
+      vel.z = 0;
+      continue;
+    }
+    if (result.hitWall && speed > PHYSICS.objectWallSlamMinSpeed) {
+      const slamDamage = Math.round((speed - PHYSICS.objectWallSlamMinSpeed) * PHYSICS.objectWallSlamDamage);
+      obj.health -= slamDamage;
+      if (obj.health <= 0) {
+        obj.health = 0;
+        obj.destroyed = true;
+        emit({ type: "objectDestroyed", object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+      }
+      emit({ type: "objectWallSlam", object: obj, speed, damage: slamDamage, position: { x: obj.pos.x, z: obj.pos.z } });
+      screenShake(PHYSICS.objectWallSlamShake, 120);
+      const dot = vel.x * result.normalX + vel.z * result.normalZ;
+      const bounce = obj.restitution ?? PHYSICS.objectWallSlamBounce;
+      vel.x = (vel.x - 2 * dot * result.normalX) * bounce;
+      vel.z = (vel.z - 2 * dot * result.normalZ) * bounce;
+    }
+    const newSpeed = speed - PHYSICS.objectFriction * dt;
+    if (newSpeed <= PHYSICS.minVelocity) {
+      vel.x = 0;
+      vel.z = 0;
+    } else {
+      const scale = newSpeed / speed;
+      vel.x *= scale;
+      vel.z *= scale;
+    }
+  }
+}
 function resolveEnemyCollisions(gameState2) {
   const enemies = gameState2.enemies;
   const len = enemies.length;
@@ -4276,6 +4385,152 @@ function resolveEnemyCollisions(gameState2) {
     }
   }
 }
+function resolveObjectCollisions(gameState2) {
+  const objects = gameState2.physicsObjects;
+  const enemies = gameState2.enemies;
+  for (let i = 0; i < objects.length; i++) {
+    const a = objects[i];
+    if (a.destroyed) continue;
+    for (let j = i + 1; j < objects.length; j++) {
+      const b = objects[j];
+      if (b.destroyed) continue;
+      const dx = b.pos.x - a.pos.x;
+      const dz = b.pos.z - a.pos.z;
+      const distSq = dx * dx + dz * dz;
+      const minDist = a.radius + b.radius;
+      if (distSq >= minDist * minDist) continue;
+      const dist = Math.sqrt(distSq);
+      if (dist < 0.01) continue;
+      const overlap = minDist - dist;
+      const nx = dx / dist;
+      const nz = dz / dist;
+      const totalMass = a.mass + b.mass;
+      const ratioA = b.mass / totalMass;
+      const ratioB = a.mass / totalMass;
+      a.pos.x -= nx * overlap * ratioA;
+      a.pos.z -= nz * overlap * ratioA;
+      b.pos.x += nx * overlap * ratioB;
+      b.pos.z += nz * overlap * ratioB;
+      const relVelX = a.vel.x - b.vel.x;
+      const relVelZ = a.vel.z - b.vel.z;
+      const relVelDotN = relVelX * nx + relVelZ * nz;
+      if (relVelDotN <= 0) continue;
+      const e = PHYSICS.objectWallSlamBounce;
+      const impulse = (1 + e) * relVelDotN / totalMass;
+      a.vel.x -= impulse * b.mass * nx;
+      a.vel.z -= impulse * b.mass * nz;
+      b.vel.x += impulse * a.mass * nx;
+      b.vel.z += impulse * a.mass * nz;
+      if (a.mesh) a.mesh.position.set(a.pos.x, 0, a.pos.z);
+      if (b.mesh) b.mesh.position.set(b.pos.x, 0, b.pos.z);
+    }
+  }
+  for (const obj of objects) {
+    if (obj.destroyed) continue;
+    for (const enemy of enemies) {
+      if (enemy.health <= 0) continue;
+      if (enemy.isLeaping) continue;
+      const dx = enemy.pos.x - obj.pos.x;
+      const dz = enemy.pos.z - obj.pos.z;
+      const distSq = dx * dx + dz * dz;
+      const radObj = obj.radius;
+      const radEnemy = enemy.config.size.radius;
+      const minDist = radObj + radEnemy;
+      if (distSq >= minDist * minDist) continue;
+      const dist = Math.sqrt(distSq);
+      if (dist < 0.01) continue;
+      const overlap = minDist - dist;
+      const nx = dx / dist;
+      const nz = dz / dist;
+      const massObj = obj.mass;
+      const massEnemy = enemy.config.mass ?? 1;
+      const totalMass = massObj + massEnemy;
+      const ratioObj = massEnemy / totalMass;
+      const ratioEnemy = massObj / totalMass;
+      obj.pos.x -= nx * overlap * ratioObj;
+      obj.pos.z -= nz * overlap * ratioObj;
+      enemy.pos.x += nx * overlap * ratioEnemy;
+      enemy.pos.z += nz * overlap * ratioEnemy;
+      const velEnemy = enemy.vel;
+      if (!velEnemy) continue;
+      const relVelX = obj.vel.x - velEnemy.x;
+      const relVelZ = obj.vel.z - velEnemy.z;
+      const relVelDotN = relVelX * nx + relVelZ * nz;
+      if (relVelDotN <= 0) continue;
+      const e = obj.restitution ?? PHYSICS.enemyBounce;
+      const impulse = (1 + e) * relVelDotN / totalMass;
+      obj.vel.x -= impulse * massEnemy * nx;
+      obj.vel.z -= impulse * massEnemy * nz;
+      velEnemy.x += impulse * massObj * nx;
+      velEnemy.z += impulse * massObj * nz;
+      const relSpeed = Math.sqrt(relVelX * relVelX + relVelZ * relVelZ);
+      if (relSpeed > PHYSICS.objectImpactMinSpeed) {
+        const dmg = Math.round((relSpeed - PHYSICS.objectImpactMinSpeed) * PHYSICS.objectImpactDamage);
+        if (dmg > 0) {
+          applyDamageToEnemy(enemy, dmg, gameState2);
+          enemy.flashTimer = 100;
+          if (enemy.bodyMesh) enemy.bodyMesh.material.emissive.setHex(16755268);
+          if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16755268);
+          spawnDamageNumber(enemy.pos.x, enemy.pos.z, dmg, "#ffaa44");
+          screenShake(2, 80);
+          emit({
+            type: "objectImpact",
+            objectA: obj,
+            objectB: enemy,
+            speed: relSpeed,
+            damage: dmg,
+            position: { x: (obj.pos.x + enemy.pos.x) / 2, z: (obj.pos.z + enemy.pos.z) / 2 }
+          });
+        }
+      }
+      if (obj.mesh) obj.mesh.position.set(obj.pos.x, 0, obj.pos.z);
+      enemy.mesh.position.copy(enemy.pos);
+    }
+  }
+}
+var pendingObstacleDestructions = [];
+function resolveObjectObstacleCollisions(gameState2) {
+  const objects = gameState2.physicsObjects;
+  for (const obj of objects) {
+    if (obj.destroyed) continue;
+    const speed = Math.sqrt(obj.vel.x * obj.vel.x + obj.vel.z * obj.vel.z);
+    if (speed < PHYSICS.objectImpactMinSpeed) continue;
+    for (let i = 0; i < OBSTACLES.length; i++) {
+      const obs = OBSTACLES[i];
+      if (!obs.destructible || !obs.health || obs.health <= 0) continue;
+      const aabb = {
+        minX: obs.x - obs.w / 2,
+        maxX: obs.x + obs.w / 2,
+        minZ: obs.z - obs.d / 2,
+        maxZ: obs.z + obs.d / 2
+      };
+      const push = circleVsAABB(obj.pos.x, obj.pos.z, obj.radius, aabb);
+      if (!push) continue;
+      const dmg = Math.round((speed - PHYSICS.objectImpactMinSpeed) * PHYSICS.objectImpactDamage);
+      if (dmg <= 0) continue;
+      obs.health -= dmg;
+      spawnDamageNumber(obs.x, obs.z, dmg, "#ff8844");
+      screenShake(2, 80);
+      if (obs.health <= 0) {
+        obs.health = 0;
+        pendingObstacleDestructions.push(i);
+        emit({ type: "obstacleDestroyed", obstacleIndex: i, position: { x: obs.x, z: obs.z } });
+      }
+    }
+  }
+}
+function processDestroyedObstacles() {
+  if (pendingObstacleDestructions.length === 0) return;
+  pendingObstacleDestructions.sort((a, b) => b - a);
+  for (const idx of pendingObstacleDestructions) {
+    if (idx < OBSTACLES.length) {
+      OBSTACLES.splice(idx, 1);
+    }
+  }
+  pendingObstacleDestructions.length = 0;
+  invalidateCollisionBounds();
+  rebuildArenaVisuals();
+}
 function pointInPit(px, pz) {
   const pits = getPits();
   for (const pit of pits) {
@@ -4308,6 +4563,15 @@ function checkPitFalls(gameState2) {
       enemy.stunTimer = 9999;
       spawnDamageNumber(enemy.pos.x, enemy.pos.z, "FELL!", "#8844ff");
       screenShake(4, 200);
+    }
+  }
+  for (const obj of gameState2.physicsObjects) {
+    if (obj.destroyed) continue;
+    if (pointInPit(obj.pos.x, obj.pos.z)) {
+      obj.destroyed = true;
+      obj.fellInPit = true;
+      emit({ type: "objectPitFall", object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+      if (obj.mesh) obj.mesh.visible = false;
     }
   }
 }
@@ -4529,13 +4793,32 @@ function checkCollisions(gameState2) {
         const dz = enemy.pos.z - playerZ;
         const forward = dx * dirX + dz * dirZ;
         const lateral = dx * perpX + dz * perpZ;
-        candidates.push({ enemy, forward, lateral });
+        candidates.push({ enemy, obj: null, forward, lateral });
+      }
+    }
+    for (const obj of gameState2.physicsObjects) {
+      if (obj.destroyed) continue;
+      if (isInRotatedRect(
+        obj.pos.x,
+        obj.pos.z,
+        pushEvt.x,
+        pushEvt.z,
+        pushEvt.width,
+        pushEvt.length,
+        pushEvt.rotation,
+        obj.radius
+      )) {
+        const dx = obj.pos.x - playerX;
+        const dz = obj.pos.z - playerZ;
+        const forward = dx * dirX + dz * dirZ;
+        const lateral = dx * perpX + dz * perpZ;
+        candidates.push({ enemy: null, obj, forward, lateral });
       }
     }
     candidates.sort((a, b) => a.forward - b.forward);
     const pushedLaterals = [];
     const blockRadius = PHYSICS.pushWaveBlockRadius;
-    for (const { enemy, lateral } of candidates) {
+    for (const { enemy, obj, lateral } of candidates) {
       let blocked = false;
       for (const pushedLat of pushedLaterals) {
         if (Math.abs(lateral - pushedLat) < blockRadius) {
@@ -4544,19 +4827,30 @@ function checkCollisions(gameState2) {
         }
       }
       if (blocked) continue;
-      const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-      const kbMult = 1 - (enemy.knockbackResist ?? enemy.config.knockbackResist ?? 0);
-      const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
-      if (kbDist > 0) {
-        const v0 = Math.sqrt(2 * PHYSICS.friction * kbDist);
-        enemy.vel.x = dirX * v0;
-        enemy.vel.z = dirZ * v0;
+      if (enemy) {
+        const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
+        const kbMult = 1 - (enemy.knockbackResist ?? enemy.config.knockbackResist ?? 0);
+        const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
+        if (kbDist > 0) {
+          const v0 = Math.sqrt(2 * PHYSICS.friction * kbDist);
+          enemy.vel.x = dirX * v0;
+          enemy.vel.z = dirZ * v0;
+        }
+        emit({ type: "enemyPushed", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+        enemy.flashTimer = 100;
+        enemy.bodyMesh.material.emissive.setHex(4521898);
+        if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(4521898);
+        spawnDamageNumber(enemy.pos.x, enemy.pos.z, "PUSH", "#44ffaa");
+      } else if (obj) {
+        const kbDist = pushEvt.force / obj.mass;
+        if (kbDist > 0) {
+          const v0 = Math.sqrt(2 * PHYSICS.objectFriction * kbDist);
+          obj.vel.x = dirX * v0;
+          obj.vel.z = dirZ * v0;
+        }
+        emit({ type: "objectPushed", object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+        spawnDamageNumber(obj.pos.x, obj.pos.z, "PUSH", "#44ffaa");
       }
-      emit({ type: "enemyPushed", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
-      enemy.flashTimer = 100;
-      enemy.bodyMesh.material.emissive.setHex(4521898);
-      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(4521898);
-      spawnDamageNumber(enemy.pos.x, enemy.pos.z, "PUSH", "#44ffaa");
       pushedLaterals.push(lateral);
     }
   }
@@ -4651,6 +4945,30 @@ var WALL_SLAM_SPARK = {
   fadeOut: true,
   gravity: 5,
   shape: "box"
+};
+var OBSTACLE_BREAK_BURST = {
+  count: 12,
+  lifetime: 0.6,
+  speed: 4,
+  spread: Math.PI * 2,
+  size: 0.15,
+  color: 8943462,
+  fadeOut: true,
+  gravity: 8,
+  shape: "box"
+};
+var BEND_APPLY_BURST = {
+  count: 10,
+  lifetime: 0.4,
+  speed: 3,
+  spread: Math.PI,
+  size: 0.1,
+  color: 4491519,
+  // will be overridden per-bend
+  fadeOut: true,
+  gravity: -2,
+  // float upward
+  shape: "sphere"
 };
 var DOOR_UNLOCK_BURST = {
   count: 12,
@@ -5013,6 +5331,39 @@ function wireEventBus() {
       burst({ x: 0, y: 2, z: 0 }, DOOR_UNLOCK_BURST);
     }
   });
+  on("obstacleDestroyed", (e) => {
+    if (e.type === "obstacleDestroyed") {
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        OBSTACLE_BREAK_BURST
+      );
+    }
+  });
+  on("objectWallSlam", (e) => {
+    if (e.type === "objectWallSlam") {
+      burst(
+        { x: e.position.x, y: 0.3, z: e.position.z },
+        { ...WALL_SLAM_SPARK, count: Math.round(3 + e.speed / 6 * 3), color: 8947848 }
+      );
+    }
+  });
+  on("objectImpact", (e) => {
+    if (e.type === "objectImpact") {
+      burst(
+        { x: e.position.x, y: 0.4, z: e.position.z },
+        { ...ENEMY_IMPACT_SPARK, count: Math.round(3 + e.speed / 5 * 3) }
+      );
+    }
+  });
+  on("bendApplied", (e) => {
+    if (e.type === "bendApplied") {
+      const color = e.bendId === "enlarge" ? 4491519 : 16763972;
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        { ...BEND_APPLY_BURST, color }
+      );
+    }
+  });
 }
 
 // src/engine/telegraph.ts
@@ -5296,6 +5647,112 @@ function removeDoor() {
   doorState = "none";
 }
 
+// src/entities/physicsObject.ts
+var nextId = 1;
+function resetPhysicsObjectIds() {
+  nextId = 1;
+}
+function createPhysicsObject(placement) {
+  return {
+    id: nextId++,
+    pos: { x: placement.x, z: placement.z },
+    vel: { x: 0, z: 0 },
+    radius: placement.radius,
+    mass: placement.mass,
+    health: placement.health,
+    maxHealth: placement.health,
+    material: placement.material,
+    meshType: placement.meshType,
+    scale: placement.scale ?? 1,
+    restitution: void 0,
+    mesh: null,
+    destroyed: false,
+    fellInPit: false
+  };
+}
+var MATERIAL_COLORS = {
+  stone: { color: 8947865, emissive: 3359829 },
+  wood: { color: 9136404, emissive: 4469538 },
+  metal: { color: 11184844, emissive: 5596791 },
+  ice: { color: 8965375, emissive: 4491434 }
+};
+function createPhysicsObjectMesh(obj, scene2) {
+  const group = new THREE.Group();
+  const colors = MATERIAL_COLORS[obj.material] || MATERIAL_COLORS.stone;
+  const mat = new THREE.MeshStandardMaterial({
+    color: colors.color,
+    emissive: colors.emissive,
+    emissiveIntensity: 0.3,
+    roughness: 0.7
+  });
+  let geo;
+  switch (obj.meshType) {
+    case "rock":
+      geo = new THREE.SphereGeometry(obj.radius * obj.scale, 8, 6);
+      break;
+    case "crate": {
+      const s = obj.radius * obj.scale * 1.4;
+      geo = new THREE.BoxGeometry(s, s, s);
+      break;
+    }
+    case "barrel":
+      geo = new THREE.CylinderGeometry(
+        obj.radius * obj.scale * 0.8,
+        obj.radius * obj.scale,
+        obj.radius * obj.scale * 1.5,
+        8
+      );
+      break;
+    case "pillar":
+      geo = new THREE.CylinderGeometry(
+        obj.radius * obj.scale * 0.6,
+        obj.radius * obj.scale,
+        obj.radius * obj.scale * 2.5,
+        6
+      );
+      break;
+  }
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.y = obj.radius * obj.scale * 0.5;
+  group.add(mesh);
+  group.position.set(obj.pos.x, 0, obj.pos.z);
+  scene2.add(group);
+  obj.mesh = group;
+}
+function applyBendVisuals(obj, tintColor) {
+  if (!obj.mesh) return;
+  obj.mesh.scale.set(obj.scale, obj.scale, obj.scale);
+  obj.mesh.traverse((child) => {
+    if (child.isMesh && child.material) {
+      child.material.emissive.setHex(tintColor);
+      child.material.emissiveIntensity = 0.6;
+    }
+  });
+}
+function clearBendVisuals(obj) {
+  if (!obj.mesh) return;
+  obj.mesh.scale.set(1, 1, 1);
+  const colors = MATERIAL_COLORS[obj.material] || MATERIAL_COLORS.stone;
+  obj.mesh.traverse((child) => {
+    if (child.isMesh && child.material) {
+      child.material.emissive.setHex(colors.emissive);
+      child.material.emissiveIntensity = 0.3;
+    }
+  });
+}
+function clearPhysicsObjects(gameState2, scene2) {
+  for (const obj of gameState2.physicsObjects) {
+    if (obj.mesh) {
+      scene2.remove(obj.mesh);
+      obj.mesh.traverse((child) => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      });
+    }
+  }
+  gameState2.physicsObjects = [];
+}
+
 // src/engine/roomManager.ts
 var currentRoomIndex = 0;
 var packIndex = 0;
@@ -5336,6 +5793,7 @@ function loadRoom(index, gameState2) {
   );
   restRoomTimer = 0;
   clearEnemies(gameState2);
+  clearPhysicsObjects(gameState2, sceneRef8);
   releaseAllProjectiles();
   clearMortarProjectiles();
   clearIcePatches();
@@ -5347,6 +5805,14 @@ function loadRoom(index, gameState2) {
   setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);
   invalidateCollisionBounds();
   rebuildArenaVisuals();
+  resetPhysicsObjectIds();
+  if (room.physicsObjects) {
+    for (const placement of room.physicsObjects) {
+      const obj = createPhysicsObject(placement);
+      createPhysicsObjectMesh(obj, sceneRef8);
+      gameState2.physicsObjects.push(obj);
+    }
+  }
   setPlayerPosition(room.playerStart.x, room.playerStart.z);
   gameState2.currentWave = index + 1;
   showAnnounce(room.name);
@@ -5618,6 +6084,554 @@ function getBulletTimeMax() {
   return BULLET_TIME.maxResource;
 }
 
+// src/config/bends.ts
+var BENDS = [
+  {
+    id: "enlarge",
+    name: "Enlarge",
+    description: "Scale up \u2014 bigger, heavier, more impact",
+    icon: "\u2B06",
+    property: "size",
+    pole: "positive",
+    effects: [
+      { param: "scale", operation: "multiply", value: 2.5 },
+      { param: "mass", operation: "multiply", value: 2 },
+      { param: "radius", operation: "multiply", value: 2 }
+    ],
+    tintColor: 4491519
+  },
+  {
+    id: "shrink",
+    name: "Shrink",
+    description: "Scale down \u2014 tiny, light, flies on any push",
+    icon: "\u2B07",
+    property: "size",
+    pole: "negative",
+    effects: [
+      { param: "scale", operation: "multiply", value: 0.3 },
+      { param: "mass", operation: "multiply", value: 0.3 },
+      { param: "radius", operation: "multiply", value: 0.3 }
+    ],
+    tintColor: 16763972
+  }
+];
+function getBendById(id) {
+  return BENDS.find((b) => b.id === id);
+}
+
+// src/engine/bendSystem.ts
+function createBendSystem(maxBends2) {
+  let activeBends = [];
+  let remaining = maxBends2;
+  const max = maxBends2;
+  function applyBend(bendId, targetType, target) {
+    const bend = getBendById(bendId);
+    if (!bend) return { success: false, reason: "invalid_bend" };
+    if (remaining <= 0) return { success: false, reason: "no_bends_remaining" };
+    const targetId = target.id ?? 0;
+    const existing = activeBends.find((ab) => ab.targetId === targetId && ab.targetType === targetType);
+    if (existing) {
+      if (existing.bendId === bendId) {
+        return { success: false, reason: "already_applied" };
+      }
+      const existingBend = getBendById(existing.bendId);
+      if (existingBend && existingBend.property === bend.property) {
+        return { success: false, reason: "opposite_pole" };
+      }
+    }
+    const originalValues = {};
+    for (const fx of bend.effects) {
+      originalValues[fx.param] = target[fx.param];
+    }
+    for (const fx of bend.effects) {
+      if (fx.operation === "multiply") {
+        target[fx.param] *= fx.value;
+      } else if (fx.operation === "set") {
+        target[fx.param] = fx.value;
+      }
+    }
+    activeBends.push({
+      bendId,
+      targetType,
+      targetId,
+      target,
+      originalValues
+    });
+    remaining--;
+    return { success: true };
+  }
+  function resetAll() {
+    for (const ab of activeBends) {
+      for (const [param, value] of Object.entries(ab.originalValues)) {
+        ab.target[param] = value;
+      }
+    }
+    activeBends = [];
+    remaining = max;
+  }
+  function getActiveBends() {
+    return [...activeBends];
+  }
+  function bendsRemaining() {
+    return remaining;
+  }
+  function hasBendOnTarget(targetType, targetId) {
+    const found = activeBends.find((ab) => ab.targetType === targetType && ab.targetId === targetId);
+    return found ? found.bendId : null;
+  }
+  return { applyBend, resetAll, getActiveBends, bendsRemaining, hasBendOnTarget };
+}
+
+// src/ui/radialMenu.ts
+var containerEl = null;
+var optionEls = [];
+var visible = false;
+var selectedBendId = null;
+var onBendSelectedCallback = null;
+var MENU_SIZE = 200;
+var OPTION_SIZE = 72;
+var OPTION_DISTANCE = 60;
+function initRadialMenu() {
+  containerEl = document.createElement("div");
+  containerEl.id = "radial-menu";
+  containerEl.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: ${MENU_SIZE}px;
+    height: ${MENU_SIZE}px;
+    margin-left: ${-MENU_SIZE / 2}px;
+    margin-top: ${-MENU_SIZE / 2}px;
+    pointer-events: none;
+    z-index: 200;
+    display: none;
+  `;
+  const centerLabel = document.createElement("div");
+  centerLabel.style.cssText = `
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: rgba(200, 200, 220, 0.7);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    pointer-events: none;
+    white-space: nowrap;
+  `;
+  centerLabel.textContent = "BEND";
+  containerEl.appendChild(centerLabel);
+  const angleStep = 2 * Math.PI / BENDS.length;
+  const startAngle = Math.PI;
+  for (let i = 0; i < BENDS.length; i++) {
+    const bend = BENDS[i];
+    const angle = startAngle + i * angleStep;
+    const x = Math.cos(angle) * OPTION_DISTANCE;
+    const y = Math.sin(angle) * OPTION_DISTANCE;
+    const optEl = createOptionElement(bend, x, y);
+    containerEl.appendChild(optEl);
+    optionEls.push(optEl);
+  }
+  document.body.appendChild(containerEl);
+}
+function createOptionElement(bend, offsetX, offsetY) {
+  const el = document.createElement("div");
+  el.dataset.bendId = bend.id;
+  const colorHex = "#" + bend.tintColor.toString(16).padStart(6, "0");
+  el.style.cssText = `
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: ${OPTION_SIZE}px;
+    height: ${OPTION_SIZE}px;
+    margin-left: ${-OPTION_SIZE / 2 + offsetX}px;
+    margin-top: ${-OPTION_SIZE / 2 + offsetY}px;
+    border-radius: 50%;
+    background: rgba(20, 20, 40, 0.9);
+    border: 2px solid ${colorHex}44;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    user-select: none;
+  `;
+  const iconEl = document.createElement("div");
+  iconEl.style.cssText = `
+    font-size: 20px;
+    line-height: 1;
+    pointer-events: none;
+  `;
+  iconEl.textContent = bend.icon;
+  el.appendChild(iconEl);
+  const nameEl = document.createElement("div");
+  nameEl.style.cssText = `
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    color: ${colorHex};
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 4px;
+    pointer-events: none;
+  `;
+  nameEl.textContent = bend.name;
+  el.appendChild(nameEl);
+  el.addEventListener("mouseenter", () => {
+    if (selectedBendId === bend.id) return;
+    el.style.borderColor = colorHex + "aa";
+    el.style.transform = "scale(1.1)";
+  });
+  el.addEventListener("mouseleave", () => {
+    if (selectedBendId === bend.id) return;
+    el.style.borderColor = colorHex + "44";
+    el.style.transform = "scale(1)";
+  });
+  el.addEventListener("mousedown", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    selectBend(bend.id);
+  });
+  return el;
+}
+function selectBend(bendId) {
+  selectedBendId = bendId;
+  for (const optEl of optionEls) {
+    const id = optEl.dataset.bendId || "";
+    const bend = BENDS.find((b) => b.id === id);
+    if (!bend) continue;
+    const colorHex = "#" + bend.tintColor.toString(16).padStart(6, "0");
+    if (id === bendId) {
+      optEl.style.borderColor = colorHex;
+      optEl.style.boxShadow = `0 0 16px ${colorHex}88, inset 0 0 8px ${colorHex}44`;
+      optEl.style.transform = "scale(1.15)";
+    } else {
+      optEl.style.borderColor = colorHex + "22";
+      optEl.style.boxShadow = "none";
+      optEl.style.transform = "scale(0.9)";
+      optEl.style.opacity = "0.5";
+    }
+  }
+  if (onBendSelectedCallback) {
+    onBendSelectedCallback(bendId);
+  }
+}
+function showRadialMenu() {
+  if (!containerEl) return;
+  visible = true;
+  selectedBendId = null;
+  containerEl.style.display = "block";
+  for (const optEl of optionEls) {
+    const id = optEl.dataset.bendId || "";
+    const bend = BENDS.find((b) => b.id === id);
+    if (!bend) continue;
+    const colorHex = "#" + bend.tintColor.toString(16).padStart(6, "0");
+    optEl.style.borderColor = colorHex + "44";
+    optEl.style.boxShadow = "none";
+    optEl.style.transform = "scale(1)";
+    optEl.style.opacity = "1";
+  }
+}
+function hideRadialMenu() {
+  if (!containerEl) return;
+  visible = false;
+  containerEl.style.display = "none";
+}
+function getSelectedBendId() {
+  return selectedBendId;
+}
+function setOnBendSelected(callback) {
+  onBendSelectedCallback = callback;
+}
+function clearSelectedBend() {
+  selectedBendId = null;
+  for (const optEl of optionEls) {
+    const id = optEl.dataset.bendId || "";
+    const bend = BENDS.find((b) => b.id === id);
+    if (!bend) continue;
+    const colorHex = "#" + bend.tintColor.toString(16).padStart(6, "0");
+    optEl.style.borderColor = colorHex + "44";
+    optEl.style.boxShadow = "none";
+    optEl.style.transform = "scale(1)";
+    optEl.style.opacity = "1";
+  }
+}
+
+// src/engine/bendMode.ts
+var bendSystem = createBendSystem(3);
+var active2 = false;
+var targeting = false;
+var maxBends = 3;
+var highlightedObjects = /* @__PURE__ */ new Set();
+var hoveredObject = null;
+var highlightPulseTime = 0;
+function initBendMode() {
+  maxBends = 3;
+  bendSystem = createBendSystem(maxBends);
+}
+function toggleBendMode() {
+  if (active2) {
+    deactivateBendMode();
+  } else {
+    activateBendMode();
+  }
+}
+function activateBendMode() {
+  if (bendSystem.bendsRemaining() <= 0) return;
+  active2 = true;
+  targeting = false;
+  if (!isBulletTimeActive()) {
+    activateBulletTime();
+  }
+  showRadialMenu();
+  updateTargetingCursor();
+  emit({ type: "bendModeActivated" });
+}
+function deactivateBendMode() {
+  active2 = false;
+  targeting = false;
+  hideRadialMenu();
+  clearSelectedBend();
+  unhighlightAllObjects();
+  updateTargetingCursor();
+  if (isBulletTimeActive()) {
+    toggleBulletTime();
+  }
+  emit({ type: "bendModeDeactivated" });
+}
+function enterTargeting() {
+  if (!active2) return;
+  targeting = true;
+  hideRadialMenu();
+  updateTargetingCursor();
+}
+var targetingIndicator = null;
+function ensureTargetingIndicator() {
+  if (targetingIndicator) return;
+  targetingIndicator = document.createElement("div");
+  targetingIndicator.id = "bend-targeting";
+  targetingIndicator.style.cssText = `
+    position: fixed;
+    top: 55%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: rgba(100, 180, 255, 0.9);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    text-shadow: 0 0 10px rgba(100, 140, 255, 0.6);
+    pointer-events: none;
+    z-index: 200;
+    display: none;
+  `;
+  document.body.appendChild(targetingIndicator);
+}
+function updateTargetingCursor() {
+  ensureTargetingIndicator();
+  if (!targetingIndicator) return;
+  if (active2 && targeting) {
+    const bendId = getSelectedBendId();
+    const label = bendId === "enlarge" ? "ENLARGE" : bendId === "shrink" ? "SHRINK" : "BEND";
+    targetingIndicator.textContent = `[ ${label} ] click target`;
+    targetingIndicator.style.display = "block";
+    document.body.style.cursor = "crosshair";
+  } else if (active2 && !targeting) {
+    targetingIndicator.style.display = "none";
+    document.body.style.cursor = "default";
+  } else {
+    targetingIndicator.style.display = "none";
+    document.body.style.cursor = "default";
+  }
+}
+function isBendModeActive() {
+  return active2;
+}
+function isBendTargeting() {
+  return targeting;
+}
+function highlightTargetableObjects(gameState2) {
+  for (const obj of gameState2.physicsObjects) {
+    if (obj.destroyed || obj.fellInPit || !obj.mesh) continue;
+    if (highlightedObjects.has(obj)) continue;
+    obj.mesh.traverse((child) => {
+      if (child.isMesh && child.material) {
+        if (!child.userData._origEmissiveHex) {
+          child.userData._origEmissiveHex = child.material.emissive.getHex();
+          child.userData._origEmissiveIntensity = child.material.emissiveIntensity;
+        }
+      }
+    });
+    highlightedObjects.add(obj);
+  }
+}
+function unhighlightAllObjects() {
+  for (const obj of highlightedObjects) {
+    if (!obj.mesh) continue;
+    obj.mesh.traverse((child) => {
+      if (child.isMesh && child.material && child.userData._origEmissiveHex !== void 0) {
+        child.material.emissive.setHex(child.userData._origEmissiveHex);
+        child.material.emissiveIntensity = child.userData._origEmissiveIntensity;
+        delete child.userData._origEmissiveHex;
+        delete child.userData._origEmissiveIntensity;
+      }
+    });
+  }
+  highlightedObjects.clear();
+  hoveredObject = null;
+}
+function updateHighlightPulse(dt) {
+  highlightPulseTime += dt;
+  const pulse = 0.5 + 0.5 * Math.sin(highlightPulseTime * 4);
+  const baseIntensity = 0.3 + pulse * 0.5;
+  const hoverIntensity = 0.6 + pulse * 0.6;
+  const highlightColor = 6724095;
+  for (const obj of highlightedObjects) {
+    if (!obj.mesh) continue;
+    const isHovered = obj === hoveredObject;
+    obj.mesh.traverse((child) => {
+      if (child.isMesh && child.material) {
+        child.material.emissive.setHex(isHovered ? 8965375 : highlightColor);
+        child.material.emissiveIntensity = isHovered ? hoverIntensity : baseIntensity;
+      }
+    });
+  }
+}
+function updateBendHover(mouseNDC, gameState2) {
+  if (!active2 || !targeting) {
+    if (hoveredObject) hoveredObject = null;
+    return;
+  }
+  const camera2 = getCamera();
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(mouseNDC.x, mouseNDC.y), camera2);
+  const meshes = [];
+  const meshToObj = /* @__PURE__ */ new Map();
+  for (const obj of gameState2.physicsObjects) {
+    if (obj.destroyed || obj.fellInPit || !obj.mesh) continue;
+    meshes.push(obj.mesh);
+    meshToObj.set(obj.mesh, obj);
+  }
+  const intersects = raycaster.intersectObjects(meshes, true);
+  let newHovered = null;
+  if (intersects.length > 0) {
+    for (const hit of intersects) {
+      let current = hit.object;
+      while (current) {
+        if (meshToObj.has(current)) {
+          newHovered = meshToObj.get(current);
+          break;
+        }
+        current = current.parent;
+      }
+      if (newHovered) break;
+    }
+  }
+  hoveredObject = newHovered;
+}
+function updateBendMode(dt, gameState2) {
+  if (active2) {
+    highlightTargetableObjects(gameState2);
+    updateHighlightPulse(dt);
+  }
+}
+function handleBendClick(mouseNDC, gameState2) {
+  if (!active2 || !targeting) return;
+  const selectedBend = getSelectedBendId();
+  if (!selectedBend) return;
+  const camera2 = getCamera();
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(mouseNDC.x, mouseNDC.y), camera2);
+  const meshes = [];
+  const meshToObj = /* @__PURE__ */ new Map();
+  for (const obj of gameState2.physicsObjects) {
+    if (obj.destroyed || obj.fellInPit || !obj.mesh) continue;
+    meshes.push(obj.mesh);
+    meshToObj.set(obj.mesh, obj);
+  }
+  const intersects = raycaster.intersectObjects(meshes, true);
+  if (intersects.length > 0) {
+    let hitObj = null;
+    for (const hit of intersects) {
+      let current = hit.object;
+      while (current) {
+        if (meshToObj.has(current)) {
+          hitObj = meshToObj.get(current);
+          break;
+        }
+        current = current.parent;
+      }
+      if (hitObj) break;
+    }
+    if (hitObj) {
+      tryApplyBendToTarget(hitObj, "physicsObject");
+    }
+  }
+}
+function tryApplyBendToTarget(target, targetType) {
+  const selectedBend = getSelectedBendId();
+  if (!selectedBend) return;
+  const result = bendSystem.applyBend(selectedBend, targetType, target);
+  if (result.success) {
+    highlightedObjects.delete(target);
+    if (target.mesh) {
+      target.mesh.traverse((child) => {
+        if (child.isMesh) {
+          delete child.userData._origEmissiveHex;
+          delete child.userData._origEmissiveIntensity;
+        }
+      });
+    }
+    const bend = getBendById(selectedBend);
+    if (bend) {
+      applyBendVisuals(target, bend.tintColor);
+    }
+    emit({
+      type: "bendApplied",
+      bendId: selectedBend,
+      targetType,
+      targetId: target.id ?? 0,
+      position: { x: target.pos.x, z: target.pos.z }
+    });
+    targeting = false;
+    clearSelectedBend();
+    if (bendSystem.bendsRemaining() > 0) {
+      showRadialMenu();
+    } else {
+      deactivateBendMode();
+    }
+  } else {
+    emit({
+      type: "bendFailed",
+      bendId: selectedBend,
+      reason: result.reason || "unknown"
+    });
+  }
+}
+function getBendsRemaining() {
+  return bendSystem.bendsRemaining();
+}
+function getMaxBends() {
+  return maxBends;
+}
+function resetBendMode() {
+  const activeBends = bendSystem.getActiveBends();
+  for (const ab of activeBends) {
+    if (ab.target && ab.target.mesh) {
+      clearBendVisuals(ab.target);
+    }
+  }
+  bendSystem.resetAll();
+  active2 = false;
+  targeting = false;
+  unhighlightAllObjects();
+  highlightPulseTime = 0;
+  hideRadialMenu();
+  clearSelectedBend();
+}
+
 // src/ui/hud.ts
 var healthBar;
 var healthText;
@@ -5629,6 +6643,7 @@ var bulletTimeFill;
 var btVignette;
 var btCeremony;
 var btCeremonyTimeout = null;
+var bendCounter = null;
 var mobileBtnDash;
 var mobileBtnUlt;
 function initHUD() {
@@ -5717,6 +6732,22 @@ function initHUD() {
     transition: opacity 0.2s ease;
   `;
   document.body.appendChild(btCeremony);
+  bendCounter = document.createElement("div");
+  bendCounter.id = "bend-counter";
+  bendCounter.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: rgba(100, 160, 255, 0.9);
+    letter-spacing: 1px;
+    text-shadow: 0 0 6px rgba(100, 140, 255, 0.4);
+    z-index: 50;
+    pointer-events: none;
+  `;
+  bendCounter.textContent = "Bends: 3/3";
+  document.body.appendChild(bendCounter);
   on("bulletTimeActivated", () => {
     if (btVignette) btVignette.style.opacity = "1";
     showBTCeremony("BULLET TIME ENGAGED", 1200);
@@ -5833,6 +6864,12 @@ function findTouch(touchList, id) {
   return null;
 }
 function updateHUD(gameState2) {
+  if (bendCounter) {
+    const remaining = getBendsRemaining();
+    const max = getMaxBends();
+    bendCounter.textContent = `Bends: ${remaining}/${max}`;
+    bendCounter.style.display = gameState2.phase === "playing" ? "block" : "none";
+  }
   const pct = Math.max(0, gameState2.playerHealth / gameState2.playerMaxHealth);
   healthBar.style.width = pct * 100 + "%";
   if (pct > 0.5) {
@@ -5975,6 +7012,9 @@ var AUDIO_CONFIG = {
   meleeHitVolume: 0.45,
   wallSlamVolume: 0.5,
   enemyImpactVolume: 0.4,
+  objectImpactVolume: 0.4,
+  obstacleBreakVolume: 0.5,
+  bendApplyVolume: 0.3,
   enabled: true
 };
 var ctx2 = null;
@@ -6346,6 +7386,96 @@ function playHeal() {
   osc.start(now);
   osc.stop(now + 0.5);
 }
+function playObjectImpact(intensity = 1) {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.12;
+  const vol = AUDIO_CONFIG.objectImpactVolume * Math.min(intensity, 2);
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(100, now);
+  osc.frequency.exponentialRampToValueAtTime(40, now + duration);
+  const oscGain = ctx2.createGain();
+  oscGain.gain.setValueAtTime(vol * 0.5, now);
+  oscGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.4);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 1500;
+  filter.Q.value = 2;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(vol * 0.3, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.4);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playObstacleBreak() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.25;
+  const vol = AUDIO_CONFIG.obstacleBreakVolume;
+  const osc = ctx2.createOscillator();
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(300, now);
+  osc.frequency.exponentialRampToValueAtTime(50, now + duration);
+  const oscGain = ctx2.createGain();
+  oscGain.gain.setValueAtTime(vol * 0.4, now);
+  oscGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = 1800;
+  filter.Q.value = 4;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(vol * 0.5, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.6);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playBendApply() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.3;
+  const vol = AUDIO_CONFIG.bendApplyVolume;
+  const osc1 = ctx2.createOscillator();
+  osc1.type = "sine";
+  osc1.frequency.setValueAtTime(400, now);
+  osc1.frequency.exponentialRampToValueAtTime(800, now + duration * 0.6);
+  const gain1 = ctx2.createGain();
+  gain1.gain.setValueAtTime(vol * 0.4, now);
+  gain1.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc1.connect(gain1);
+  gain1.connect(masterGain);
+  osc1.start(now);
+  osc1.stop(now + duration);
+  const osc2 = ctx2.createOscillator();
+  osc2.type = "sine";
+  osc2.frequency.setValueAtTime(406, now);
+  osc2.frequency.exponentialRampToValueAtTime(812, now + duration * 0.6);
+  const gain2 = ctx2.createGain();
+  gain2.gain.setValueAtTime(vol * 0.3, now);
+  gain2.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc2.connect(gain2);
+  gain2.connect(masterGain);
+  osc2.start(now);
+  osc2.stop(now + duration);
+}
 function wireEventBus2() {
   on("enemyHit", (e) => {
     if (e.type === "enemyHit") playHit(e.damage / 15);
@@ -6369,6 +7499,15 @@ function wireEventBus2() {
   on("enemyImpact", (e) => {
     if (e.type === "enemyImpact") playEnemyImpact(e.speed / 5);
   });
+  on("objectWallSlam", (e) => {
+    if (e.type === "objectWallSlam") playWallSlam(Math.min(e.speed / 8, 1));
+  });
+  on("objectImpact", (e) => {
+    if (e.type === "objectImpact") playObjectImpact(Math.min(e.speed / 8, 1));
+  });
+  on("obstacleDestroyed", () => playObstacleBreak());
+  on("objectPitFall", () => playDeath());
+  on("bendApplied", () => playBendApply());
 }
 
 // src/config/boss.ts
@@ -7532,6 +8671,66 @@ var SECTIONS = [
         tip: "How long before rest room door opens."
       }
     ]
+  },
+  {
+    section: "Physics Objects",
+    collapsed: true,
+    items: [
+      {
+        label: "Object Friction",
+        config: () => PHYSICS,
+        key: "objectFriction",
+        min: 1,
+        max: 50,
+        step: 1,
+        tip: "Deceleration rate for physics objects."
+      },
+      {
+        label: "Wall Slam Min Speed",
+        config: () => PHYSICS,
+        key: "objectWallSlamMinSpeed",
+        min: 0,
+        max: 10,
+        step: 0.5,
+        tip: "Min speed for wall slam damage."
+      },
+      {
+        label: "Wall Slam Damage",
+        config: () => PHYSICS,
+        key: "objectWallSlamDamage",
+        min: 1,
+        max: 20,
+        step: 1,
+        tip: "Damage per unit speed above threshold."
+      },
+      {
+        label: "Wall Slam Bounce",
+        config: () => PHYSICS,
+        key: "objectWallSlamBounce",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        tip: "Velocity reflection coefficient (0 = dead stop, 1 = perfect bounce)."
+      },
+      {
+        label: "Impact Min Speed",
+        config: () => PHYSICS,
+        key: "objectImpactMinSpeed",
+        min: 0,
+        max: 10,
+        step: 0.5,
+        tip: "Min relative speed for impact damage."
+      },
+      {
+        label: "Impact Damage",
+        config: () => PHYSICS,
+        key: "objectImpactDamage",
+        min: 1,
+        max: 20,
+        step: 1,
+        tip: "Damage per unit speed above impact threshold."
+      }
+    ]
   }
 ];
 var enemySpeedMultiplier = 1;
@@ -8128,7 +9327,7 @@ console.log("[spawnEditor] v2 loaded \u2014 tabs enabled");
 var sceneRef9;
 var gameStateRef;
 var panel2;
-var active2 = false;
+var active3 = false;
 var previousPhase = "playing";
 var currentTab = "spawn";
 var editorState = {
@@ -8362,7 +9561,7 @@ function checkEditorToggle() {
   }
 }
 function toggleEditor() {
-  if (active2) {
+  if (active3) {
     exitEditor();
   } else {
     enterEditor();
@@ -8374,7 +9573,7 @@ function onEditorWheel(e) {
   setZoom(getCurrentFrustum() + delta);
 }
 function enterEditor() {
-  active2 = true;
+  active3 = true;
   previousPhase = gameStateRef.phase;
   gameStateRef.phase = "editorPaused";
   panel2.classList.remove("hidden");
@@ -8388,7 +9587,7 @@ function enterEditor() {
   refreshUI();
 }
 function exitEditor() {
-  active2 = false;
+  active3 = false;
   gameStateRef.phase = previousPhase;
   panel2.classList.add("hidden");
   bannerEl.classList.remove("visible");
@@ -8498,7 +9697,7 @@ function findNearestLevelObject(worldX, worldZ, radius) {
   return { type: bestType, idx: bestIdx };
 }
 function onMouseDown(e) {
-  if (!active2) return;
+  if (!active3) return;
   if (e.target.closest("#spawn-editor")) return;
   if (currentTab === "level") {
     onLevelMouseDown(e);
@@ -8598,7 +9797,7 @@ function onLevelMouseDown(e) {
   }
 }
 function onMouseMove(e) {
-  if (!active2 || !isDragging) return;
+  if (!active3 || !isDragging) return;
   if (currentTab === "level") {
     onLevelMouseMove(e);
     return;
@@ -8647,7 +9846,7 @@ function onLevelMouseMove(e) {
   }
 }
 function onMouseUp(e) {
-  if (!active2) return;
+  if (!active3) return;
   if (currentTab === "level") {
     if (isDragging && dragStarted) {
       onArenaChanged();
@@ -8747,7 +9946,7 @@ async function deletePreset(name) {
   }
 }
 function onEditorKey(e) {
-  if (!active2) return;
+  if (!active3) return;
   if (e.code === "KeyZ" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
     e.preventDefault();
     popUndo();
@@ -9325,7 +10524,7 @@ function wireEvents() {
     saveToFile("config/arena.js", text, document.getElementById("se-save-arena"));
   });
   window.addEventListener("contextmenu", (e) => {
-    if (active2) e.preventDefault();
+    if (active3) e.preventDefault();
   });
   const tooltipEl = document.getElementById("se-tooltip");
   let tooltipTarget = null;
@@ -10324,6 +11523,9 @@ var gameState = {
   currency: 0,
   currentWave: 1,
   enemies: [],
+  physicsObjects: [],
+  bendMode: false,
+  bendsPerRoom: 3,
   abilities: {
     dash: { cooldownRemaining: 0 },
     ultimate: { cooldownRemaining: 0, active: false, activeRemaining: 0, charging: false, chargeT: 0 }
@@ -10360,17 +11562,34 @@ function gameLoop(timestamp) {
   updateInput();
   autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
-  if (input.bulletTime) toggleBulletTime();
+  if (input.bendMode) toggleBendMode();
+  if (!isBendModeActive() && input.bulletTime) toggleBulletTime();
   updateBulletTime(dt);
   const gameDt = dt * getBulletTimeScale();
-  updatePlayer(input, dt, gameState);
+  if (isBendModeActive() && isBendTargeting() && input.attack) {
+    handleBendClick(input.mouseNDC, gameState);
+  }
+  updateBendMode(dt, gameState);
+  if (isBendModeActive() && isBendTargeting()) {
+    updateBendHover(input.mouseNDC, gameState);
+  }
+  if (isBendModeActive()) {
+    const gatedInput = { ...input, attack: false, dash: false, ultimate: false, ultimateHeld: false };
+    updatePlayer(gatedInput, dt, gameState);
+  } else {
+    updatePlayer(input, dt, gameState);
+  }
   updateProjectiles(gameDt);
   updateRoomManager(gameDt, gameState);
   updateEnemies(gameDt, getPlayerPos(), gameState);
   checkCollisions(gameState);
   applyVelocities(gameDt, gameState);
+  applyObjectVelocities(gameDt, gameState);
   resolveEnemyCollisions(gameState);
+  resolveObjectCollisions(gameState);
+  resolveObjectObstacleCollisions(gameState);
   checkPitFalls(gameState);
+  processDestroyedObstacles();
   updateEffectGhosts(gameDt);
   updateParticles(gameDt);
   updateAoeTelegraphs(gameDt);
@@ -10402,6 +11621,7 @@ function restart() {
   resetPlayer();
   resetRoomManager();
   resetBulletTime();
+  resetBendMode();
   loadRoom(0, gameState);
 }
 function init() {
@@ -10419,6 +11639,9 @@ function init() {
     initAudio();
     initParticles(scene2);
     initBulletTime();
+    initRadialMenu();
+    initBendMode();
+    setOnBendSelected(() => enterTargeting());
     on("meleeHit", () => {
       hitPauseTimer = MELEE.hitPause;
     });

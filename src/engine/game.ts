@@ -15,7 +15,7 @@ import { initSpawnEditor, checkEditorToggle, updateSpawnEditor, isEditorActive }
 import { initAudio, resumeAudio } from './audio';
 import { initParticles, updateParticles } from './particles';
 import { initBulletTime, toggleBulletTime, updateBulletTime, getBulletTimeScale, resetBulletTime } from './bulletTime';
-import { initBendMode, toggleBendMode, isBendModeActive, isBendTargeting, handleBendClick, enterTargeting, resetBendMode } from './bendMode';
+import { initBendMode, toggleBendMode, isBendModeActive, isBendTargeting, handleBendClick, enterTargeting, resetBendMode, updateBendMode, updateBendHover } from './bendMode';
 import { initRadialMenu, setOnBendSelected } from '../ui/radialMenu';
 import { PLAYER, MELEE } from '../config/player';
 import { on } from './events';
@@ -89,6 +89,12 @@ function gameLoop(timestamp: number): void {
   // 1c. Bend targeting click — when bend mode is active and a bend is selected
   if (isBendModeActive() && isBendTargeting() && input.attack) {
     handleBendClick(input.mouseNDC, gameState);
+  }
+
+  // 1d. Bend mode update — highlights + hover detection
+  updateBendMode(dt, gameState);
+  if (isBendModeActive() && isBendTargeting()) {
+    updateBendHover(input.mouseNDC, gameState);
   }
 
   // 2. Player (uses real dt — player moves at normal speed)
