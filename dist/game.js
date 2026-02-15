@@ -4263,7 +4263,15 @@ function applyObjectVelocities(dt, gameState2) {
       result = resolveTerrainCollisionEx(obj.pos.x, obj.pos.z, obj.radius);
       obj.pos.x = result.x;
       obj.pos.z = result.z;
-      if (result.hitWall) break;
+      if (result.hitWall) {
+        const dot = vel.x * result.normalX + vel.z * result.normalZ;
+        if (dot < 0) {
+          vel.x -= dot * result.normalX;
+          vel.z -= dot * result.normalZ;
+        }
+        const slideSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+        if (slideSpeed < PHYSICS.minVelocity) break;
+      }
     }
     if (obj.mesh) {
       obj.mesh.position.set(obj.pos.x, 0, obj.pos.z);
@@ -4287,19 +4295,24 @@ function applyObjectVelocities(dt, gameState2) {
       }
       emit({ type: "objectWallSlam", object: obj, speed, damage: slamDamage, position: { x: obj.pos.x, z: obj.pos.z } });
       screenShake(PHYSICS.objectWallSlamShake, 120);
-      const dot = vel.x * result.normalX + vel.z * result.normalZ;
       const bounce = obj.restitution ?? PHYSICS.objectWallSlamBounce;
-      vel.x = (vel.x - 2 * dot * result.normalX) * bounce;
-      vel.z = (vel.z - 2 * dot * result.normalZ) * bounce;
+      vel.x *= bounce;
+      vel.z *= bounce;
     }
-    const newSpeed = speed - PHYSICS.objectFriction * dt;
-    if (newSpeed <= PHYSICS.minVelocity) {
+    const currentSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    if (currentSpeed > PHYSICS.minVelocity) {
+      const newSpeed = currentSpeed - PHYSICS.objectFriction * dt;
+      if (newSpeed <= PHYSICS.minVelocity) {
+        vel.x = 0;
+        vel.z = 0;
+      } else {
+        const scale = newSpeed / currentSpeed;
+        vel.x *= scale;
+        vel.z *= scale;
+      }
+    } else {
       vel.x = 0;
       vel.z = 0;
-    } else {
-      const scale = newSpeed / speed;
-      vel.x *= scale;
-      vel.z *= scale;
     }
   }
 }

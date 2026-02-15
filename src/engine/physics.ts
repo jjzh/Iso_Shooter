@@ -384,7 +384,20 @@ export function applyObjectVelocities(dt: number, gameState: GameState): void {
       result = resolveTerrainCollisionEx(obj.pos.x, obj.pos.z, obj.radius);
       obj.pos.x = result.x;
       obj.pos.z = result.z;
-      if (result.hitWall) break;
+
+      if (result.hitWall) {
+        // Slide along wall: remove velocity component into the wall normal
+        // This prevents objects from getting stuck against walls — they glide along instead
+        const dot = vel.x * result.normalX + vel.z * result.normalZ;
+        if (dot < 0) {
+          vel.x -= dot * result.normalX;
+          vel.z -= dot * result.normalZ;
+        }
+        // If remaining velocity is negligible, stop stepping
+        const slideSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+        if (slideSpeed < PHYSICS.minVelocity) break;
+        // Otherwise continue stepping — object slides along the wall
+      }
     }
 
     // Sync mesh position
@@ -403,7 +416,7 @@ export function applyObjectVelocities(dt: number, gameState: GameState): void {
       continue;
     }
 
-    // Wall slam
+    // Wall slam — uses original speed (before wall slide) for damage calculation
     if (result.hitWall && speed > PHYSICS.objectWallSlamMinSpeed) {
       const slamDamage = Math.round((speed - PHYSICS.objectWallSlamMinSpeed) * PHYSICS.objectWallSlamDamage);
 
@@ -418,22 +431,27 @@ export function applyObjectVelocities(dt: number, gameState: GameState): void {
       emit({ type: 'objectWallSlam', object: obj, speed, damage: slamDamage, position: { x: obj.pos.x, z: obj.pos.z } });
       screenShake(PHYSICS.objectWallSlamShake, 120);
 
-      // Reflect velocity
-      const dot = vel.x * result.normalX + vel.z * result.normalZ;
+      // Apply bounce damping to remaining (slid) velocity — energy is lost on wall impact
       const bounce = obj.restitution ?? PHYSICS.objectWallSlamBounce;
-      vel.x = (vel.x - 2 * dot * result.normalX) * bounce;
-      vel.z = (vel.z - 2 * dot * result.normalZ) * bounce;
+      vel.x *= bounce;
+      vel.z *= bounce;
     }
 
-    // Friction
-    const newSpeed = speed - PHYSICS.objectFriction * dt;
-    if (newSpeed <= PHYSICS.minVelocity) {
+    // Friction — based on current velocity (may have been modified by wall slide/bounce)
+    const currentSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    if (currentSpeed > PHYSICS.minVelocity) {
+      const newSpeed = currentSpeed - PHYSICS.objectFriction * dt;
+      if (newSpeed <= PHYSICS.minVelocity) {
+        vel.x = 0;
+        vel.z = 0;
+      } else {
+        const scale = newSpeed / currentSpeed;
+        vel.x *= scale;
+        vel.z *= scale;
+      }
+    } else {
       vel.x = 0;
       vel.z = 0;
-    } else {
-      const scale = newSpeed / speed;
-      vel.x *= scale;
-      vel.z *= scale;
     }
   }
 }
