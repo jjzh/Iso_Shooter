@@ -32,7 +32,13 @@ export type GameEvent =
   | { type: 'wallSlam'; enemy: any; speed: number; damage: number; position: { x: number; z: number } }
   | { type: 'enemyImpact'; enemyA: any; enemyB: any; speed: number; damage: number; position: { x: number; z: number } }
   | { type: 'bulletTimeActivated' }
-  | { type: 'bulletTimeDeactivated' };
+  | { type: 'bulletTimeDeactivated' }
+  | { type: 'objectPushed'; object: any; position: { x: number; z: number } }
+  | { type: 'objectWallSlam'; object: any; speed: number; damage: number; position: { x: number; z: number } }
+  | { type: 'objectImpact'; objectA: any; objectB: any; speed: number; damage: number; position: { x: number; z: number } }
+  | { type: 'objectDestroyed'; object: any; position: { x: number; z: number } }
+  | { type: 'objectPitFall'; object: any; position: { x: number; z: number } }
+  | { type: 'obstacleDestroyed'; obstacleIndex: number; position: { x: number; z: number } };
 
 // ─── Bus Implementation ───
 

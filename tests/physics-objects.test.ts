@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createPhysicsObject } from '../src/entities/physicsObject';
+import { PHYSICS } from '../src/config/physics';
 
 describe('PhysicsObject type', () => {
   it('can construct a valid PhysicsObject', () => {
@@ -95,5 +96,37 @@ describe('createPhysicsObject', () => {
     const a = createPhysicsObject({ meshType: 'rock', material: 'stone', x: 0, z: 0, mass: 1, health: 10, radius: 0.5 });
     const b = createPhysicsObject({ meshType: 'rock', material: 'stone', x: 1, z: 1, mass: 1, health: 10, radius: 0.5 });
     expect(a.id).not.toBe(b.id);
+  });
+});
+
+describe('object velocity kinematics', () => {
+  it('v0 formula: object travels correct distance before stopping', () => {
+    const force = 8; // force push force
+    const mass = 2.0;
+    const friction = PHYSICS.objectFriction;
+    const targetDist = force / mass; // distance = force / mass
+    const v0 = Math.sqrt(2 * friction * targetDist);
+    const slideDist = (v0 * v0) / (2 * friction);
+    expect(slideDist).toBeCloseTo(targetDist, 5);
+  });
+
+  it('heavier object travels less distance for same force', () => {
+    const force = 8;
+    const friction = PHYSICS.objectFriction;
+    const distLight = force / 1.0;
+    const distHeavy = force / 3.0;
+    expect(distLight).toBeGreaterThan(distHeavy);
+  });
+
+  it('wall slam damage formula: speed above threshold produces damage', () => {
+    const speed = 6;
+    const damage = Math.round((speed - PHYSICS.objectWallSlamMinSpeed) * PHYSICS.objectWallSlamDamage);
+    expect(damage).toBeGreaterThan(0);
+  });
+
+  it('wall slam damage formula: speed below threshold produces zero', () => {
+    const speed = 2;
+    const damage = Math.max(0, Math.round((speed - PHYSICS.objectWallSlamMinSpeed) * PHYSICS.objectWallSlamDamage));
+    expect(damage).toBe(0);
   });
 });

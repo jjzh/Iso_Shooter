@@ -351,6 +351,93 @@ export function applyVelocities(dt: number, gameState: GameState): void {
   }
 }
 
+// ─── PhysicsObject Velocity Integration ───
+
+export function applyObjectVelocities(dt: number, gameState: GameState): void {
+  for (const obj of gameState.physicsObjects) {
+    if (obj.destroyed) continue;
+
+    const vel = obj.vel;
+    const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    if (speed < PHYSICS.minVelocity) {
+      vel.x = 0;
+      vel.z = 0;
+      continue;
+    }
+
+    // Stepped movement to prevent wall tunneling
+    const moveDist = speed * dt;
+    const moveSteps = Math.ceil(moveDist / obj.radius);
+    const subDt = dt / Math.max(moveSteps, 1);
+    let result: CollisionResult = { x: obj.pos.x, z: obj.pos.z, hitWall: false, normalX: 0, normalZ: 0 };
+
+    let fellInPit = false;
+    for (let s = 0; s < moveSteps; s++) {
+      obj.pos.x += vel.x * subDt;
+      obj.pos.z += vel.z * subDt;
+
+      if (pointInPit(obj.pos.x, obj.pos.z)) {
+        fellInPit = true;
+        break;
+      }
+
+      result = resolveTerrainCollisionEx(obj.pos.x, obj.pos.z, obj.radius);
+      obj.pos.x = result.x;
+      obj.pos.z = result.z;
+      if (result.hitWall) break;
+    }
+
+    // Sync mesh position
+    if (obj.mesh) {
+      obj.mesh.position.set(obj.pos.x, 0, obj.pos.z);
+    }
+
+    // Pit fall
+    if (fellInPit) {
+      obj.destroyed = true;
+      obj.fellInPit = true;
+      emit({ type: 'objectPitFall', object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+      if (obj.mesh) obj.mesh.visible = false;
+      vel.x = 0;
+      vel.z = 0;
+      continue;
+    }
+
+    // Wall slam
+    if (result.hitWall && speed > PHYSICS.objectWallSlamMinSpeed) {
+      const slamDamage = Math.round((speed - PHYSICS.objectWallSlamMinSpeed) * PHYSICS.objectWallSlamDamage);
+
+      // Damage the object itself
+      obj.health -= slamDamage;
+      if (obj.health <= 0) {
+        obj.health = 0;
+        obj.destroyed = true;
+        emit({ type: 'objectDestroyed', object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+      }
+
+      emit({ type: 'objectWallSlam', object: obj, speed, damage: slamDamage, position: { x: obj.pos.x, z: obj.pos.z } });
+      screenShake(PHYSICS.objectWallSlamShake, 120);
+
+      // Reflect velocity
+      const dot = vel.x * result.normalX + vel.z * result.normalZ;
+      const bounce = obj.restitution ?? PHYSICS.objectWallSlamBounce;
+      vel.x = (vel.x - 2 * dot * result.normalX) * bounce;
+      vel.z = (vel.z - 2 * dot * result.normalZ) * bounce;
+    }
+
+    // Friction
+    const newSpeed = speed - PHYSICS.objectFriction * dt;
+    if (newSpeed <= PHYSICS.minVelocity) {
+      vel.x = 0;
+      vel.z = 0;
+    } else {
+      const scale = newSpeed / speed;
+      vel.x *= scale;
+      vel.z *= scale;
+    }
+  }
+}
+
 // ─── Enemy-Enemy Collision + Momentum Transfer ───
 
 export function resolveEnemyCollisions(gameState: GameState): void {

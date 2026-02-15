@@ -5,7 +5,7 @@ import { initProjectilePool, updateProjectiles } from '../entities/projectile';
 import { initEnemySystem, updateEnemies } from '../entities/enemy';
 import { initMortarSystem, updateMortarProjectiles, updateIcePatches } from '../entities/mortarProjectile';
 import { initRoomManager, loadRoom, updateRoomManager, resetRoomManager } from './roomManager';
-import { checkCollisions, checkPitFalls, updateEffectGhosts, applyVelocities, resolveEnemyCollisions } from './physics';
+import { checkCollisions, checkPitFalls, updateEffectGhosts, applyVelocities, applyObjectVelocities, resolveEnemyCollisions } from './physics';
 import { initAoeTelegraph, updateAoeTelegraphs, updatePendingEffects } from './aoeTelegraph';
 import { initHUD, updateHUD } from '../ui/hud';
 import { initScreens, showGameOver, hideScreens } from '../ui/screens';
@@ -98,6 +98,9 @@ function gameLoop(timestamp: number): void {
 
   // 6a. Physics velocities — knockback sliding, wall slam detection (slowed)
   applyVelocities(gameDt, gameState);
+
+  // 6a1. Physics object velocities — wall slam + pit fall (slowed)
+  applyObjectVelocities(gameDt, gameState);
 
   // 6a2. Enemy-enemy collision (separation + momentum transfer)
   resolveEnemyCollisions(gameState);
