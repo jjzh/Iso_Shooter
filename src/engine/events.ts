@@ -38,7 +38,11 @@ export type GameEvent =
   | { type: 'objectImpact'; objectA: any; objectB: any; speed: number; damage: number; position: { x: number; z: number } }
   | { type: 'objectDestroyed'; object: any; position: { x: number; z: number } }
   | { type: 'objectPitFall'; object: any; position: { x: number; z: number } }
-  | { type: 'obstacleDestroyed'; obstacleIndex: number; position: { x: number; z: number } };
+  | { type: 'obstacleDestroyed'; obstacleIndex: number; position: { x: number; z: number } }
+  | { type: 'bendModeActivated' }
+  | { type: 'bendModeDeactivated' }
+  | { type: 'bendApplied'; bendId: string; targetType: string; targetId: number; position: { x: number; z: number } }
+  | { type: 'bendFailed'; bendId: string; reason: string };
 
 // ─── Bus Implementation ───
 

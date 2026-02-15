@@ -411,6 +411,8 @@ export interface GameState {
   currentWave: number;
   enemies: Enemy[];
   physicsObjects: PhysicsObject[];
+  bendMode: boolean;
+  bendsPerRoom: number;
   abilities: {
     dash: AbilityState;
     ultimate: AbilityState;

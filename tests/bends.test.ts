@@ -133,3 +133,15 @@ describe('bend system', () => {
     expect(sys.getActiveBends()).toHaveLength(0);
   });
 });
+
+describe('bend game state', () => {
+  it('GameState supports bend fields', () => {
+    const state: any = {
+      phase: 'playing',
+      bendMode: false,
+      bendsPerRoom: 3,
+    };
+    expect(state.bendMode).toBe(false);
+    expect(state.bendsPerRoom).toBe(3);
+  });
+});
