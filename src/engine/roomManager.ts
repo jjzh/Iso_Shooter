@@ -23,7 +23,7 @@ import { createTelegraph, updateTelegraph, removeTelegraph, initTelegraph } from
 import { initDoor, createDoor, unlockDoor, updateDoor, removeDoor } from './door';
 import { DOOR_CONFIG } from '../config/door';
 import { SpawnPack } from '../types/index';
-import { createPhysicsObject, clearPhysicsObjects, resetPhysicsObjectIds } from '../entities/physicsObject';
+import { createPhysicsObject, clearPhysicsObjects, resetPhysicsObjectIds, createPhysicsObjectMesh } from '../entities/physicsObject';
 
 // ─── State ───
 
@@ -108,7 +108,7 @@ export function loadRoom(index: number, gameState: any) {
   if (room.physicsObjects) {
     for (const placement of room.physicsObjects) {
       const obj = createPhysicsObject(placement);
-      // Mesh creation will be handled by renderer (Task 8)
+      createPhysicsObjectMesh(obj, sceneRef);
       gameState.physicsObjects.push(obj);
     }
   }

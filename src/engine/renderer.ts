@@ -103,15 +103,23 @@ function clearObstacleMeshes() {
 function createObstacles() {
   clearObstacleMeshes();
 
-  const mat = new THREE.MeshStandardMaterial({
+  const normalMat = new THREE.MeshStandardMaterial({
     color: 0x2a2a4a,
     emissive: 0x223355,
     emissiveIntensity: 0.3,
     roughness: 0.7,
     metalness: 0.2
   });
+  const destructibleMat = new THREE.MeshStandardMaterial({
+    color: 0x4a3a2a,
+    emissive: 0x553322,
+    emissiveIntensity: 0.3,
+    roughness: 0.8,
+    metalness: 0.1
+  });
 
   for (const o of OBSTACLES) {
+    const mat = o.destructible ? destructibleMat.clone() : normalMat;
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(o.w, o.h, o.d), mat);
     mesh.position.set(o.x, o.h / 2, o.z);
     scene.add(mesh);
