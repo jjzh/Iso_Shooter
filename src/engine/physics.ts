@@ -4,11 +4,11 @@ import { stunEnemy } from '../entities/enemy';
 import { getIceEffects } from '../entities/mortarProjectile';
 import { triggerHitReaction } from '../entities/enemyRig';
 import { emit } from './events';
-import { screenShake, getScene } from './renderer';
+import { screenShake, getScene, rebuildArenaVisuals } from './renderer';
 import { PLAYER, MELEE } from '../config/player';
 import { PHYSICS } from '../config/physics';
 import { isInMeleeArc } from './meleemath';
-import { getCollisionBounds, getPitBounds } from '../config/arena';
+import { getCollisionBounds, getPitBounds, OBSTACLES } from '../config/arena';
 import { spawnDamageNumber } from '../ui/damageNumbers';
 import { applyAoeEffect, isInRotatedRect, createAoeRing } from './aoeTelegraph';
 import { AABB, GameState, Enemy } from '../types/index';
@@ -686,6 +686,68 @@ export function resolveObjectCollisions(gameState: GameState): void {
       (enemy as any).mesh.position.copy(enemy.pos);
     }
   }
+}
+
+// ─── Destructible Obstacle Collisions ───
+
+// Track obstacles to destroy at end of frame (deferred removal)
+const pendingObstacleDestructions: number[] = [];
+
+export function resolveObjectObstacleCollisions(gameState: GameState): void {
+  const objects = gameState.physicsObjects;
+
+  for (const obj of objects) {
+    if (obj.destroyed) continue;
+    const speed = Math.sqrt(obj.vel.x * obj.vel.x + obj.vel.z * obj.vel.z);
+    if (speed < PHYSICS.objectImpactMinSpeed) continue; // only check fast-moving objects
+
+    for (let i = 0; i < OBSTACLES.length; i++) {
+      const obs = OBSTACLES[i];
+      if (!obs.destructible || !obs.health || obs.health <= 0) continue;
+
+      // Circle vs AABB
+      const aabb: AABB = {
+        minX: obs.x - obs.w / 2,
+        maxX: obs.x + obs.w / 2,
+        minZ: obs.z - obs.d / 2,
+        maxZ: obs.z + obs.d / 2,
+      };
+
+      const push = circleVsAABB(obj.pos.x, obj.pos.z, obj.radius, aabb);
+      if (!push) continue;
+
+      // Impact! Damage the obstacle proportional to object speed
+      const dmg = Math.round((speed - PHYSICS.objectImpactMinSpeed) * PHYSICS.objectImpactDamage);
+      if (dmg <= 0) continue;
+
+      obs.health -= dmg;
+      spawnDamageNumber(obs.x, obs.z, dmg, '#ff8844');
+      screenShake(2, 80);
+
+      if (obs.health <= 0) {
+        obs.health = 0;
+        pendingObstacleDestructions.push(i);
+        emit({ type: 'obstacleDestroyed', obstacleIndex: i, position: { x: obs.x, z: obs.z } });
+      }
+    }
+  }
+}
+
+export function processDestroyedObstacles(): void {
+  if (pendingObstacleDestructions.length === 0) return;
+
+  // Sort descending so splice doesn't shift earlier indices
+  pendingObstacleDestructions.sort((a, b) => b - a);
+
+  for (const idx of pendingObstacleDestructions) {
+    if (idx < OBSTACLES.length) {
+      OBSTACLES.splice(idx, 1);
+    }
+  }
+  pendingObstacleDestructions.length = 0;
+
+  invalidateCollisionBounds();
+  rebuildArenaVisuals();
 }
 
 export function pointInPit(px: number, pz: number): boolean {
