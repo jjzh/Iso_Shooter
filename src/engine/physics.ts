@@ -788,6 +788,17 @@ export function checkPitFalls(gameState: GameState): void {
       screenShake(4, 200);
     }
   }
+
+  // PhysicsObject pit falls (safety net — non-velocity check)
+  for (const obj of gameState.physicsObjects) {
+    if (obj.destroyed) continue;
+    if (pointInPit(obj.pos.x, obj.pos.z)) {
+      obj.destroyed = true;
+      obj.fellInPit = true;
+      emit({ type: 'objectPitFall', object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+      if (obj.mesh) obj.mesh.visible = false;
+    }
+  }
 }
 
 function applyDamageToEnemy(enemy: Enemy, damage: number, gameState: GameState): void {

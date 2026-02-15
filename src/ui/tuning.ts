@@ -328,6 +328,24 @@ const SECTIONS: SliderSection[] = [
         unit: 'ms', tip: 'How long before rest room door opens.' },
     ]
   },
+  {
+    section: 'Physics Objects',
+    collapsed: true,
+    items: [
+      { label: 'Object Friction',       config: () => PHYSICS,  key: 'objectFriction',          min: 1,   max: 50,  step: 1,
+        tip: 'Deceleration rate for physics objects.' },
+      { label: 'Wall Slam Min Speed',   config: () => PHYSICS,  key: 'objectWallSlamMinSpeed',  min: 0,   max: 10,  step: 0.5,
+        tip: 'Min speed for wall slam damage.' },
+      { label: 'Wall Slam Damage',      config: () => PHYSICS,  key: 'objectWallSlamDamage',    min: 1,   max: 20,  step: 1,
+        tip: 'Damage per unit speed above threshold.' },
+      { label: 'Wall Slam Bounce',      config: () => PHYSICS,  key: 'objectWallSlamBounce',    min: 0,   max: 1,   step: 0.05,
+        tip: 'Velocity reflection coefficient (0 = dead stop, 1 = perfect bounce).' },
+      { label: 'Impact Min Speed',      config: () => PHYSICS,  key: 'objectImpactMinSpeed',    min: 0,   max: 10,  step: 0.5,
+        tip: 'Min relative speed for impact damage.' },
+      { label: 'Impact Damage',         config: () => PHYSICS,  key: 'objectImpactDamage',      min: 1,   max: 20,  step: 1,
+        tip: 'Damage per unit speed above impact threshold.' },
+    ]
+  },
 ];
 
 // ─── Enemy Speed Multiplier ───
