@@ -119,6 +119,18 @@ export const WALL_SLAM_SPARK: ParticleConfig = {
   shape: 'box',
 };
 
+export const OBSTACLE_BREAK_BURST: ParticleConfig = {
+  count: 12,
+  lifetime: 0.6,
+  speed: 4,
+  spread: Math.PI * 2,
+  size: 0.15,
+  color: 0x887766,
+  fadeOut: true,
+  gravity: 8,
+  shape: 'box',
+};
+
 export const DOOR_UNLOCK_BURST: ParticleConfig = {
   count: 12,
   lifetime: 0.5,
@@ -620,6 +632,33 @@ function wireEventBus(): void {
       // Burst particles at the door location (top of far wall)
       // We don't have the exact position here, so emit upward from center-far
       burst({ x: 0, y: 2, z: 0 }, DOOR_UNLOCK_BURST);
+    }
+  });
+
+  on('obstacleDestroyed', (e: GameEvent) => {
+    if (e.type === 'obstacleDestroyed') {
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        OBSTACLE_BREAK_BURST
+      );
+    }
+  });
+
+  on('objectWallSlam', (e: GameEvent) => {
+    if (e.type === 'objectWallSlam') {
+      burst(
+        { x: e.position.x, y: 0.3, z: e.position.z },
+        { ...WALL_SLAM_SPARK, count: Math.round(3 + (e.speed / 6) * 3), color: 0x888888 }
+      );
+    }
+  });
+
+  on('objectImpact', (e: GameEvent) => {
+    if (e.type === 'objectImpact') {
+      burst(
+        { x: e.position.x, y: 0.4, z: e.position.z },
+        { ...ENEMY_IMPACT_SPARK, count: Math.round(3 + (e.speed / 5) * 3) }
+      );
     }
   });
 }

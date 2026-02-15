@@ -23,6 +23,8 @@ export const AUDIO_CONFIG = {
   meleeHitVolume: 0.45,
   wallSlamVolume: 0.5,
   enemyImpactVolume: 0.4,
+  objectImpactVolume: 0.4,
+  obstacleBreakVolume: 0.5,
   enabled: true,
 };
 
@@ -473,6 +475,80 @@ export function playHeal(): void {
   osc.stop(now + 0.5);
 }
 
+// Object impact: deep thud — lower pitch than enemy impact
+export function playObjectImpact(intensity: number = 1): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const duration = 0.12;
+  const vol = AUDIO_CONFIG.objectImpactVolume * Math.min(intensity, 2);
+
+  // Deep thud
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(100, now);
+  osc.frequency.exponentialRampToValueAtTime(40, now + duration);
+  const oscGain = ctx.createGain();
+  oscGain.gain.setValueAtTime(vol * 0.5, now);
+  oscGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+
+  // Short noise crunch
+  const noise = ctx.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.4);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 1500;
+  filter.Q.value = 2;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(vol * 0.3, now);
+  nGain.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.4);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+
+// Obstacle break: shattering crack — noise burst + descending tone
+export function playObstacleBreak(): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const duration = 0.25;
+  const vol = AUDIO_CONFIG.obstacleBreakVolume;
+
+  // Descending crack tone
+  const osc = ctx.createOscillator();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(300, now);
+  osc.frequency.exponentialRampToValueAtTime(50, now + duration);
+  const oscGain = ctx.createGain();
+  oscGain.gain.setValueAtTime(vol * 0.4, now);
+  oscGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+
+  // Noise burst — debris
+  const noise = ctx.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 1800;
+  filter.Q.value = 4;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(vol * 0.5, now);
+  nGain.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.6);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+
 // ─── Event Bus Integration ───
 
 function wireEventBus(): void {
@@ -511,4 +587,16 @@ function wireEventBus(): void {
   on('enemyImpact', (e: GameEvent) => {
     if (e.type === 'enemyImpact') playEnemyImpact(e.speed / 5);
   });
+
+  on('objectWallSlam', (e: GameEvent) => {
+    if (e.type === 'objectWallSlam') playWallSlam(Math.min(e.speed / 8, 1));
+  });
+
+  on('objectImpact', (e: GameEvent) => {
+    if (e.type === 'objectImpact') playObjectImpact(Math.min(e.speed / 8, 1));
+  });
+
+  on('obstacleDestroyed', () => playObstacleBreak());
+
+  on('objectPitFall', () => playDeath()); // reuse pit fall sound
 }
