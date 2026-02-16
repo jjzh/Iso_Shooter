@@ -452,6 +452,7 @@ export function applyObjectVelocities(dt: number, gameState: GameState): void {
       if (obj.health <= 0) {
         obj.health = 0;
         obj.destroyed = true;
+        if (obj.mesh) obj.mesh.visible = false;
         emit({ type: 'objectDestroyed', object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
       }
 

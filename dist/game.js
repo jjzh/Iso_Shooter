@@ -3762,9 +3762,9 @@ var ROOMS = [
     ],
     physicsObjects: [
       { meshType: "rock", material: "stone", x: -2, z: -2, mass: 2, health: 9999, radius: 0.8 },
-      { meshType: "barrel", material: "wood", x: 3, z: -6, mass: 0.5, health: 20, radius: 0.5, scale: 0.8 },
-      { meshType: "crate", material: "wood", x: -5, z: -8, mass: 0.8, health: 30, radius: 0.6 },
-      { meshType: "barrel", material: "metal", x: 6, z: 2, mass: 1, health: 40, radius: 0.5 }
+      { meshType: "barrel", material: "wood", x: 3, z: -6, mass: 0.5, health: 150, radius: 0.5, scale: 0.8 },
+      { meshType: "crate", material: "wood", x: -5, z: -8, mass: 0.8, health: 150, radius: 0.6 },
+      { meshType: "barrel", material: "metal", x: 6, z: 2, mass: 1, health: 200, radius: 0.5 }
     ],
     spawnBudget: {
       maxConcurrent: 4,
@@ -3824,9 +3824,9 @@ var ROOMS = [
       ]
     },
     physicsObjects: [
-      { meshType: "barrel", material: "wood", x: -3, z: 5, mass: 0.5, health: 20, radius: 0.5 },
+      { meshType: "barrel", material: "wood", x: -3, z: 5, mass: 0.5, health: 150, radius: 0.5 },
       { meshType: "rock", material: "stone", x: 7, z: -3, mass: 1.5, health: 9999, radius: 0.7 },
-      { meshType: "crate", material: "metal", x: -7, z: -5, mass: 1.2, health: 50, radius: 0.6 }
+      { meshType: "crate", material: "metal", x: -7, z: -5, mass: 1.2, health: 200, radius: 0.6 }
     ],
     playerStart: { x: 0, z: 20 }
   },
@@ -3878,9 +3878,9 @@ var ROOMS = [
     },
     physicsObjects: [
       { meshType: "pillar", material: "stone", x: -3, z: 0, mass: 3, health: 9999, radius: 0.5 },
-      { meshType: "barrel", material: "wood", x: 6, z: -8, mass: 0.5, health: 20, radius: 0.5, scale: 0.9 },
-      { meshType: "crate", material: "wood", x: -6, z: -12, mass: 0.8, health: 25, radius: 0.6 },
-      { meshType: "rock", material: "ice", x: 3, z: 12, mass: 1, health: 15, radius: 0.6 }
+      { meshType: "barrel", material: "wood", x: 6, z: -8, mass: 0.5, health: 150, radius: 0.5, scale: 0.9 },
+      { meshType: "crate", material: "wood", x: -6, z: -12, mass: 0.8, health: 150, radius: 0.6 },
+      { meshType: "rock", material: "ice", x: 3, z: 12, mass: 1, health: 100, radius: 0.6 }
     ],
     playerStart: { x: 0, z: 21 }
   },
@@ -4315,6 +4315,7 @@ function applyObjectVelocities(dt, gameState2) {
       if (obj.health <= 0) {
         obj.health = 0;
         obj.destroyed = true;
+        if (obj.mesh) obj.mesh.visible = false;
         emit({ type: "objectDestroyed", object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
       }
       emit({ type: "objectWallSlam", object: obj, speed, damage: slamDamage, position: { x: obj.pos.x, z: obj.pos.z } });
