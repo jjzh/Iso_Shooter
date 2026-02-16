@@ -50,11 +50,11 @@ export function createPhysicsObjectMesh(obj: PhysicsObject, scene: any): void {
       geo = new THREE.SphereGeometry(obj.radius * obj.scale, 8, 6);
       break;
     case 'crate': {
-      // Box visual fits inside collision circle. Side length chosen so corners
-      // stay within ~85% of the collision radius, preventing visual overlap
-      // with terrain that the circle collision doesn't detect.
-      const s = obj.radius * obj.scale * 1.2;
-      geo = new THREE.BoxGeometry(s, s, s);
+      // Squat cylinder with 6 sides — reads as a chunky crate/drum shape
+      // while having a circular footprint that exactly matches circle collision.
+      // No corner-beyond-radius mismatch possible.
+      const r = obj.radius * obj.scale;
+      geo = new THREE.CylinderGeometry(r, r, r * 1.4, 6);
       break;
     }
     case 'barrel':
