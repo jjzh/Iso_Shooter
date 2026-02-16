@@ -12,6 +12,7 @@ import { initScreens, showGameOver, hideScreens } from '../ui/screens';
 import { initDamageNumbers, updateDamageNumbers } from '../ui/damageNumbers';
 import { initTuningPanel } from '../ui/tuning';
 import { initSpawnEditor, checkEditorToggle, updateSpawnEditor, isEditorActive } from '../ui/spawnEditor';
+import { initLevelEditor, toggleLevelEditor, isLevelEditorActive, updateLevelEditor } from '../ui/levelEditor';
 import { initAudio, resumeAudio } from './audio';
 import { initParticles, updateParticles } from './particles';
 import { initBulletTime, toggleBulletTime, updateBulletTime, getBulletTimeScale, resetBulletTime } from './bulletTime';
@@ -57,6 +58,7 @@ function gameLoop(timestamp: number): void {
   if (gameState.phase === 'editorPaused') {
     updateInput();
     updateSpawnEditor(0);
+    if (isLevelEditorActive()) updateLevelEditor();
     getRendererInstance().render(getScene(), getCamera());
     consumeInput();
     return;
@@ -231,6 +233,7 @@ function init(): void {
     initDamageNumbers();
     initTuningPanel();
     initSpawnEditor(scene, gameState);
+    initLevelEditor(scene, gameState);
     initScreens(restart, () => {
       resumeAudio(); // AudioContext requires user gesture to start
       gameState.phase = 'playing';

@@ -24,6 +24,7 @@ import { initDoor, createDoor, unlockDoor, updateDoor, removeDoor } from './door
 import { DOOR_CONFIG } from '../config/door';
 import { SpawnPack } from '../types/index';
 import { createPhysicsObject, clearPhysicsObjects, resetPhysicsObjectIds, createPhysicsObjectMesh } from '../entities/physicsObject';
+import { resetBendMode } from './bendMode';
 
 // ─── State ───
 
@@ -89,6 +90,7 @@ export function loadRoom(index: number, gameState: any) {
   // Clear everything from previous room
   clearEnemies(gameState);
   clearPhysicsObjects(gameState, sceneRef);
+  resetBendMode();
   releaseAllProjectiles();
   clearMortarProjectiles();
   clearIcePatches();

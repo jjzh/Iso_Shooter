@@ -896,9 +896,9 @@ function fireProjectile(origin, direction, config, isEnemy) {
 function updateProjectiles(dt) {
   const maxLife = 2;
   for (const pool3 of [playerPool, enemyPool]) {
-    const active4 = pool3.getActive();
-    for (let i = active4.length - 1; i >= 0; i--) {
-      const p = active4[i];
+    const active5 = pool3.getActive();
+    for (let i = active5.length - 1; i >= 0; i--) {
+      const p = active5[i];
       p.mesh.position.x += p.dir.x * p.speed * dt;
       p.mesh.position.z += p.dir.z * p.speed * dt;
       p.life += dt;
@@ -5862,337 +5862,6 @@ function clearPhysicsObjects(gameState2, scene2) {
   gameState2.physicsObjects = [];
 }
 
-// src/engine/roomManager.ts
-var currentRoomIndex = 0;
-var packIndex = 0;
-var totalKills = 0;
-var roomBudgetTotal = 0;
-var roomCleared = false;
-var spawnCooldownTimer = 0;
-var finalWaveAnnounced = false;
-var restRoomTimer = 0;
-var activeTelegraphs2 = [];
-var announceEl = null;
-var sceneRef8 = null;
-function initRoomManager(scene2) {
-  sceneRef8 = scene2;
-  announceEl = document.getElementById("wave-announce");
-  initTelegraph(scene2);
-  initDoor(scene2);
-  on("enemyDied", () => {
-    totalKills++;
-  });
-}
-function loadRoom(index, gameState2) {
-  if (index >= ROOMS.length) {
-    showAnnounce("VICTORY!");
-    return;
-  }
-  const room = ROOMS[index];
-  currentRoomIndex = index;
-  packIndex = 0;
-  totalKills = 0;
-  roomCleared = false;
-  spawnCooldownTimer = 0;
-  finalWaveAnnounced = false;
-  activeTelegraphs2 = [];
-  roomBudgetTotal = room.spawnBudget.packs.reduce(
-    (sum, p) => sum + p.enemies.length,
-    0
-  );
-  restRoomTimer = 0;
-  clearEnemies(gameState2);
-  clearPhysicsObjects(gameState2, sceneRef8);
-  releaseAllProjectiles();
-  clearMortarProjectiles();
-  clearIcePatches();
-  clearAoeTelegraphs();
-  clearDamageNumbers();
-  clearEffectGhosts();
-  clearParticles();
-  removeDoor();
-  setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);
-  invalidateCollisionBounds();
-  rebuildArenaVisuals();
-  resetPhysicsObjectIds();
-  if (room.physicsObjects) {
-    for (const placement of room.physicsObjects) {
-      const obj = createPhysicsObject(placement);
-      createPhysicsObjectMesh(obj, sceneRef8);
-      gameState2.physicsObjects.push(obj);
-    }
-  }
-  setPlayerPosition(room.playerStart.x, room.playerStart.z);
-  gameState2.currentWave = index + 1;
-  showAnnounce(room.name);
-  setTimeout(hideAnnounce, 2e3);
-  if (room.isRestRoom) {
-    gameState2.playerHealth = gameState2.playerMaxHealth;
-    emit({ type: "playerHealed", amount: gameState2.playerMaxHealth, position: { x: room.playerStart.x, z: room.playerStart.z } });
-    emit({ type: "restRoomEntered", roomIndex: index });
-    roomCleared = true;
-    if (index + 1 < ROOMS.length) {
-      createDoor(room.arenaHalfX, room.arenaHalfZ, index);
-      restRoomTimer = DOOR_CONFIG.restPause;
-    }
-    return;
-  }
-  if (room.isVictoryRoom) {
-    showAnnounce("VICTORY!");
-    emit({ type: "roomCleared", roomIndex: index });
-    roomCleared = true;
-    return;
-  }
-  if (index + 1 < ROOMS.length) {
-    createDoor(room.arenaHalfX, room.arenaHalfZ, index);
-  }
-}
-function updateRoomManager(dt, gameState2) {
-  if (gameState2.phase !== "playing") return;
-  const room = ROOMS[currentRoomIndex];
-  if (!room) return;
-  if (room.isRestRoom && restRoomTimer > 0) {
-    restRoomTimer -= dt * 1e3;
-    if (restRoomTimer <= 0) {
-      unlockDoor();
-    }
-  }
-  const playerPos2 = getPlayerPos();
-  const input = getInputState();
-  const doorTriggered = updateDoor(dt, playerPos2, input.interact, isPlayerDashing());
-  if (doorTriggered) {
-    loadRoom(currentRoomIndex + 1, gameState2);
-    return;
-  }
-  for (let i = activeTelegraphs2.length - 1; i >= 0; i--) {
-    const tg = activeTelegraphs2[i];
-    tg.timer -= dt * 1e3;
-    const progress = 1 - tg.timer / tg.duration;
-    for (const tel of tg.telegraphs) {
-      updateTelegraph(tel, Math.min(progress, 1), dt);
-    }
-    if (tg.timer <= 0) {
-      for (const tel of tg.telegraphs) {
-        removeTelegraph2(tel);
-      }
-      for (let j = 0; j < tg.pack.enemies.length; j++) {
-        const enemy = tg.pack.enemies[j];
-        const pos = tg.positions[j];
-        const spawnPos = new THREE.Vector3(pos.x, 0, pos.z);
-        spawnEnemy(enemy.type, spawnPos, gameState2);
-      }
-      emit({ type: "spawnPackSpawned", packIndex: tg.packIdx, roomIndex: currentRoomIndex });
-      activeTelegraphs2.splice(i, 1);
-    }
-  }
-  if (room.isRestRoom || room.isVictoryRoom) return;
-  const aliveCount = gameState2.enemies.length;
-  const budget = room.spawnBudget;
-  const effectiveMaxConcurrent = Math.round(budget.maxConcurrent * SPAWN_CONFIG.maxConcurrentMult);
-  if (!finalWaveAnnounced && packIndex >= budget.packs.length && activeTelegraphs2.length === 0 && aliveCount > 0) {
-    finalWaveAnnounced = true;
-    showAnnounce("FINAL WAVE");
-    setTimeout(hideAnnounce, 1500);
-  }
-  spawnCooldownTimer -= dt * 1e3;
-  if (packIndex < budget.packs.length && spawnCooldownTimer <= 0) {
-    const nextPack = budget.packs[packIndex];
-    const telegraphingCount = activeTelegraphs2.reduce(
-      (sum, tg) => sum + tg.pack.enemies.length,
-      0
-    );
-    const totalActive = aliveCount + telegraphingCount;
-    if (totalActive + nextPack.enemies.length <= effectiveMaxConcurrent + 1) {
-      const positions = resolveSpawnPositions(nextPack, room);
-      const telegraphs = positions.map(
-        (pos, idx) => createTelegraph(pos.x, pos.z, nextPack.enemies[idx].type)
-      );
-      const duration = budget.telegraphDuration || SPAWN_CONFIG.telegraphDuration;
-      activeTelegraphs2.push({
-        telegraphs,
-        pack: nextPack,
-        positions,
-        timer: duration,
-        duration,
-        packIdx: packIndex
-      });
-      emit({ type: "spawnPackTelegraph", packIndex, roomIndex: currentRoomIndex });
-      packIndex++;
-      spawnCooldownTimer = SPAWN_CONFIG.spawnCooldown;
-    }
-  }
-  if (!roomCleared && packIndex >= budget.packs.length && activeTelegraphs2.length === 0 && aliveCount === 0) {
-    roomCleared = true;
-    emit({ type: "roomCleared", roomIndex: currentRoomIndex });
-    emit({ type: "roomClearComplete", roomIndex: currentRoomIndex });
-    if (currentRoomIndex + 1 >= ROOMS.length) {
-      showAnnounce("VICTORY!");
-    } else {
-      showAnnounce("Room Cleared!");
-      setTimeout(hideAnnounce, 1500);
-      unlockDoor();
-    }
-  }
-}
-function resolveSpawnPositions(pack2, room) {
-  const playerPos2 = getPlayerPos();
-  const playerZ = playerPos2 ? playerPos2.z : room.playerStart.z;
-  const playerX = playerPos2 ? playerPos2.x : room.playerStart.x;
-  const hx = room.arenaHalfX - 1.5;
-  const hz = room.arenaHalfZ - 1.5;
-  return pack2.enemies.map(() => {
-    let x, z;
-    for (let attempt = 0; attempt < 10; attempt++) {
-      switch (pack2.spawnZone) {
-        case "ahead": {
-          const aheadMin = SPAWN_CONFIG.spawnAheadMin;
-          const aheadMax = SPAWN_CONFIG.spawnAheadMax;
-          x = (Math.random() * 2 - 1) * hx;
-          z = playerZ - aheadMin - Math.random() * (aheadMax - aheadMin);
-          break;
-        }
-        case "sides": {
-          const side = Math.random() < 0.5 ? -1 : 1;
-          x = side * (hx * 0.6 + Math.random() * hx * 0.3);
-          z = playerZ - 3 - Math.random() * 10;
-          break;
-        }
-        case "far": {
-          x = (Math.random() * 2 - 1) * hx;
-          z = -hz + 2 + Math.random() * 5;
-          break;
-        }
-        case "behind": {
-          x = (Math.random() * 2 - 1) * hx;
-          z = playerZ + 5 + Math.random() * 5;
-          break;
-        }
-        default: {
-          x = (Math.random() * 2 - 1) * hx;
-          z = playerZ - 5 - Math.random() * 10;
-        }
-      }
-      x = Math.max(-hx, Math.min(hx, x));
-      z = Math.max(-hz, Math.min(hz, z));
-      if (!isInsideObstacle(x, z) && !isInsidePit(x, z)) {
-        return { x, z };
-      }
-    }
-    return { x: (Math.random() * 2 - 1) * 3, z: 0 };
-  });
-}
-function isInsideObstacle(x, z) {
-  const bounds = getBounds();
-  const obstacleCount = bounds.length - 4;
-  for (let i = 0; i < obstacleCount; i++) {
-    const b = bounds[i];
-    if (x >= b.minX - 1 && x <= b.maxX + 1 && z >= b.minZ - 1 && z <= b.maxZ + 1) {
-      return true;
-    }
-  }
-  return false;
-}
-function isInsidePit(x, z) {
-  const pits = getPits();
-  for (const p of pits) {
-    if (x >= p.minX - 0.5 && x <= p.maxX + 0.5 && z >= p.minZ - 0.5 && z <= p.maxZ + 0.5) {
-      return true;
-    }
-  }
-  return false;
-}
-function resetRoomManager() {
-  currentRoomIndex = 0;
-  packIndex = 0;
-  totalKills = 0;
-  roomBudgetTotal = 0;
-  roomCleared = false;
-  spawnCooldownTimer = 0;
-  finalWaveAnnounced = false;
-  restRoomTimer = 0;
-  activeTelegraphs2 = [];
-  removeDoor();
-}
-function showAnnounce(text) {
-  if (!announceEl) return;
-  announceEl.textContent = text;
-  announceEl.classList.add("visible");
-}
-function hideAnnounce() {
-  if (!announceEl) return;
-  announceEl.classList.remove("visible");
-}
-
-// src/engine/bulletTime.ts
-var BULLET_TIME = {
-  timeScale: 0.25,
-  // how slow the world runs (0.25 = 25% speed)
-  maxResource: 3e3,
-  // ms of bullet time available at full bar
-  drainRate: 1e3,
-  // resource drained per real second while active
-  killRefill: 600,
-  // resource refilled per enemy kill
-  activationMinimum: 300,
-  // minimum resource required to activate
-  infinite: 1
-  // 1 = infinite resource (skip drain), 0 = normal drain
-};
-var resource = BULLET_TIME.maxResource;
-var active = false;
-var initialized = false;
-function initBulletTime() {
-  if (initialized) return;
-  initialized = true;
-  on("enemyDied", () => {
-    refillBulletTime(BULLET_TIME.killRefill);
-  });
-}
-function activateBulletTime() {
-  if (active) return;
-  if (resource >= BULLET_TIME.activationMinimum) {
-    active = true;
-    emit({ type: "bulletTimeActivated" });
-  }
-}
-function toggleBulletTime() {
-  if (active) {
-    active = false;
-    emit({ type: "bulletTimeDeactivated" });
-  } else {
-    activateBulletTime();
-  }
-}
-function updateBulletTime(realDt) {
-  if (!active) return;
-  if (BULLET_TIME.infinite >= 1) return;
-  resource -= BULLET_TIME.drainRate * realDt;
-  if (resource <= 0) {
-    resource = 0;
-    active = false;
-    emit({ type: "bulletTimeDeactivated" });
-  }
-}
-function getBulletTimeScale() {
-  return active ? BULLET_TIME.timeScale : 1;
-}
-function refillBulletTime(amount) {
-  resource = Math.min(resource + amount, BULLET_TIME.maxResource);
-}
-function resetBulletTime() {
-  resource = BULLET_TIME.maxResource;
-  active = false;
-}
-function isBulletTimeActive() {
-  return active;
-}
-function getBulletTimeResource() {
-  return resource;
-}
-function getBulletTimeMax() {
-  return BULLET_TIME.maxResource;
-}
-
 // src/config/bends.ts
 var BENDS = [
   {
@@ -6289,6 +5958,76 @@ function createBendSystem(maxBends2) {
     return found ? found.bendId : null;
   }
   return { applyBend, resetAll, getActiveBends, bendsRemaining, hasBendOnTarget };
+}
+
+// src/engine/bulletTime.ts
+var BULLET_TIME = {
+  timeScale: 0.25,
+  // how slow the world runs (0.25 = 25% speed)
+  maxResource: 3e3,
+  // ms of bullet time available at full bar
+  drainRate: 1e3,
+  // resource drained per real second while active
+  killRefill: 600,
+  // resource refilled per enemy kill
+  activationMinimum: 300,
+  // minimum resource required to activate
+  infinite: 1
+  // 1 = infinite resource (skip drain), 0 = normal drain
+};
+var resource = BULLET_TIME.maxResource;
+var active = false;
+var initialized = false;
+function initBulletTime() {
+  if (initialized) return;
+  initialized = true;
+  on("enemyDied", () => {
+    refillBulletTime(BULLET_TIME.killRefill);
+  });
+}
+function activateBulletTime() {
+  if (active) return;
+  if (resource >= BULLET_TIME.activationMinimum) {
+    active = true;
+    emit({ type: "bulletTimeActivated" });
+  }
+}
+function toggleBulletTime() {
+  if (active) {
+    active = false;
+    emit({ type: "bulletTimeDeactivated" });
+  } else {
+    activateBulletTime();
+  }
+}
+function updateBulletTime(realDt) {
+  if (!active) return;
+  if (BULLET_TIME.infinite >= 1) return;
+  resource -= BULLET_TIME.drainRate * realDt;
+  if (resource <= 0) {
+    resource = 0;
+    active = false;
+    emit({ type: "bulletTimeDeactivated" });
+  }
+}
+function getBulletTimeScale() {
+  return active ? BULLET_TIME.timeScale : 1;
+}
+function refillBulletTime(amount) {
+  resource = Math.min(resource + amount, BULLET_TIME.maxResource);
+}
+function resetBulletTime() {
+  resource = BULLET_TIME.maxResource;
+  active = false;
+}
+function isBulletTimeActive() {
+  return active;
+}
+function getBulletTimeResource() {
+  return resource;
+}
+function getBulletTimeMax() {
+  return BULLET_TIME.maxResource;
 }
 
 // src/ui/radialMenu.ts
@@ -6741,6 +6480,268 @@ function resetBendMode() {
   clearSelectedBend();
 }
 
+// src/engine/roomManager.ts
+var currentRoomIndex = 0;
+var packIndex = 0;
+var totalKills = 0;
+var roomBudgetTotal = 0;
+var roomCleared = false;
+var spawnCooldownTimer = 0;
+var finalWaveAnnounced = false;
+var restRoomTimer = 0;
+var activeTelegraphs2 = [];
+var announceEl = null;
+var sceneRef8 = null;
+function initRoomManager(scene2) {
+  sceneRef8 = scene2;
+  announceEl = document.getElementById("wave-announce");
+  initTelegraph(scene2);
+  initDoor(scene2);
+  on("enemyDied", () => {
+    totalKills++;
+  });
+}
+function loadRoom(index, gameState2) {
+  if (index >= ROOMS.length) {
+    showAnnounce("VICTORY!");
+    return;
+  }
+  const room = ROOMS[index];
+  currentRoomIndex = index;
+  packIndex = 0;
+  totalKills = 0;
+  roomCleared = false;
+  spawnCooldownTimer = 0;
+  finalWaveAnnounced = false;
+  activeTelegraphs2 = [];
+  roomBudgetTotal = room.spawnBudget.packs.reduce(
+    (sum, p) => sum + p.enemies.length,
+    0
+  );
+  restRoomTimer = 0;
+  clearEnemies(gameState2);
+  clearPhysicsObjects(gameState2, sceneRef8);
+  resetBendMode();
+  releaseAllProjectiles();
+  clearMortarProjectiles();
+  clearIcePatches();
+  clearAoeTelegraphs();
+  clearDamageNumbers();
+  clearEffectGhosts();
+  clearParticles();
+  removeDoor();
+  setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);
+  invalidateCollisionBounds();
+  rebuildArenaVisuals();
+  resetPhysicsObjectIds();
+  if (room.physicsObjects) {
+    for (const placement of room.physicsObjects) {
+      const obj = createPhysicsObject(placement);
+      createPhysicsObjectMesh(obj, sceneRef8);
+      gameState2.physicsObjects.push(obj);
+    }
+  }
+  setPlayerPosition(room.playerStart.x, room.playerStart.z);
+  gameState2.currentWave = index + 1;
+  showAnnounce(room.name);
+  setTimeout(hideAnnounce, 2e3);
+  if (room.isRestRoom) {
+    gameState2.playerHealth = gameState2.playerMaxHealth;
+    emit({ type: "playerHealed", amount: gameState2.playerMaxHealth, position: { x: room.playerStart.x, z: room.playerStart.z } });
+    emit({ type: "restRoomEntered", roomIndex: index });
+    roomCleared = true;
+    if (index + 1 < ROOMS.length) {
+      createDoor(room.arenaHalfX, room.arenaHalfZ, index);
+      restRoomTimer = DOOR_CONFIG.restPause;
+    }
+    return;
+  }
+  if (room.isVictoryRoom) {
+    showAnnounce("VICTORY!");
+    emit({ type: "roomCleared", roomIndex: index });
+    roomCleared = true;
+    return;
+  }
+  if (index + 1 < ROOMS.length) {
+    createDoor(room.arenaHalfX, room.arenaHalfZ, index);
+  }
+}
+function updateRoomManager(dt, gameState2) {
+  if (gameState2.phase !== "playing") return;
+  const room = ROOMS[currentRoomIndex];
+  if (!room) return;
+  if (room.isRestRoom && restRoomTimer > 0) {
+    restRoomTimer -= dt * 1e3;
+    if (restRoomTimer <= 0) {
+      unlockDoor();
+    }
+  }
+  const playerPos2 = getPlayerPos();
+  const input = getInputState();
+  const doorTriggered = updateDoor(dt, playerPos2, input.interact, isPlayerDashing());
+  if (doorTriggered) {
+    loadRoom(currentRoomIndex + 1, gameState2);
+    return;
+  }
+  for (let i = activeTelegraphs2.length - 1; i >= 0; i--) {
+    const tg = activeTelegraphs2[i];
+    tg.timer -= dt * 1e3;
+    const progress = 1 - tg.timer / tg.duration;
+    for (const tel of tg.telegraphs) {
+      updateTelegraph(tel, Math.min(progress, 1), dt);
+    }
+    if (tg.timer <= 0) {
+      for (const tel of tg.telegraphs) {
+        removeTelegraph2(tel);
+      }
+      for (let j = 0; j < tg.pack.enemies.length; j++) {
+        const enemy = tg.pack.enemies[j];
+        const pos = tg.positions[j];
+        const spawnPos = new THREE.Vector3(pos.x, 0, pos.z);
+        spawnEnemy(enemy.type, spawnPos, gameState2);
+      }
+      emit({ type: "spawnPackSpawned", packIndex: tg.packIdx, roomIndex: currentRoomIndex });
+      activeTelegraphs2.splice(i, 1);
+    }
+  }
+  if (room.isRestRoom || room.isVictoryRoom) return;
+  const aliveCount = gameState2.enemies.length;
+  const budget = room.spawnBudget;
+  const effectiveMaxConcurrent = Math.round(budget.maxConcurrent * SPAWN_CONFIG.maxConcurrentMult);
+  if (!finalWaveAnnounced && packIndex >= budget.packs.length && activeTelegraphs2.length === 0 && aliveCount > 0) {
+    finalWaveAnnounced = true;
+    showAnnounce("FINAL WAVE");
+    setTimeout(hideAnnounce, 1500);
+  }
+  spawnCooldownTimer -= dt * 1e3;
+  if (packIndex < budget.packs.length && spawnCooldownTimer <= 0) {
+    const nextPack = budget.packs[packIndex];
+    const telegraphingCount = activeTelegraphs2.reduce(
+      (sum, tg) => sum + tg.pack.enemies.length,
+      0
+    );
+    const totalActive = aliveCount + telegraphingCount;
+    if (totalActive + nextPack.enemies.length <= effectiveMaxConcurrent + 1) {
+      const positions = resolveSpawnPositions(nextPack, room);
+      const telegraphs = positions.map(
+        (pos, idx) => createTelegraph(pos.x, pos.z, nextPack.enemies[idx].type)
+      );
+      const duration = budget.telegraphDuration || SPAWN_CONFIG.telegraphDuration;
+      activeTelegraphs2.push({
+        telegraphs,
+        pack: nextPack,
+        positions,
+        timer: duration,
+        duration,
+        packIdx: packIndex
+      });
+      emit({ type: "spawnPackTelegraph", packIndex, roomIndex: currentRoomIndex });
+      packIndex++;
+      spawnCooldownTimer = SPAWN_CONFIG.spawnCooldown;
+    }
+  }
+  if (!roomCleared && packIndex >= budget.packs.length && activeTelegraphs2.length === 0 && aliveCount === 0) {
+    roomCleared = true;
+    emit({ type: "roomCleared", roomIndex: currentRoomIndex });
+    emit({ type: "roomClearComplete", roomIndex: currentRoomIndex });
+    if (currentRoomIndex + 1 >= ROOMS.length) {
+      showAnnounce("VICTORY!");
+    } else {
+      showAnnounce("Room Cleared!");
+      setTimeout(hideAnnounce, 1500);
+      unlockDoor();
+    }
+  }
+}
+function resolveSpawnPositions(pack2, room) {
+  const playerPos2 = getPlayerPos();
+  const playerZ = playerPos2 ? playerPos2.z : room.playerStart.z;
+  const playerX = playerPos2 ? playerPos2.x : room.playerStart.x;
+  const hx = room.arenaHalfX - 1.5;
+  const hz = room.arenaHalfZ - 1.5;
+  return pack2.enemies.map(() => {
+    let x, z;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      switch (pack2.spawnZone) {
+        case "ahead": {
+          const aheadMin = SPAWN_CONFIG.spawnAheadMin;
+          const aheadMax = SPAWN_CONFIG.spawnAheadMax;
+          x = (Math.random() * 2 - 1) * hx;
+          z = playerZ - aheadMin - Math.random() * (aheadMax - aheadMin);
+          break;
+        }
+        case "sides": {
+          const side = Math.random() < 0.5 ? -1 : 1;
+          x = side * (hx * 0.6 + Math.random() * hx * 0.3);
+          z = playerZ - 3 - Math.random() * 10;
+          break;
+        }
+        case "far": {
+          x = (Math.random() * 2 - 1) * hx;
+          z = -hz + 2 + Math.random() * 5;
+          break;
+        }
+        case "behind": {
+          x = (Math.random() * 2 - 1) * hx;
+          z = playerZ + 5 + Math.random() * 5;
+          break;
+        }
+        default: {
+          x = (Math.random() * 2 - 1) * hx;
+          z = playerZ - 5 - Math.random() * 10;
+        }
+      }
+      x = Math.max(-hx, Math.min(hx, x));
+      z = Math.max(-hz, Math.min(hz, z));
+      if (!isInsideObstacle(x, z) && !isInsidePit(x, z)) {
+        return { x, z };
+      }
+    }
+    return { x: (Math.random() * 2 - 1) * 3, z: 0 };
+  });
+}
+function isInsideObstacle(x, z) {
+  const bounds = getBounds();
+  const obstacleCount = bounds.length - 4;
+  for (let i = 0; i < obstacleCount; i++) {
+    const b = bounds[i];
+    if (x >= b.minX - 1 && x <= b.maxX + 1 && z >= b.minZ - 1 && z <= b.maxZ + 1) {
+      return true;
+    }
+  }
+  return false;
+}
+function isInsidePit(x, z) {
+  const pits = getPits();
+  for (const p of pits) {
+    if (x >= p.minX - 0.5 && x <= p.maxX + 0.5 && z >= p.minZ - 0.5 && z <= p.maxZ + 0.5) {
+      return true;
+    }
+  }
+  return false;
+}
+function resetRoomManager() {
+  currentRoomIndex = 0;
+  packIndex = 0;
+  totalKills = 0;
+  roomBudgetTotal = 0;
+  roomCleared = false;
+  spawnCooldownTimer = 0;
+  finalWaveAnnounced = false;
+  restRoomTimer = 0;
+  activeTelegraphs2 = [];
+  removeDoor();
+}
+function showAnnounce(text) {
+  if (!announceEl) return;
+  announceEl.textContent = text;
+  announceEl.classList.add("visible");
+}
+function hideAnnounce() {
+  if (!announceEl) return;
+  announceEl.classList.remove("visible");
+}
+
 // src/ui/hud.ts
 var healthBar;
 var healthText;
@@ -6925,7 +6926,7 @@ function initMobileButtons() {
 function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel }) {
   let touchId = null;
   let startX = 0, startY = 0;
-  let isDragging2 = false;
+  let isDragging3 = false;
   btnEl.addEventListener("touchstart", (e) => {
     e.preventDefault();
     if (touchId !== null) return;
@@ -6933,7 +6934,7 @@ function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel })
     touchId = touch.identifier;
     startX = touch.clientX;
     startY = touch.clientY;
-    isDragging2 = false;
+    isDragging3 = false;
     onDragStart();
   });
   window.addEventListener("touchmove", (e) => {
@@ -6944,7 +6945,7 @@ function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel })
     const dy = touch.clientY - startY;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist > DRAG_THRESHOLD) {
-      isDragging2 = true;
+      isDragging3 = true;
       const clampedDist = Math.min(dist, DRAG_MAX_RADIUS);
       const normX = dx / dist * (clampedDist / DRAG_MAX_RADIUS);
       const normY = -dy / dist * (clampedDist / DRAG_MAX_RADIUS);
@@ -6956,7 +6957,7 @@ function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel })
     const touch = findTouch(e.changedTouches, touchId);
     if (!touch) return;
     touchId = null;
-    onRelease(isDragging2);
+    onRelease(isDragging3);
   });
   window.addEventListener("touchcancel", (e) => {
     if (touchId === null) return;
@@ -7703,11 +7704,11 @@ function applyUrlParams() {
   return applied;
 }
 function snapshotDefaults() {
-  const snap = {};
+  const snap2 = {};
   for (const [prefix, root] of Object.entries(CONFIG_ROOTS)) {
-    snap[prefix] = JSON.parse(JSON.stringify(root));
+    snap2[prefix] = JSON.parse(JSON.stringify(root));
   }
-  return snap;
+  return snap2;
 }
 function buildShareUrl(defaults) {
   const params = new URLSearchParams();
@@ -9431,13 +9432,1154 @@ function hideAnnounce2() {
   announceEl2.classList.remove("visible");
 }
 
-// src/ui/spawnEditor.ts
-console.log("[spawnEditor] v2 loaded \u2014 tabs enabled");
-var sceneRef9;
+// src/ui/editorHandles.ts
+var sceneRef9 = null;
+var handleMeshes = [];
+var grabbedHandle = null;
+var handleSize = 0.3;
+var HANDLE_SIZE_NORMAL = 0.3;
+var HANDLE_SIZE_RESIZE = 0.6;
+var HANDLE_COLORS = {
+  x: 16729156,
+  // red
+  z: 4474111,
+  // blue
+  y: 4521796
+  // green
+};
+function initHandles(scene2) {
+  sceneRef9 = scene2;
+}
+function setResizeMode(on2) {
+  handleSize = on2 ? HANDLE_SIZE_RESIZE : HANDLE_SIZE_NORMAL;
+}
+function showHandles(entity, type) {
+  clearHandles();
+  if (!sceneRef9) return;
+  addHandlesForEntity(entity, type);
+}
+function showAllHandles(obstacles, pits) {
+  clearHandles();
+  if (!sceneRef9) return;
+  for (const o of obstacles) addHandlesForEntity(o, "obstacle", 0.35);
+  for (const p of pits) addHandlesForEntity(p, "pit", 0.35);
+}
+function addHandlesForEntity(entity, type, opacity = 0.8) {
+  const x = entity.x;
+  const z = entity.z;
+  const w = entity.w;
+  const d = entity.d;
+  const h = type === "obstacle" ? entity.h : 0;
+  const baseY = type === "obstacle" ? h / 2 : 0.15;
+  addHandle(x + w / 2, baseY, z, "x", 1, opacity);
+  addHandle(x - w / 2, baseY, z, "x", -1, opacity);
+  addHandle(x, baseY, z + d / 2, "z", 1, opacity);
+  addHandle(x, baseY, z - d / 2, "z", -1, opacity);
+  if (type === "obstacle") {
+    addHandle(x, h, z, "y", 1, opacity);
+  }
+}
+function clearHandles() {
+  for (const mesh of handleMeshes) {
+    if (sceneRef9) sceneRef9.remove(mesh);
+    if (mesh.geometry) mesh.geometry.dispose();
+    if (mesh.material) mesh.material.dispose();
+  }
+  handleMeshes = [];
+}
+function raycastHandles(ndc) {
+  if (handleMeshes.length === 0) return false;
+  const camera2 = getCamera();
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), camera2);
+  const intersects = raycaster.intersectObjects(handleMeshes, false);
+  if (intersects.length > 0) {
+    const hitMesh = intersects[0].object;
+    grabbedHandle = hitMesh.userData.handleData;
+    return true;
+  }
+  return false;
+}
+function getGrabbedHandle() {
+  return grabbedHandle;
+}
+function releaseHandle() {
+  grabbedHandle = null;
+}
+function grabNearestHandle(worldX, worldZ) {
+  if (handleMeshes.length === 0) return false;
+  let bestDist = Infinity;
+  let bestHandle = null;
+  for (const mesh of handleMeshes) {
+    const dx = mesh.position.x - worldX;
+    const dz = mesh.position.z - worldZ;
+    const dist = dx * dx + dz * dz;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestHandle = mesh.userData.handleData;
+    }
+  }
+  if (bestHandle) {
+    grabbedHandle = bestHandle;
+    return true;
+  }
+  return false;
+}
+function updateHandlePositions(entity, type) {
+  const savedGrab = grabbedHandle;
+  showHandles(entity, type);
+  grabbedHandle = savedGrab;
+}
+function addHandle(px, py, pz, axis, sign, opacity = 0.8) {
+  const geo = new THREE.BoxGeometry(handleSize, handleSize, handleSize);
+  const mat = new THREE.MeshBasicMaterial({
+    color: HANDLE_COLORS[axis],
+    transparent: true,
+    opacity
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(px, py, pz);
+  mesh.userData.handleData = { axis, sign };
+  sceneRef9.add(mesh);
+  handleMeshes.push(mesh);
+}
+
+// src/ui/levelEditor.ts
+var sceneRef10;
 var gameStateRef;
-var panel2;
 var active3 = false;
 var previousPhase = "playing";
+var mode = "obstacle";
+var selectedType = null;
+var selectedIdx = -1;
+var isDragging = false;
+var dragStarted = false;
+var dragStartWorld = null;
+var dragUndoPushed = false;
+var handleUndoPushed = false;
+var resizeMode = false;
+var lastMouseNDC = { x: 0, y: 0 };
+var bendPreviewActive = false;
+var bendPreviewSystem = null;
+var selectedBendId2 = BENDS[0]?.id ?? "enlarge";
+var bendPreviewBtn;
+var bendSelectorEl;
+var barEl;
+var panelEl;
+var panelContent;
+var modeBtns = [];
+var selectionVisual = null;
+var undoStack = [];
+var redoStack = [];
+var MAX_UNDO = 50;
+function snapshotState() {
+  return {
+    obstacles: JSON.parse(JSON.stringify(OBSTACLES)),
+    pits: JSON.parse(JSON.stringify(PITS)),
+    physicsObjects: gameStateRef.physicsObjects.map((o) => ({
+      meshType: o.meshType,
+      material: o.material,
+      x: o.pos.x,
+      z: o.pos.z,
+      mass: o.mass,
+      health: o.health,
+      radius: o.radius,
+      scale: o.scale
+    })),
+    selectedType,
+    selectedIdx
+  };
+}
+function pushUndo() {
+  undoStack.push(snapshotState());
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+  redoStack.length = 0;
+}
+function applySnapshot(snap2) {
+  OBSTACLES.length = 0;
+  for (const o of snap2.obstacles) OBSTACLES.push(o);
+  PITS.length = 0;
+  for (const p of snap2.pits) PITS.push(p);
+  clearPhysicsObjects(gameStateRef, sceneRef10);
+  for (const p of snap2.physicsObjects) {
+    const obj = createPhysicsObject(p);
+    createPhysicsObjectMesh(obj, sceneRef10);
+    gameStateRef.physicsObjects.push(obj);
+  }
+  selectedType = snap2.selectedType;
+  selectedIdx = snap2.selectedIdx;
+  onArenaChanged();
+  updateSelectionVisuals();
+  updatePropertyPanel();
+}
+function undo() {
+  if (undoStack.length === 0) return;
+  redoStack.push(snapshotState());
+  applySnapshot(undoStack.pop());
+}
+function redo() {
+  if (redoStack.length === 0) return;
+  undoStack.push(snapshotState());
+  applySnapshot(redoStack.pop());
+}
+function exportRoomJSON() {
+  const room = {
+    name: "Exported Room",
+    arenaHalfX: ARENA_HALF_X,
+    arenaHalfZ: ARENA_HALF_Z,
+    obstacles: OBSTACLES.map((o) => ({ ...o })),
+    pits: PITS.map((p) => ({ ...p })),
+    physicsObjects: gameStateRef.physicsObjects.map((obj) => ({
+      meshType: obj.meshType,
+      material: obj.material,
+      x: obj.pos.x,
+      z: obj.pos.z,
+      mass: obj.mass,
+      health: obj.maxHealth,
+      radius: obj.radius,
+      scale: obj.scale
+    })),
+    spawnBudget: { packs: [] },
+    playerStart: { x: 0, z: 0 }
+  };
+  const json = JSON.stringify(room, null, 2);
+  navigator.clipboard.writeText(json).then(() => {
+    const titleSpan = barEl.querySelector("span");
+    if (titleSpan) {
+      const original = titleSpan.textContent;
+      titleSpan.textContent = "COPIED! \u2014 ";
+      setTimeout(() => {
+        titleSpan.textContent = original;
+      }, 1200);
+    }
+  });
+}
+function importRoomJSON() {
+  const json = window.prompt("Paste room JSON:");
+  if (!json) return;
+  let room;
+  try {
+    room = JSON.parse(json);
+  } catch {
+    window.alert("Invalid JSON");
+    return;
+  }
+  pushUndo();
+  OBSTACLES.length = 0;
+  if (Array.isArray(room.obstacles)) {
+    for (const o of room.obstacles) OBSTACLES.push(o);
+  }
+  PITS.length = 0;
+  if (Array.isArray(room.pits)) {
+    for (const p of room.pits) PITS.push(p);
+  }
+  clearPhysicsObjects(gameStateRef, sceneRef10);
+  if (Array.isArray(room.physicsObjects)) {
+    for (const p of room.physicsObjects) {
+      const obj = createPhysicsObject(p);
+      createPhysicsObjectMesh(obj, sceneRef10);
+      gameStateRef.physicsObjects.push(obj);
+    }
+  }
+  selectedType = null;
+  selectedIdx = -1;
+  onArenaChanged();
+  updateSelectionVisuals();
+  updatePropertyPanel();
+}
+function updateBendSelectorHighlight() {
+  const btns = bendSelectorEl.querySelectorAll("button");
+  btns.forEach((btn) => {
+    btn.style.background = btn.dataset.bendId === selectedBendId2 ? "#336699" : "";
+  });
+}
+function toggleBendPreview() {
+  bendPreviewActive = !bendPreviewActive;
+  if (bendPreviewActive) {
+    bendPreviewSystem = createBendSystem(99);
+    bendPreviewBtn.textContent = "Preview ON";
+    bendPreviewBtn.style.background = "#228844";
+    bendSelectorEl.style.display = "flex";
+    updateBendSelectorHighlight();
+  } else {
+    if (bendPreviewSystem) {
+      bendPreviewSystem.resetAll();
+      for (const obj of gameStateRef.physicsObjects) {
+        clearBendVisuals(obj);
+      }
+      bendPreviewSystem = null;
+    }
+    bendPreviewBtn.textContent = "Preview Bends";
+    bendPreviewBtn.style.background = "";
+    bendSelectorEl.style.display = "none";
+  }
+}
+function applyBendPreviewToTarget(ndc) {
+  if (!bendPreviewActive || !bendPreviewSystem) return false;
+  const camera2 = getCamera();
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), camera2);
+  for (const obj of gameStateRef.physicsObjects) {
+    if (!obj.mesh || obj.destroyed) continue;
+    const intersects = raycaster.intersectObject(obj.mesh, true);
+    if (intersects.length > 0) {
+      const bend = getBendById(selectedBendId2);
+      if (!bend) return false;
+      const result = bendPreviewSystem.applyBend(selectedBendId2, "physicsObject", obj);
+      if (result.success) {
+        applyBendVisuals(obj, bend.tintColor);
+      }
+      return true;
+    }
+  }
+  return false;
+}
+function onArenaChanged() {
+  rebuildArenaVisuals();
+  invalidateCollisionBounds();
+}
+function snap(v) {
+  return Math.round(v * 2) / 2;
+}
+function mouseToWorld(mouseNDC) {
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2(mouseNDC.x, mouseNDC.y);
+  raycaster.setFromCamera(ndc, getCamera());
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const target = new THREE.Vector3();
+  raycaster.ray.intersectPlane(plane, target);
+  return { x: target.x, z: target.z };
+}
+function clientToNDC(e) {
+  return {
+    x: e.clientX / window.innerWidth * 2 - 1,
+    y: -(e.clientY / window.innerHeight) * 2 + 1
+  };
+}
+function clearChildren(el) {
+  while (el.firstChild) el.removeChild(el.firstChild);
+}
+function clearSelectionVisual() {
+  if (selectionVisual) {
+    sceneRef10.remove(selectionVisual);
+    selectionVisual.traverse((child) => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    });
+    selectionVisual = null;
+  }
+}
+function updateSelectionVisuals() {
+  clearSelectionVisual();
+  clearHandles();
+  const outlineColor = resizeMode ? 16746564 : 4521796;
+  if (selectedType === "obstacle" && selectedIdx >= 0 && selectedIdx < OBSTACLES.length) {
+    const o = OBSTACLES[selectedIdx];
+    const geo = new THREE.BoxGeometry(o.w, o.h, o.d);
+    const edges = new THREE.EdgesGeometry(geo);
+    const mat = new THREE.LineBasicMaterial({ color: outlineColor });
+    const lines = new THREE.LineSegments(edges, mat);
+    lines.position.set(o.x, o.h / 2, o.z);
+    sceneRef10.add(lines);
+    selectionVisual = lines;
+    geo.dispose();
+    showHandles(o, "obstacle");
+  } else if (selectedType === "physics" && selectedIdx >= 0 && selectedIdx < gameStateRef.physicsObjects.length) {
+    const obj = gameStateRef.physicsObjects[selectedIdx];
+    const r = obj.radius;
+    const ringGeo3 = new THREE.RingGeometry(r - 0.05, r + 0.05, 32);
+    const mat = new THREE.LineBasicMaterial({ color: outlineColor });
+    const ring = new THREE.Mesh(ringGeo3, mat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(obj.pos.x, 0.05, obj.pos.z);
+    sceneRef10.add(ring);
+    selectionVisual = ring;
+  } else if (selectedType === "pit" && selectedIdx >= 0 && selectedIdx < PITS.length) {
+    const p = PITS[selectedIdx];
+    const geo = new THREE.BoxGeometry(p.w, 0.2, p.d);
+    const edges = new THREE.EdgesGeometry(geo);
+    const mat = new THREE.LineBasicMaterial({ color: outlineColor });
+    const lines = new THREE.LineSegments(edges, mat);
+    lines.position.set(p.x, 0.1, p.z);
+    sceneRef10.add(lines);
+    selectionVisual = lines;
+    geo.dispose();
+    showHandles(p, "pit");
+  } else {
+    showAllHandles(OBSTACLES, PITS);
+  }
+}
+function addNumberField(container, label, value, onChange, min, max, step) {
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin:4px 0";
+  const lbl = document.createElement("label");
+  lbl.textContent = label;
+  lbl.style.cssText = "color:#ccc;font-size:12px";
+  const inp = document.createElement("input");
+  inp.type = "number";
+  inp.value = String(value);
+  inp.style.cssText = "width:70px;background:#333;color:#fff;border:1px solid #555;padding:2px 4px;font-size:12px";
+  if (min !== void 0) inp.min = String(min);
+  if (max !== void 0) inp.max = String(max);
+  if (step !== void 0) inp.step = String(step);
+  inp.addEventListener("change", () => {
+    pushUndo();
+    onChange(parseFloat(inp.value));
+    updateSelectionVisuals();
+  });
+  row.appendChild(lbl);
+  row.appendChild(inp);
+  container.appendChild(row);
+}
+function addDropdown(container, label, value, options, onChange) {
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin:4px 0";
+  const lbl = document.createElement("label");
+  lbl.textContent = label;
+  lbl.style.cssText = "color:#ccc;font-size:12px";
+  const sel = document.createElement("select");
+  sel.style.cssText = "width:80px;background:#333;color:#fff;border:1px solid #555;padding:2px 4px;font-size:12px";
+  for (const opt of options) {
+    const o = document.createElement("option");
+    o.value = opt;
+    o.textContent = opt;
+    if (opt === value) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.addEventListener("change", () => {
+    pushUndo();
+    onChange(sel.value);
+    updateSelectionVisuals();
+  });
+  row.appendChild(lbl);
+  row.appendChild(sel);
+  container.appendChild(row);
+}
+function addCheckbox(container, label, checked, onChange) {
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin:4px 0";
+  const lbl = document.createElement("label");
+  lbl.textContent = label;
+  lbl.style.cssText = "color:#ccc;font-size:12px";
+  const inp = document.createElement("input");
+  inp.type = "checkbox";
+  inp.checked = checked;
+  inp.style.cssText = "accent-color:#4f4";
+  inp.addEventListener("change", () => {
+    pushUndo();
+    onChange(inp.checked);
+    updatePropertyPanel();
+    updateSelectionVisuals();
+  });
+  row.appendChild(lbl);
+  row.appendChild(inp);
+  container.appendChild(row);
+}
+function addSectionHeader(container, text) {
+  const h = document.createElement("div");
+  h.textContent = text;
+  h.style.cssText = "color:#4f4;font-size:13px;font-weight:bold;margin:8px 0 4px;border-bottom:1px solid #444;padding-bottom:2px";
+  container.appendChild(h);
+}
+function rebuildPhysicsObjectMesh(obj) {
+  if (obj.mesh) {
+    sceneRef10.remove(obj.mesh);
+    obj.mesh.traverse((child) => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    });
+    obj.mesh = null;
+  }
+  createPhysicsObjectMesh(obj, sceneRef10);
+}
+function updatePropertyPanel() {
+  clearChildren(panelContent);
+  if (selectedType === "obstacle" && selectedIdx >= 0 && selectedIdx < OBSTACLES.length) {
+    const o = OBSTACLES[selectedIdx];
+    addSectionHeader(panelContent, "Obstacle");
+    addNumberField(panelContent, "X", o.x, (v) => {
+      o.x = v;
+      onArenaChanged();
+    }, void 0, void 0, 0.5);
+    addNumberField(panelContent, "Z", o.z, (v) => {
+      o.z = v;
+      onArenaChanged();
+    }, void 0, void 0, 0.5);
+    addNumberField(panelContent, "Width", o.w, (v) => {
+      o.w = v;
+      onArenaChanged();
+    }, 0.5, void 0, 0.5);
+    addNumberField(panelContent, "Height", o.h, (v) => {
+      o.h = v;
+      onArenaChanged();
+    }, 0.5, void 0, 0.5);
+    addNumberField(panelContent, "Depth", o.d, (v) => {
+      o.d = v;
+      onArenaChanged();
+    }, 0.5, void 0, 0.5);
+    addCheckbox(panelContent, "Destructible", !!o.destructible, (v) => {
+      o.destructible = v;
+      if (v && !o.health) {
+        o.health = 50;
+        o.maxHealth = 50;
+      }
+      onArenaChanged();
+    });
+    if (o.destructible) {
+      addNumberField(panelContent, "Health", o.health ?? 50, (v) => {
+        o.health = v;
+        o.maxHealth = v;
+        onArenaChanged();
+      }, 1, void 0, 1);
+    }
+    addDropdown(panelContent, "Material", o.material || "stone", ["stone", "wood", "metal", "ice"], (v) => {
+      o.material = v;
+      onArenaChanged();
+    });
+  } else if (selectedType === "physics" && selectedIdx >= 0 && selectedIdx < gameStateRef.physicsObjects.length) {
+    const obj = gameStateRef.physicsObjects[selectedIdx];
+    addSectionHeader(panelContent, "Physics Object");
+    addNumberField(panelContent, "X", obj.pos.x, (v) => {
+      obj.pos.x = v;
+      if (obj.mesh) obj.mesh.position.x = v;
+    }, void 0, void 0, 0.5);
+    addNumberField(panelContent, "Z", obj.pos.z, (v) => {
+      obj.pos.z = v;
+      if (obj.mesh) obj.mesh.position.z = v;
+    }, void 0, void 0, 0.5);
+    addDropdown(panelContent, "Mesh Type", obj.meshType, ["rock", "crate", "barrel", "pillar"], (v) => {
+      obj.meshType = v;
+      rebuildPhysicsObjectMesh(obj);
+    });
+    addDropdown(panelContent, "Material", obj.material, ["stone", "wood", "metal", "ice"], (v) => {
+      obj.material = v;
+      rebuildPhysicsObjectMesh(obj);
+    });
+    addNumberField(panelContent, "Mass", obj.mass, (v) => {
+      obj.mass = v;
+    }, 0.1, 50, 0.1);
+    addNumberField(panelContent, "Health", obj.health, (v) => {
+      obj.health = v;
+      obj.maxHealth = v;
+    }, 1, 9999, 1);
+    addNumberField(panelContent, "Radius", obj.radius, (v) => {
+      obj.radius = v;
+      rebuildPhysicsObjectMesh(obj);
+    }, 0.1, 5, 0.1);
+  } else if (selectedType === "pit" && selectedIdx >= 0 && selectedIdx < PITS.length) {
+    const p = PITS[selectedIdx];
+    addSectionHeader(panelContent, "Pit");
+    addNumberField(panelContent, "X", p.x, (v) => {
+      p.x = v;
+      onArenaChanged();
+    }, void 0, void 0, 0.5);
+    addNumberField(panelContent, "Z", p.z, (v) => {
+      p.z = v;
+      onArenaChanged();
+    }, void 0, void 0, 0.5);
+    addNumberField(panelContent, "Width", p.w, (v) => {
+      p.w = v;
+      onArenaChanged();
+    }, 0.5, void 0, 0.5);
+    addNumberField(panelContent, "Depth", p.d, (v) => {
+      p.d = v;
+      onArenaChanged();
+    }, 0.5, void 0, 0.5);
+  } else {
+    const hint = document.createElement("div");
+    hint.textContent = "Click to place or select";
+    hint.style.cssText = "color:#666;font-size:11px;text-align:center;margin-top:20px";
+    panelContent.appendChild(hint);
+  }
+}
+function hitTestPhysics(wx, wz) {
+  for (let i = 0; i < gameStateRef.physicsObjects.length; i++) {
+    const obj = gameStateRef.physicsObjects[i];
+    if (obj.destroyed) continue;
+    const dx = wx - obj.pos.x;
+    const dz = wz - obj.pos.z;
+    if (dx * dx + dz * dz < obj.radius * obj.radius) return i;
+  }
+  return -1;
+}
+function hitTestObstacle3D(ndc) {
+  const camera2 = getCamera();
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), camera2);
+  const ray = raycaster.ray;
+  let bestDist = Infinity;
+  let bestIdx = -1;
+  for (let i = 0; i < OBSTACLES.length; i++) {
+    const o = OBSTACLES[i];
+    const box = new THREE.Box3(
+      new THREE.Vector3(o.x - o.w / 2, 0, o.z - o.d / 2),
+      new THREE.Vector3(o.x + o.w / 2, o.h, o.z + o.d / 2)
+    );
+    const hit = ray.intersectBox(box, new THREE.Vector3());
+    if (hit) {
+      const dist = hit.distanceTo(ray.origin);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestIdx = i;
+      }
+    }
+  }
+  return bestIdx;
+}
+function hitTestPit(wx, wz) {
+  for (let i = 0; i < PITS.length; i++) {
+    const p = PITS[i];
+    if (Math.abs(wx - p.x) < p.w / 2 && Math.abs(wz - p.z) < p.d / 2) return i;
+  }
+  return -1;
+}
+function hitTestAll3D(ndc, wx, wz) {
+  const order = mode === "obstacle" ? ["obstacle", "physics", "pit"] : mode === "physics" ? ["physics", "obstacle", "pit"] : ["pit", "obstacle", "physics"];
+  for (const t of order) {
+    let idx = -1;
+    if (t === "obstacle") idx = hitTestObstacle3D(ndc);
+    else if (t === "physics") idx = hitTestPhysics(wx, wz);
+    else idx = hitTestPit(wx, wz);
+    if (idx >= 0) return { type: t, idx };
+  }
+  return null;
+}
+function deleteSelected() {
+  if (selectedType === null || selectedIdx < 0) return;
+  pushUndo();
+  if (selectedType === "obstacle" && selectedIdx < OBSTACLES.length) {
+    OBSTACLES.splice(selectedIdx, 1);
+    onArenaChanged();
+  } else if (selectedType === "physics" && selectedIdx < gameStateRef.physicsObjects.length) {
+    const obj = gameStateRef.physicsObjects[selectedIdx];
+    if (obj.mesh) {
+      sceneRef10.remove(obj.mesh);
+      obj.mesh.traverse((child) => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      });
+    }
+    gameStateRef.physicsObjects.splice(selectedIdx, 1);
+  } else if (selectedType === "pit" && selectedIdx < PITS.length) {
+    PITS.splice(selectedIdx, 1);
+    onArenaChanged();
+  }
+  selectedType = null;
+  selectedIdx = -1;
+  updateSelectionVisuals();
+  updatePropertyPanel();
+}
+function deleteNearest(wx, wz) {
+  let bestDist = 3;
+  let bestType = null;
+  let bestIdx = -1;
+  for (let i = 0; i < OBSTACLES.length; i++) {
+    const o = OBSTACLES[i];
+    const d = Math.sqrt((wx - o.x) ** 2 + (wz - o.z) ** 2);
+    if (d < bestDist) {
+      bestDist = d;
+      bestType = "obstacle";
+      bestIdx = i;
+    }
+  }
+  for (let i = 0; i < gameStateRef.physicsObjects.length; i++) {
+    const o = gameStateRef.physicsObjects[i];
+    if (o.destroyed) continue;
+    const d = Math.sqrt((wx - o.pos.x) ** 2 + (wz - o.pos.z) ** 2);
+    if (d < bestDist) {
+      bestDist = d;
+      bestType = "physics";
+      bestIdx = i;
+    }
+  }
+  for (let i = 0; i < PITS.length; i++) {
+    const p = PITS[i];
+    const d = Math.sqrt((wx - p.x) ** 2 + (wz - p.z) ** 2);
+    if (d < bestDist) {
+      bestDist = d;
+      bestType = "pit";
+      bestIdx = i;
+    }
+  }
+  if (bestType === null) return;
+  selectedType = bestType;
+  selectedIdx = bestIdx;
+  deleteSelected();
+}
+function duplicateSelected() {
+  if (selectedType === null || selectedIdx < 0) return;
+  pushUndo();
+  if (selectedType === "obstacle" && selectedIdx < OBSTACLES.length) {
+    const src = OBSTACLES[selectedIdx];
+    const copy = { ...src, x: src.x + 1 };
+    if (copy.health !== void 0) copy.maxHealth = copy.health;
+    OBSTACLES.push(copy);
+    selectedIdx = OBSTACLES.length - 1;
+    onArenaChanged();
+  } else if (selectedType === "physics" && selectedIdx < gameStateRef.physicsObjects.length) {
+    const src = gameStateRef.physicsObjects[selectedIdx];
+    const placement = {
+      meshType: src.meshType,
+      material: src.material,
+      x: src.pos.x + 1,
+      z: src.pos.z,
+      mass: src.mass,
+      health: src.health,
+      radius: src.radius,
+      scale: src.scale
+    };
+    const obj = createPhysicsObject(placement);
+    createPhysicsObjectMesh(obj, sceneRef10);
+    gameStateRef.physicsObjects.push(obj);
+    selectedIdx = gameStateRef.physicsObjects.length - 1;
+  } else if (selectedType === "pit" && selectedIdx < PITS.length) {
+    const src = PITS[selectedIdx];
+    PITS.push({ ...src, x: src.x + 1 });
+    selectedIdx = PITS.length - 1;
+    onArenaChanged();
+  }
+  updateSelectionVisuals();
+  updatePropertyPanel();
+}
+var MIN_DIM = 0.5;
+function resizeWithHandle(handle, ndc) {
+  if (handle.axis === "x" || handle.axis === "z") {
+    const w = mouseToWorld(ndc);
+    if (handle.axis === "x") {
+      if (selectedType === "obstacle" && selectedIdx >= 0 && selectedIdx < OBSTACLES.length) {
+        const o = OBSTACLES[selectedIdx];
+        const fixedEdge = o.x - handle.sign * o.w / 2;
+        const rawEdge = snap(w.x);
+        const newEdge = handle.sign > 0 ? Math.max(fixedEdge + MIN_DIM, rawEdge) : Math.min(fixedEdge - MIN_DIM, rawEdge);
+        const newW = Math.abs(newEdge - fixedEdge);
+        o.x = fixedEdge + handle.sign * newW / 2;
+        o.w = newW;
+        onArenaChanged();
+        updateHandlePositions(o, "obstacle");
+      } else if (selectedType === "pit" && selectedIdx >= 0 && selectedIdx < PITS.length) {
+        const p = PITS[selectedIdx];
+        const fixedEdge = p.x - handle.sign * p.w / 2;
+        const rawEdge = snap(w.x);
+        const newEdge = handle.sign > 0 ? Math.max(fixedEdge + MIN_DIM, rawEdge) : Math.min(fixedEdge - MIN_DIM, rawEdge);
+        const newW = Math.abs(newEdge - fixedEdge);
+        p.x = fixedEdge + handle.sign * newW / 2;
+        p.w = newW;
+        onArenaChanged();
+        updateHandlePositions(p, "pit");
+      }
+    } else {
+      if (selectedType === "obstacle" && selectedIdx >= 0 && selectedIdx < OBSTACLES.length) {
+        const o = OBSTACLES[selectedIdx];
+        const fixedEdge = o.z - handle.sign * o.d / 2;
+        const rawEdge = snap(w.z);
+        const newEdge = handle.sign > 0 ? Math.max(fixedEdge + MIN_DIM, rawEdge) : Math.min(fixedEdge - MIN_DIM, rawEdge);
+        const newD = Math.abs(newEdge - fixedEdge);
+        o.z = fixedEdge + handle.sign * newD / 2;
+        o.d = newD;
+        onArenaChanged();
+        updateHandlePositions(o, "obstacle");
+      } else if (selectedType === "pit" && selectedIdx >= 0 && selectedIdx < PITS.length) {
+        const p = PITS[selectedIdx];
+        const fixedEdge = p.z - handle.sign * p.d / 2;
+        const rawEdge = snap(w.z);
+        const newEdge = handle.sign > 0 ? Math.max(fixedEdge + MIN_DIM, rawEdge) : Math.min(fixedEdge - MIN_DIM, rawEdge);
+        const newD = Math.abs(newEdge - fixedEdge);
+        p.z = fixedEdge + handle.sign * newD / 2;
+        p.d = newD;
+        onArenaChanged();
+        updateHandlePositions(p, "pit");
+      }
+    }
+  } else if (handle.axis === "y" && selectedType === "obstacle") {
+    const o = OBSTACLES[selectedIdx];
+    const camera2 = getCamera();
+    const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera2.quaternion).normalize();
+    const handlePos = new THREE.Vector3(o.x, o.h, o.z);
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(cameraDir, handlePos);
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), camera2);
+    const intersection = new THREE.Vector3();
+    if (raycaster.ray.intersectPlane(plane, intersection)) {
+      const newH = Math.max(MIN_DIM, snap(intersection.y));
+      o.h = newH;
+      onArenaChanged();
+      updateHandlePositions(o, "obstacle");
+    }
+  }
+  clearSelectionVisual();
+  if (selectedType === "obstacle" && selectedIdx >= 0 && selectedIdx < OBSTACLES.length) {
+    const o = OBSTACLES[selectedIdx];
+    const geo = new THREE.BoxGeometry(o.w, o.h, o.d);
+    const edges = new THREE.EdgesGeometry(geo);
+    const mat = new THREE.LineBasicMaterial({ color: 4521796 });
+    const lines = new THREE.LineSegments(edges, mat);
+    lines.position.set(o.x, o.h / 2, o.z);
+    sceneRef10.add(lines);
+    selectionVisual = lines;
+    geo.dispose();
+  } else if (selectedType === "pit" && selectedIdx >= 0 && selectedIdx < PITS.length) {
+    const p = PITS[selectedIdx];
+    const geo = new THREE.BoxGeometry(p.w, 0.2, p.d);
+    const edges = new THREE.EdgesGeometry(geo);
+    const mat = new THREE.LineBasicMaterial({ color: 4521796 });
+    const lines = new THREE.LineSegments(edges, mat);
+    lines.position.set(p.x, 0.1, p.z);
+    sceneRef10.add(lines);
+    selectionVisual = lines;
+    geo.dispose();
+  }
+  updatePropertyPanel();
+}
+function onMouseDown(e) {
+  if (!active3) return;
+  const ndc = clientToNDC(e);
+  const w = mouseToWorld(ndc);
+  if (e.button === 2 || e.button === 0 && e.shiftKey) {
+    e.preventDefault();
+    deleteNearest(w.x, w.z);
+    return;
+  }
+  if (e.button !== 0) return;
+  if (raycastHandles(ndc)) {
+    handleUndoPushed = false;
+    return;
+  }
+  if (applyBendPreviewToTarget(ndc)) {
+    return;
+  }
+  const hit = hitTestAll3D(ndc, w.x, w.z);
+  if (hit) {
+    if (resizeMode && hit.type === selectedType && hit.idx === selectedIdx && (hit.type === "obstacle" || hit.type === "pit")) {
+      if (grabNearestHandle(w.x, w.z)) {
+        handleUndoPushed = false;
+        return;
+      }
+    }
+    selectedType = hit.type;
+    selectedIdx = hit.idx;
+    isDragging = true;
+    dragStarted = false;
+    dragUndoPushed = false;
+    dragStartWorld = { x: w.x, z: w.z };
+    updateSelectionVisuals();
+    updatePropertyPanel();
+  } else {
+    selectedType = null;
+    selectedIdx = -1;
+    updateSelectionVisuals();
+    updatePropertyPanel();
+  }
+}
+function onMouseMove(e) {
+  if (!active3) return;
+  const ndc = clientToNDC(e);
+  lastMouseNDC.x = ndc.x;
+  lastMouseNDC.y = ndc.y;
+  const handle = getGrabbedHandle();
+  if (handle) {
+    if (!handleUndoPushed) {
+      pushUndo();
+      handleUndoPushed = true;
+    }
+    resizeWithHandle(handle, ndc);
+    return;
+  }
+  if (!isDragging) return;
+  const w = mouseToWorld(ndc);
+  if (!dragStarted && dragStartWorld) {
+    const dx = w.x - dragStartWorld.x;
+    const dz = w.z - dragStartWorld.z;
+    if (Math.sqrt(dx * dx + dz * dz) < 0.5) return;
+    dragStarted = true;
+  }
+  if (!dragStarted) return;
+  if (!dragUndoPushed) {
+    pushUndo();
+    dragUndoPushed = true;
+  }
+  const sx = snap(w.x);
+  const sz = snap(w.z);
+  if (selectedType === "obstacle" && selectedIdx >= 0 && selectedIdx < OBSTACLES.length) {
+    OBSTACLES[selectedIdx].x = sx;
+    OBSTACLES[selectedIdx].z = sz;
+    onArenaChanged();
+  } else if (selectedType === "physics" && selectedIdx >= 0 && selectedIdx < gameStateRef.physicsObjects.length) {
+    const obj = gameStateRef.physicsObjects[selectedIdx];
+    obj.pos.x = sx;
+    obj.pos.z = sz;
+    if (obj.mesh) {
+      obj.mesh.position.x = sx;
+      obj.mesh.position.z = sz;
+    }
+  } else if (selectedType === "pit" && selectedIdx >= 0 && selectedIdx < PITS.length) {
+    PITS[selectedIdx].x = sx;
+    PITS[selectedIdx].z = sz;
+    onArenaChanged();
+  }
+  updateSelectionVisuals();
+  updatePropertyPanel();
+}
+function onMouseUp(_e) {
+  if (!active3) return;
+  if (getGrabbedHandle()) {
+    releaseHandle();
+    onArenaChanged();
+    updateSelectionVisuals();
+    updatePropertyPanel();
+  }
+  isDragging = false;
+  dragStarted = false;
+  dragStartWorld = null;
+  dragUndoPushed = false;
+}
+function onContextMenu(e) {
+  if (active3) e.preventDefault();
+}
+function onKeyDown(e) {
+  if (!active3) return;
+  if (e.code === "Backquote" && e.shiftKey) {
+    e.preventDefault();
+    toggleLevelEditor();
+    return;
+  }
+  if (e.code === "Digit1") {
+    setMode("obstacle");
+    return;
+  }
+  if (e.code === "Digit2") {
+    setMode("physics");
+    return;
+  }
+  if (e.code === "Digit3") {
+    setMode("pit");
+    return;
+  }
+  if (e.code === "Delete" || e.code === "Backspace") {
+    e.preventDefault();
+    deleteSelected();
+    return;
+  }
+  if (e.code === "KeyD" && !e.ctrlKey && !e.metaKey) {
+    duplicateSelected();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ" && !e.shiftKey) {
+    e.preventDefault();
+    undo();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.code === "KeyY" || e.code === "KeyZ" && e.shiftKey)) {
+    e.preventDefault();
+    redo();
+    return;
+  }
+  if (e.code === "KeyR") {
+    resizeMode = !resizeMode;
+    setResizeMode(resizeMode);
+    updateSelectionVisuals();
+    return;
+  }
+  if (e.code === "KeyB") {
+    pushUndo();
+    const w = mouseToWorld(lastMouseNDC);
+    OBSTACLES.push({ x: snap(w.x), z: snap(w.z), w: 1, h: 1, d: 1 });
+    selectedType = "obstacle";
+    selectedIdx = OBSTACLES.length - 1;
+    onArenaChanged();
+    updateSelectionVisuals();
+    updatePropertyPanel();
+    return;
+  }
+  if (e.code === "Escape") {
+    selectedType = null;
+    selectedIdx = -1;
+    updateSelectionVisuals();
+    updatePropertyPanel();
+    return;
+  }
+}
+function onGlobalKeyDown(e) {
+  if (e.code === "Backquote" && e.shiftKey) {
+    e.preventDefault();
+    toggleLevelEditor();
+  }
+}
+function setMode(m) {
+  mode = m;
+  updateModeBar();
+}
+function updateModeBar() {
+  const labels = ["obstacle", "physics", "pit"];
+  for (let i = 0; i < modeBtns.length; i++) {
+    if (labels[i] === mode) {
+      modeBtns[i].classList.add("active");
+    } else {
+      modeBtns[i].classList.remove("active");
+    }
+  }
+}
+function enterEditor() {
+  active3 = true;
+  previousPhase = gameStateRef.phase;
+  gameStateRef.phase = "editorPaused";
+  selectedType = null;
+  selectedIdx = -1;
+  barEl.style.display = "block";
+  panelEl.style.display = "block";
+  updateModeBar();
+  updateSelectionVisuals();
+  updatePropertyPanel();
+  window.addEventListener("mousedown", onMouseDown);
+  window.addEventListener("mousemove", onMouseMove);
+  window.addEventListener("mouseup", onMouseUp);
+  window.addEventListener("contextmenu", onContextMenu);
+  window.addEventListener("keydown", onKeyDown);
+}
+function exitEditor() {
+  active3 = false;
+  gameStateRef.phase = previousPhase;
+  barEl.style.display = "none";
+  panelEl.style.display = "none";
+  clearSelectionVisual();
+  clearHandles();
+  if (resizeMode) {
+    resizeMode = false;
+    setResizeMode(false);
+  }
+  if (bendPreviewActive) {
+    toggleBendPreview();
+  }
+  selectedType = null;
+  selectedIdx = -1;
+  window.removeEventListener("mousedown", onMouseDown);
+  window.removeEventListener("mousemove", onMouseMove);
+  window.removeEventListener("mouseup", onMouseUp);
+  window.removeEventListener("contextmenu", onContextMenu);
+  window.removeEventListener("keydown", onKeyDown);
+}
+function injectCSS() {
+  const style = document.createElement("style");
+  style.textContent = [
+    ".level-editor-panel {",
+    "  position: fixed; right: 10px; top: 60px; width: 220px;",
+    "  background: rgba(0,0,0,0.85); color: #fff; font-family: monospace; font-size: 12px;",
+    "  padding: 10px; border-radius: 4px; z-index: 9999;",
+    "  max-height: calc(100vh - 80px); overflow-y: auto;",
+    "}",
+    ".level-editor-bar {",
+    "  position: fixed; top: 10px; left: 50%; transform: translateX(-50%);",
+    "  background: rgba(0,0,0,0.85); color: #fff; font-family: monospace; font-size: 14px;",
+    "  padding: 6px 16px; border-radius: 4px; z-index: 9999; white-space: nowrap;",
+    "}",
+    ".level-editor-bar .mode-btn {",
+    "  background: none; border: 1px solid #555; color: #888;",
+    "  padding: 2px 8px; margin: 0 2px; cursor: pointer;",
+    "  font-family: monospace; font-size: 13px; border-radius: 3px;",
+    "}",
+    ".level-editor-bar .mode-btn.active {",
+    "  border-color: #4f4; color: #4f4;",
+    "}"
+  ].join("\n");
+  document.head.appendChild(style);
+}
+function createDOM() {
+  barEl = document.createElement("div");
+  barEl.className = "level-editor-bar";
+  barEl.style.display = "none";
+  const titleSpan = document.createElement("span");
+  titleSpan.textContent = "LEVEL EDITOR \u2014 ";
+  barEl.appendChild(titleSpan);
+  const modeLabels = [
+    { key: "1", label: "Obstacle", mode: "obstacle" },
+    { key: "2", label: "Physics", mode: "physics" },
+    { key: "3", label: "Pit", mode: "pit" }
+  ];
+  modeBtns = [];
+  for (const m of modeLabels) {
+    const btn = document.createElement("button");
+    btn.className = "mode-btn";
+    btn.textContent = m.key + ": " + m.label;
+    btn.addEventListener("click", () => setMode(m.mode));
+    barEl.appendChild(btn);
+    modeBtns.push(btn);
+  }
+  const sep = document.createElement("span");
+  sep.textContent = "  |  ";
+  sep.style.opacity = "0.5";
+  barEl.appendChild(sep);
+  const exportBtn = document.createElement("button");
+  exportBtn.className = "mode-btn";
+  exportBtn.textContent = "Copy JSON";
+  exportBtn.addEventListener("click", exportRoomJSON);
+  barEl.appendChild(exportBtn);
+  const importBtn = document.createElement("button");
+  importBtn.className = "mode-btn";
+  importBtn.textContent = "Load JSON";
+  importBtn.addEventListener("click", importRoomJSON);
+  barEl.appendChild(importBtn);
+  const sep2 = document.createElement("span");
+  sep2.textContent = "  |  ";
+  sep2.style.opacity = "0.5";
+  barEl.appendChild(sep2);
+  bendPreviewBtn = document.createElement("button");
+  bendPreviewBtn.className = "mode-btn";
+  bendPreviewBtn.textContent = "Preview Bends";
+  bendPreviewBtn.addEventListener("click", toggleBendPreview);
+  barEl.appendChild(bendPreviewBtn);
+  bendSelectorEl = document.createElement("div");
+  bendSelectorEl.style.display = "none";
+  bendSelectorEl.style.gap = "4px";
+  for (const bend of BENDS) {
+    const btn = document.createElement("button");
+    btn.className = "mode-btn";
+    btn.textContent = bend.icon + " " + bend.name;
+    btn.dataset.bendId = bend.id;
+    btn.addEventListener("click", () => {
+      selectedBendId2 = bend.id;
+      updateBendSelectorHighlight();
+    });
+    bendSelectorEl.appendChild(btn);
+  }
+  barEl.appendChild(bendSelectorEl);
+  document.body.appendChild(barEl);
+  panelEl = document.createElement("div");
+  panelEl.className = "level-editor-panel";
+  panelEl.style.display = "none";
+  panelContent = document.createElement("div");
+  panelEl.appendChild(panelContent);
+  document.body.appendChild(panelEl);
+}
+function initLevelEditor(scene2, gameState2) {
+  console.log("[levelEditor] initLevelEditor called");
+  sceneRef10 = scene2;
+  gameStateRef = gameState2;
+  injectCSS();
+  createDOM();
+  initHandles(scene2);
+  window.addEventListener("keydown", onGlobalKeyDown);
+  console.log("[levelEditor] init complete \u2014 Shift+` to toggle");
+}
+function toggleLevelEditor() {
+  if (active3) {
+    exitEditor();
+  } else {
+    if (isEditorActive()) return;
+    enterEditor();
+  }
+}
+function isLevelEditorActive() {
+  return active3;
+}
+function updateLevelEditor() {
+}
+
+// src/ui/spawnEditor.ts
+console.log("[spawnEditor] v2 loaded \u2014 tabs enabled");
+var sceneRef11;
+var gameStateRef2;
+var panel2;
+var active4 = false;
+var previousPhase2 = "playing";
 var currentTab = "spawn";
 var editorState = {
   waveIndex: 0,
@@ -9453,12 +10595,12 @@ var levelState = {
   // index into OBSTACLES or PITS
 };
 var currentPresetName = null;
-var isDragging = false;
-var dragStarted = false;
-var dragStartWorld = null;
-var undoStack = [];
-var redoStack = [];
-var MAX_UNDO = 50;
+var isDragging2 = false;
+var dragStarted2 = false;
+var dragStartWorld2 = null;
+var undoStack2 = [];
+var redoStack2 = [];
+var MAX_UNDO2 = 50;
 function snapshotGroup() {
   const wave = WAVES[editorState.waveIndex];
   if (!wave) return null;
@@ -9483,50 +10625,50 @@ function snapshotLevel() {
     selectedIdx: levelState.selectedIdx
   };
 }
-function pushUndo() {
-  const snap = currentTab === "level" ? snapshotLevel() : snapshotGroup();
-  if (!snap) return;
-  undoStack.push(snap);
-  if (undoStack.length > MAX_UNDO) undoStack.shift();
-  redoStack.length = 0;
+function pushUndo2() {
+  const snap2 = currentTab === "level" ? snapshotLevel() : snapshotGroup();
+  if (!snap2) return;
+  undoStack2.push(snap2);
+  if (undoStack2.length > MAX_UNDO2) undoStack2.shift();
+  redoStack2.length = 0;
 }
-function applySnapshot(snap) {
-  if (snap.tab === "level") {
+function applySnapshot2(snap2) {
+  if (snap2.tab === "level") {
     OBSTACLES.length = 0;
-    for (const o of snap.obstacles) OBSTACLES.push(o);
+    for (const o of snap2.obstacles) OBSTACLES.push(o);
     PITS.length = 0;
-    for (const p of snap.pits) PITS.push(p);
-    levelState.selectedType = snap.selectedType;
-    levelState.selectedIdx = snap.selectedIdx;
-    onArenaChanged();
+    for (const p of snap2.pits) PITS.push(p);
+    levelState.selectedType = snap2.selectedType;
+    levelState.selectedIdx = snap2.selectedIdx;
+    onArenaChanged2();
     rebuildLevelMarkers();
     refreshUI();
   } else {
-    editorState.waveIndex = snap.waveIndex;
-    editorState.groupIndex = snap.groupIndex;
-    const wave = WAVES[snap.waveIndex];
+    editorState.waveIndex = snap2.waveIndex;
+    editorState.groupIndex = snap2.groupIndex;
+    const wave = WAVES[snap2.waveIndex];
     if (!wave) return;
-    const group = wave.groups[snap.groupIndex];
+    const group = wave.groups[snap2.groupIndex];
     if (!group) return;
-    group.spawns = snap.spawns;
-    group.triggerDelay = snap.triggerDelay;
-    group.telegraphDuration = snap.telegraphDuration;
-    group.stagger = snap.stagger;
+    group.spawns = snap2.spawns;
+    group.triggerDelay = snap2.triggerDelay;
+    group.telegraphDuration = snap2.telegraphDuration;
+    group.stagger = snap2.stagger;
     rebuildMarkers();
     refreshUI();
   }
 }
 function popUndo() {
-  if (undoStack.length === 0) return;
+  if (undoStack2.length === 0) return;
   const current = currentTab === "level" ? snapshotLevel() : snapshotGroup();
-  if (current) redoStack.push(current);
-  applySnapshot(undoStack.pop());
+  if (current) redoStack2.push(current);
+  applySnapshot2(undoStack2.pop());
 }
 function popRedo() {
-  if (redoStack.length === 0) return;
+  if (redoStack2.length === 0) return;
   const current = currentTab === "level" ? snapshotLevel() : snapshotGroup();
-  if (current) undoStack.push(current);
-  applySnapshot(redoStack.pop());
+  if (current) undoStack2.push(current);
+  applySnapshot2(redoStack2.pop());
 }
 var markers = [];
 var levelMarkers = [];
@@ -9636,8 +10778,8 @@ function setNestedValue2(obj, path, value) {
 }
 var lastBuiltTuningType = null;
 function initSpawnEditor(scene2, gameState2) {
-  sceneRef9 = scene2;
-  gameStateRef = gameState2;
+  sceneRef11 = scene2;
+  gameStateRef2 = gameState2;
   markerGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.8, 8);
   for (const [name, cfg] of Object.entries(ENEMY_TYPES)) {
     markerMats[name] = new THREE.MeshStandardMaterial({
@@ -9650,9 +10792,9 @@ function initSpawnEditor(scene2, gameState2) {
   }
   buildPanel();
   injectStyles2();
-  window.addEventListener("mousedown", onMouseDown);
-  window.addEventListener("mousemove", onMouseMove);
-  window.addEventListener("mouseup", onMouseUp);
+  window.addEventListener("mousedown", onMouseDown2);
+  window.addEventListener("mousemove", onMouseMove2);
+  window.addEventListener("mouseup", onMouseUp2);
   window.addEventListener("keydown", onEditorKey);
 }
 function updateSpawnEditor(dt) {
@@ -9670,10 +10812,10 @@ function checkEditorToggle() {
   }
 }
 function toggleEditor() {
-  if (active3) {
-    exitEditor();
+  if (active4) {
+    exitEditor2();
   } else {
-    enterEditor();
+    enterEditor2();
   }
 }
 function onEditorWheel(e) {
@@ -9681,10 +10823,10 @@ function onEditorWheel(e) {
   const delta = e.deltaY > 0 ? 1 : -1;
   setZoom(getCurrentFrustum() + delta);
 }
-function enterEditor() {
-  active3 = true;
-  previousPhase = gameStateRef.phase;
-  gameStateRef.phase = "editorPaused";
+function enterEditor2() {
+  active4 = true;
+  previousPhase2 = gameStateRef2.phase;
+  gameStateRef2.phase = "editorPaused";
   panel2.classList.remove("hidden");
   bannerEl.classList.add("visible");
   window.addEventListener("wheel", onEditorWheel, { passive: false });
@@ -9695,15 +10837,18 @@ function enterEditor() {
   }
   refreshUI();
 }
-function exitEditor() {
-  active3 = false;
-  gameStateRef.phase = previousPhase;
+function exitEditor2() {
+  active4 = false;
+  gameStateRef2.phase = previousPhase2;
   panel2.classList.add("hidden");
   bannerEl.classList.remove("visible");
   window.removeEventListener("wheel", onEditorWheel);
   resetZoom();
   clearMarkers();
   clearLevelMarkers();
+}
+function isEditorActive() {
+  return active4;
 }
 function switchTab(tab) {
   if (tab === currentTab) return;
@@ -9713,8 +10858,8 @@ function switchTab(tab) {
   editorState.selectedSpawnIdx = -1;
   levelState.selectedType = null;
   levelState.selectedIdx = -1;
-  isDragging = false;
-  dragStarted = false;
+  isDragging2 = false;
+  dragStarted2 = false;
   if (spawnTabContent && levelTabContent) {
     spawnTabContent.style.display = tab === "spawn" ? "block" : "none";
     levelTabContent.style.display = tab === "level" ? "block" : "none";
@@ -9728,7 +10873,7 @@ function switchTab(tab) {
   }
   refreshUI();
 }
-function mouseToWorld(e) {
+function mouseToWorld2(e) {
   const ndcX = e.clientX / window.innerWidth * 2 - 1;
   const ndcY = -(e.clientY / window.innerHeight) * 2 + 1;
   return screenToWorld(ndcX, ndcY);
@@ -9805,20 +10950,20 @@ function findNearestLevelObject(worldX, worldZ, radius) {
   if (bestType === null) return null;
   return { type: bestType, idx: bestIdx };
 }
-function onMouseDown(e) {
-  if (!active3) return;
+function onMouseDown2(e) {
+  if (!active4) return;
   if (e.target.closest("#spawn-editor")) return;
   if (currentTab === "level") {
     onLevelMouseDown(e);
     return;
   }
-  const worldPos = mouseToWorld(e);
+  const worldPos = mouseToWorld2(e);
   const group = getCurrentGroup();
   if (!group) return;
   if (e.button === 2 || e.shiftKey) {
     let idx = findNearestSpawn(worldPos.x, worldPos.z, 1.5);
     if (idx >= 0) {
-      pushUndo();
+      pushUndo2();
       group.spawns.splice(idx, 1);
       if (editorState.selectedSpawnIdx === idx) editorState.selectedSpawnIdx = -1;
       else if (editorState.selectedSpawnIdx > idx) editorState.selectedSpawnIdx--;
@@ -9830,7 +10975,7 @@ function onMouseDown(e) {
         editorState.groupIndex = hit.groupIdx;
         editorState.selectedSpawnIdx = -1;
         const targetGroup = WAVES[editorState.waveIndex].groups[hit.groupIdx];
-        pushUndo();
+        pushUndo2();
         targetGroup.spawns.splice(hit.spawnIdx, 1);
         rebuildMarkers();
         refreshUI();
@@ -9841,9 +10986,9 @@ function onMouseDown(e) {
   const hitIdx = findNearestSpawn(worldPos.x, worldPos.z, 1.5);
   if (hitIdx >= 0) {
     editorState.selectedSpawnIdx = hitIdx;
-    isDragging = true;
-    dragStarted = false;
-    dragStartWorld = { x: worldPos.x, z: worldPos.z };
+    isDragging2 = true;
+    dragStarted2 = false;
+    dragStartWorld2 = { x: worldPos.x, z: worldPos.z };
     rebuildMarkers();
     refreshUI();
   } else {
@@ -9851,13 +10996,13 @@ function onMouseDown(e) {
     if (hit) {
       editorState.groupIndex = hit.groupIdx;
       editorState.selectedSpawnIdx = hit.spawnIdx;
-      isDragging = true;
-      dragStarted = false;
-      dragStartWorld = { x: worldPos.x, z: worldPos.z };
+      isDragging2 = true;
+      dragStarted2 = false;
+      dragStartWorld2 = { x: worldPos.x, z: worldPos.z };
       rebuildMarkers();
       refreshUI();
     } else {
-      pushUndo();
+      pushUndo2();
       const clamped = clampToArena(worldPos.x, worldPos.z);
       group.spawns.push({ type: editorState.enemyType, x: clamped.x, z: clamped.z });
       editorState.selectedSpawnIdx = group.spawns.length - 1;
@@ -9867,11 +11012,11 @@ function onMouseDown(e) {
   }
 }
 function onLevelMouseDown(e) {
-  const worldPos = mouseToWorld(e);
+  const worldPos = mouseToWorld2(e);
   if (e.button === 2 || e.shiftKey) {
     const hit2 = findNearestLevelObject(worldPos.x, worldPos.z, 3);
     if (hit2) {
-      pushUndo();
+      pushUndo2();
       if (hit2.type === "obstacle") {
         OBSTACLES.splice(hit2.idx, 1);
       } else {
@@ -9883,7 +11028,7 @@ function onLevelMouseDown(e) {
       } else if (levelState.selectedType === hit2.type && levelState.selectedIdx > hit2.idx) {
         levelState.selectedIdx--;
       }
-      onArenaChanged();
+      onArenaChanged2();
       rebuildLevelMarkers();
       refreshUI();
     }
@@ -9893,9 +11038,9 @@ function onLevelMouseDown(e) {
   if (hit) {
     levelState.selectedType = hit.type;
     levelState.selectedIdx = hit.idx;
-    isDragging = true;
-    dragStarted = false;
-    dragStartWorld = { x: worldPos.x, z: worldPos.z };
+    isDragging2 = true;
+    dragStarted2 = false;
+    dragStartWorld2 = { x: worldPos.x, z: worldPos.z };
     rebuildLevelMarkers();
     refreshUI();
   } else {
@@ -9905,21 +11050,21 @@ function onLevelMouseDown(e) {
     refreshUI();
   }
 }
-function onMouseMove(e) {
-  if (!active3 || !isDragging) return;
+function onMouseMove2(e) {
+  if (!active4 || !isDragging2) return;
   if (currentTab === "level") {
     onLevelMouseMove(e);
     return;
   }
-  const worldPos = mouseToWorld(e);
+  const worldPos = mouseToWorld2(e);
   const group = getCurrentGroup();
   if (!group || editorState.selectedSpawnIdx < 0) return;
-  if (!dragStarted) {
-    const dx = worldPos.x - dragStartWorld.x;
-    const dz = worldPos.z - dragStartWorld.z;
+  if (!dragStarted2) {
+    const dx = worldPos.x - dragStartWorld2.x;
+    const dz = worldPos.z - dragStartWorld2.z;
     if (dx * dx + dz * dz < 0.25) return;
-    dragStarted = true;
-    pushUndo();
+    dragStarted2 = true;
+    pushUndo2();
   }
   const clamped = clampToArena(worldPos.x, worldPos.z);
   const spawn = group.spawns[editorState.selectedSpawnIdx];
@@ -9934,13 +11079,13 @@ function onMouseMove(e) {
 }
 function onLevelMouseMove(e) {
   if (levelState.selectedType === null || levelState.selectedIdx < 0) return;
-  const worldPos = mouseToWorld(e);
-  if (!dragStarted) {
-    const dx = worldPos.x - dragStartWorld.x;
-    const dz = worldPos.z - dragStartWorld.z;
+  const worldPos = mouseToWorld2(e);
+  if (!dragStarted2) {
+    const dx = worldPos.x - dragStartWorld2.x;
+    const dz = worldPos.z - dragStartWorld2.z;
     if (dx * dx + dz * dz < 0.25) return;
-    dragStarted = true;
-    pushUndo();
+    dragStarted2 = true;
+    pushUndo2();
   }
   const arr = levelState.selectedType === "obstacle" ? OBSTACLES : PITS;
   const obj = arr[levelState.selectedIdx];
@@ -9954,28 +11099,28 @@ function onLevelMouseMove(e) {
     marker.mesh.position.set(obj.x, marker.mesh.position.y, obj.z);
   }
 }
-function onMouseUp(e) {
-  if (!active3) return;
+function onMouseUp2(e) {
+  if (!active4) return;
   if (currentTab === "level") {
-    if (isDragging && dragStarted) {
-      onArenaChanged();
+    if (isDragging2 && dragStarted2) {
+      onArenaChanged2();
       rebuildLevelMarkers();
       refreshUI();
     }
-    isDragging = false;
-    dragStarted = false;
-    dragStartWorld = null;
+    isDragging2 = false;
+    dragStarted2 = false;
+    dragStartWorld2 = null;
     return;
   }
-  if (isDragging && dragStarted) {
+  if (isDragging2 && dragStarted2) {
     rebuildMarkers();
     refreshUI();
   }
-  isDragging = false;
-  dragStarted = false;
-  dragStartWorld = null;
+  isDragging2 = false;
+  dragStarted2 = false;
+  dragStartWorld2 = null;
 }
-function onArenaChanged() {
+function onArenaChanged2() {
   rebuildArenaVisuals();
   invalidateCollisionBounds();
 }
@@ -10008,7 +11153,7 @@ async function loadPreset(name) {
     const res = await fetch(`/arenas/load?name=${encodeURIComponent(name)}`);
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
-    pushUndo();
+    pushUndo2();
     OBSTACLES.length = 0;
     for (const o of data.obstacles) OBSTACLES.push(o);
     PITS.length = 0;
@@ -10016,7 +11161,7 @@ async function loadPreset(name) {
     currentPresetName = name;
     levelState.selectedType = null;
     levelState.selectedIdx = -1;
-    onArenaChanged();
+    onArenaChanged2();
     rebuildLevelMarkers();
     refreshLevelUI();
     refreshPresetDropdown();
@@ -10055,7 +11200,7 @@ async function deletePreset(name) {
   }
 }
 function onEditorKey(e) {
-  if (!active3) return;
+  if (!active4) return;
   if (e.code === "KeyZ" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
     e.preventDefault();
     popUndo();
@@ -10090,7 +11235,7 @@ function onEditorKey(e) {
       if (editorState.selectedSpawnIdx >= 0) {
         const group = getCurrentGroup();
         if (group && group.spawns[editorState.selectedSpawnIdx]) {
-          pushUndo();
+          pushUndo2();
           group.spawns[editorState.selectedSpawnIdx].type = ENEMY_TYPE_KEYS[idx];
           rebuildMarkers();
         }
@@ -10103,13 +11248,13 @@ function onEditorKey(e) {
     const group = getCurrentGroup();
     if (!group) return;
     if (editorState.selectedSpawnIdx >= 0 && editorState.selectedSpawnIdx < group.spawns.length) {
-      pushUndo();
+      pushUndo2();
       group.spawns.splice(editorState.selectedSpawnIdx, 1);
       editorState.selectedSpawnIdx = -1;
       rebuildMarkers();
       refreshUI();
     } else {
-      pushUndo();
+      pushUndo2();
       group.spawns = [];
       rebuildMarkers();
       refreshUI();
@@ -10123,7 +11268,7 @@ function onLevelKey(e) {
   if (e.code === "Delete" || e.code === "Backspace") {
     if (e.target.tagName === "INPUT") return;
     if (levelState.selectedType && levelState.selectedIdx >= 0) {
-      pushUndo();
+      pushUndo2();
       if (levelState.selectedType === "obstacle") {
         OBSTACLES.splice(levelState.selectedIdx, 1);
       } else {
@@ -10131,7 +11276,7 @@ function onLevelKey(e) {
       }
       levelState.selectedType = null;
       levelState.selectedIdx = -1;
-      onArenaChanged();
+      onArenaChanged2();
       rebuildLevelMarkers();
       refreshUI();
     }
@@ -10139,7 +11284,7 @@ function onLevelKey(e) {
 }
 function clearMarkers() {
   for (const m of markers) {
-    sceneRef9.remove(m.mesh);
+    sceneRef11.remove(m.mesh);
     m.mesh.children.forEach((c) => {
       if (c.material && c.material !== markerMats[m.type]) c.material.dispose();
     });
@@ -10185,7 +11330,7 @@ function rebuildMarkers() {
         ring.position.y = 0.02;
         mesh.add(ring);
         mesh.position.set(spawn.x, 0, spawn.z);
-        sceneRef9.add(mesh);
+        sceneRef11.add(mesh);
         markers.push({
           mesh,
           type: spawn.type,
@@ -10199,7 +11344,7 @@ function rebuildMarkers() {
 }
 function clearLevelMarkers() {
   for (const m of levelMarkers) {
-    sceneRef9.remove(m.mesh);
+    sceneRef11.remove(m.mesh);
     m.mesh.children.forEach((c) => {
       if (c.material) c.material.dispose();
       if (c.geometry) c.geometry.dispose();
@@ -10241,7 +11386,7 @@ function rebuildLevelMarkers() {
     ring.position.y = 0.03;
     group.add(ring);
     group.position.set(o.x, 0, o.z);
-    sceneRef9.add(group);
+    sceneRef11.add(group);
     levelMarkers.push({ mesh: group, type: "obstacle", idx: i });
   }
   for (let i = 0; i < PITS.length; i++) {
@@ -10275,7 +11420,7 @@ function rebuildLevelMarkers() {
     ring.position.y = 0.03;
     group.add(ring);
     group.position.set(p.x, 0, p.z);
-    sceneRef9.add(group);
+    sceneRef11.add(group);
     levelMarkers.push({ mesh: group, type: "pit", idx: i });
   }
 }
@@ -10386,7 +11531,14 @@ function buildPanel() {
 }
 function wireEvents() {
   panel2.querySelectorAll(".se-tab").forEach((tab) => {
-    tab.addEventListener("click", () => switchTab(tab.dataset.tab));
+    tab.addEventListener("click", () => {
+      if (tab.dataset.tab === "level") {
+        exitEditor2();
+        toggleLevelEditor();
+      } else {
+        switchTab(tab.dataset.tab);
+      }
+    });
   });
   document.getElementById("se-wave-prev").addEventListener("click", () => {
     editorState.waveIndex = Math.max(0, editorState.waveIndex - 1);
@@ -10475,11 +11627,11 @@ function wireEvents() {
   const sliderUndoOnce = (slider) => {
     let pushed = false;
     slider.addEventListener("mousedown", () => {
-      pushUndo();
+      pushUndo2();
       pushed = true;
     });
     slider.addEventListener("touchstart", () => {
-      if (!pushed) pushUndo();
+      if (!pushed) pushUndo2();
       pushed = true;
     });
     slider.addEventListener("mouseup", () => {
@@ -10546,7 +11698,7 @@ function wireEvents() {
   document.getElementById("se-clear").addEventListener("click", () => {
     const group = getCurrentGroup();
     if (group) {
-      pushUndo();
+      pushUndo2();
       group.spawns = [];
       rebuildMarkers();
       refreshUI();
@@ -10600,20 +11752,20 @@ function wireEvents() {
   });
   refreshPresetDropdown();
   document.getElementById("se-add-obstacle").addEventListener("click", () => {
-    pushUndo();
+    pushUndo2();
     OBSTACLES.push({ x: 0, z: 0, w: 2, h: 1.5, d: 2 });
     levelState.selectedType = "obstacle";
     levelState.selectedIdx = OBSTACLES.length - 1;
-    onArenaChanged();
+    onArenaChanged2();
     rebuildLevelMarkers();
     refreshUI();
   });
   document.getElementById("se-add-pit").addEventListener("click", () => {
-    pushUndo();
+    pushUndo2();
     PITS.push({ x: 0, z: 0, w: 3, d: 3 });
     levelState.selectedType = "pit";
     levelState.selectedIdx = PITS.length - 1;
-    onArenaChanged();
+    onArenaChanged2();
     rebuildLevelMarkers();
     refreshUI();
   });
@@ -10633,7 +11785,7 @@ function wireEvents() {
     saveToFile("config/arena.js", text, document.getElementById("se-save-arena"));
   });
   window.addEventListener("contextmenu", (e) => {
-    if (active3) e.preventDefault();
+    if (active4) e.preventDefault();
   });
   const tooltipEl = document.getElementById("se-tooltip");
   let tooltipTarget = null;
@@ -10813,12 +11965,12 @@ function refreshLevelUI() {
         const unitDisplay = sdef.unit ? " " + sdef.unit : "";
         const display = Number.isInteger(newVal) ? newVal : parseFloat(newVal).toFixed(1);
         propsBody.querySelector(`.se-level-val[data-key="${key}"]`).value = display + unitDisplay;
-        onArenaChanged();
+        onArenaChanged2();
         rebuildLevelMarkers();
       });
       let pushed = false;
       el.addEventListener("mousedown", () => {
-        pushUndo();
+        pushUndo2();
         pushed = true;
       });
       el.addEventListener("mouseup", () => {
@@ -10844,13 +11996,13 @@ function refreshLevelUI() {
         const arrRef = levelState.selectedType === "obstacle" ? OBSTACLES : PITS;
         const objRef = arrRef[levelState.selectedIdx];
         if (!objRef) return;
-        pushUndo();
+        pushUndo2();
         objRef[key] = clamped;
         const rangeEl = propsBody.querySelector(`.se-level-slider[data-key="${key}"]`);
         if (rangeEl) rangeEl.value = clamped;
         const unitDisplay = sdef.unit ? " " + sdef.unit : "";
         inp.value = (Number.isInteger(clamped) ? clamped : parseFloat(clamped).toFixed(1)) + unitDisplay;
-        onArenaChanged();
+        onArenaChanged2();
         rebuildLevelMarkers();
       };
       inp.addEventListener("change", commitValue);
@@ -10864,7 +12016,7 @@ function refreshLevelUI() {
     const deleteBtn = document.getElementById("se-delete-level-obj");
     if (deleteBtn) {
       deleteBtn.addEventListener("click", () => {
-        pushUndo();
+        pushUndo2();
         if (levelState.selectedType === "obstacle") {
           OBSTACLES.splice(levelState.selectedIdx, 1);
         } else {
@@ -10872,7 +12024,7 @@ function refreshLevelUI() {
         }
         levelState.selectedType = null;
         levelState.selectedIdx = -1;
-        onArenaChanged();
+        onArenaChanged2();
         rebuildLevelMarkers();
         refreshLevelUI();
       });
@@ -11061,12 +12213,12 @@ export function getCollisionBounds() {
 }
 `;
 function playCurrentWave() {
-  exitEditor();
-  clearEnemies(gameStateRef);
+  exitEditor2();
+  clearEnemies(gameStateRef2);
   releaseAllProjectiles();
   resetWaveRunner();
-  gameStateRef.phase = "playing";
-  startWave(editorState.waveIndex, gameStateRef);
+  gameStateRef2.phase = "playing";
+  startWave(editorState.waveIndex, gameStateRef2);
 }
 async function saveToFile(filename, content, btnEl) {
   const orig = btnEl.textContent;
@@ -11655,6 +12807,7 @@ function gameLoop(timestamp) {
   if (gameState.phase === "editorPaused") {
     updateInput();
     updateSpawnEditor(0);
+    if (isLevelEditorActive()) updateLevelEditor();
     getRendererInstance().render(getScene(), getCamera());
     consumeInput();
     return;
@@ -11759,6 +12912,7 @@ function init() {
     initDamageNumbers();
     initTuningPanel();
     initSpawnEditor(scene2, gameState);
+    initLevelEditor(scene2, gameState);
     initScreens(restart, () => {
       resumeAudio();
       gameState.phase = "playing";

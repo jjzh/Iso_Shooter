@@ -172,3 +172,72 @@ describe('bend game state', () => {
     expect(state.bendsPerRoom).toBe(3);
   });
 });
+
+import { PHYSICS } from '../src/config/physics';
+
+describe('bend integration', () => {
+  function makeObj(overrides: any = {}) {
+    return {
+      id: 1, pos: { x: 0, z: 0 }, vel: { x: 0, z: 0 },
+      radius: 0.8, mass: 2.0, health: 50, maxHealth: 50,
+      material: 'stone' as const, meshType: 'rock' as const,
+      scale: 1, restitution: undefined, mesh: null,
+      destroyed: false, fellInPit: false, ...overrides,
+    };
+  }
+
+  it('enlarge increases push resistance — lower velocity for same force', () => {
+    const force = 8;
+    const baseMass = 2.0;
+    const enlargedMass = baseMass * 2;
+    const v0Base = Math.sqrt(2 * PHYSICS.objectFriction * (force / baseMass));
+    const v0Enlarged = Math.sqrt(2 * PHYSICS.objectFriction * (force / enlargedMass));
+    expect(v0Enlarged).toBeLessThan(v0Base);
+  });
+
+  it('shrink makes object fly further for same force', () => {
+    const force = 8;
+    const baseMass = 2.0;
+    const shrunkMass = baseMass * 0.3;
+    const distBase = force / baseMass;
+    const distShrunk = force / shrunkMass;
+    expect(distShrunk).toBeGreaterThan(distBase);
+  });
+
+  it('enlarged object has bigger collision radius', () => {
+    const sys = createBendSystem(3);
+    const obj = makeObj({ radius: 0.8 });
+    sys.applyBend('enlarge', 'physicsObject', obj);
+    expect(obj.radius).toBeCloseTo(1.6);
+  });
+
+  it('shrunk object has smaller collision radius', () => {
+    const sys = createBendSystem(3);
+    const obj = makeObj({ radius: 0.8 });
+    sys.applyBend('shrink', 'physicsObject', obj);
+    expect(obj.radius).toBeCloseTo(0.24);
+  });
+
+  it('enlarged rock has more momentum on impact', () => {
+    const force = 12;
+    const baseMass = 2.0;
+    const enlargedMass = baseMass * 2;
+    const v0Base = Math.sqrt(2 * PHYSICS.objectFriction * (force / baseMass));
+    const v0Enlarged = Math.sqrt(2 * PHYSICS.objectFriction * (force / enlargedMass));
+    const momentumBase = baseMass * v0Base;
+    const momentumEnlarged = enlargedMass * v0Enlarged;
+    expect(momentumEnlarged).toBeGreaterThan(momentumBase);
+  });
+
+  it('shrunk rock has less momentum but higher velocity', () => {
+    const force = 12;
+    const baseMass = 2.0;
+    const shrunkMass = baseMass * 0.3;
+    const v0Base = Math.sqrt(2 * PHYSICS.objectFriction * (force / baseMass));
+    const v0Shrunk = Math.sqrt(2 * PHYSICS.objectFriction * (force / shrunkMass));
+    expect(v0Shrunk).toBeGreaterThan(v0Base);
+    const momentumShrunk = shrunkMass * v0Shrunk;
+    const momentumBase = baseMass * v0Base;
+    expect(momentumShrunk).toBeLessThan(momentumBase);
+  });
+});

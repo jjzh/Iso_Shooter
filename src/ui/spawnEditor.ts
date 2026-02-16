@@ -13,6 +13,7 @@ import { clearEnemies } from '../entities/enemy';
 import { releaseAllProjectiles } from '../entities/projectile';
 import { ARENA_HALF_X, ARENA_HALF_Z, OBSTACLES, PITS } from '../config/arena';
 import { invalidateCollisionBounds } from '../engine/physics';
+import { toggleLevelEditor } from './levelEditor';
 
 let sceneRef: any;
 let gameStateRef: any;
@@ -1230,9 +1231,17 @@ function buildPanel() {
 }
 
 function wireEvents() {
-  // Tab switching
+  // Tab switching — "Level" tab hands off to the full Level Editor
   panel.querySelectorAll('.se-tab').forEach((tab: any) => {
-    tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+    tab.addEventListener('click', () => {
+      if (tab.dataset.tab === 'level') {
+        // Close spawn editor, open the visual level editor instead
+        exitEditor();
+        toggleLevelEditor();
+      } else {
+        switchTab(tab.dataset.tab);
+      }
+    });
   });
 
   // Wave navigation
