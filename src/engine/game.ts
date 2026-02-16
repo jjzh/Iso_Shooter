@@ -5,7 +5,7 @@ import { initProjectilePool, updateProjectiles } from '../entities/projectile';
 import { initEnemySystem, updateEnemies } from '../entities/enemy';
 import { initMortarSystem, updateMortarProjectiles, updateIcePatches } from '../entities/mortarProjectile';
 import { initRoomManager, loadRoom, updateRoomManager, resetRoomManager } from './roomManager';
-import { checkCollisions, checkPitFalls, updateEffectGhosts, applyVelocities, applyObjectVelocities, resolveEnemyCollisions, resolveObjectCollisions, resolveObjectObstacleCollisions, processDestroyedObstacles } from './physics';
+import { checkCollisions, checkPitFalls, updateEffectGhosts, applyVelocities, applyObjectVelocities, resolveEnemyCollisions, resolveObjectCollisions, resolvePhysicsObjectBodyCollisions, resolveObjectObstacleCollisions, processDestroyedObstacles } from './physics';
 import { initAoeTelegraph, updateAoeTelegraphs, updatePendingEffects } from './aoeTelegraph';
 import { initHUD, updateHUD } from '../ui/hud';
 import { initScreens, showGameOver, hideScreens } from '../ui/screens';
@@ -129,6 +129,9 @@ function gameLoop(timestamp: number): void {
 
   // 6a3. Object-object + object-enemy collision
   resolveObjectCollisions(gameState);
+
+  // 6a3b. Physics objects as solid bodies — block player + enemy pathing
+  resolvePhysicsObjectBodyCollisions(gameState);
 
   // 6a4. Object-obstacle collision (destructible obstacles)
   resolveObjectObstacleCollisions(gameState);

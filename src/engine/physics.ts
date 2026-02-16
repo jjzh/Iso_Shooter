@@ -706,6 +706,55 @@ export function resolveObjectCollisions(gameState: GameState): void {
   }
 }
 
+// ─── Physics Object Body Collisions ───
+// Prevents player and enemies from walking through physics objects.
+// Objects act as solid cylindrical blockers. The entity is always the one
+// pushed out (objects only move via force push velocity, not body collision).
+
+export function resolvePhysicsObjectBodyCollisions(gameState: GameState): void {
+  const objects = gameState.physicsObjects;
+  const playerPos = getPlayerPos();
+  const playerR = PLAYER.size.radius;
+
+  for (const obj of objects) {
+    if (obj.destroyed) continue;
+
+    // ─── Player vs Object ───
+    const pdx = playerPos.x - obj.pos.x;
+    const pdz = playerPos.z - obj.pos.z;
+    const pDistSq = pdx * pdx + pdz * pdz;
+    const pMinDist = playerR + obj.radius;
+
+    if (pDistSq < pMinDist * pMinDist && pDistSq > 0.0001) {
+      const pDist = Math.sqrt(pDistSq);
+      const pOverlap = pMinDist - pDist;
+      // Push player out entirely (object stays put)
+      playerPos.x += (pdx / pDist) * pOverlap;
+      playerPos.z += (pdz / pDist) * pOverlap;
+    }
+
+    // ─── Enemy vs Object ───
+    for (const enemy of gameState.enemies) {
+      if (enemy.health <= 0) continue;
+      if ((enemy as any).isLeaping) continue;
+
+      const edx = enemy.pos.x - obj.pos.x;
+      const edz = enemy.pos.z - obj.pos.z;
+      const eDistSq = edx * edx + edz * edz;
+      const eRadEnemy = enemy.config.size.radius;
+      const eMinDist = eRadEnemy + obj.radius;
+
+      if (eDistSq < eMinDist * eMinDist && eDistSq > 0.0001) {
+        const eDist = Math.sqrt(eDistSq);
+        const eOverlap = eMinDist - eDist;
+        // Push enemy out entirely (object stays put)
+        enemy.pos.x += (edx / eDist) * eOverlap;
+        enemy.pos.z += (edz / eDist) * eOverlap;
+      }
+    }
+  }
+}
+
 // ─── Destructible Obstacle Collisions ───
 
 // Track obstacles to destroy at end of frame (deferred removal)

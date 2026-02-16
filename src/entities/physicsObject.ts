@@ -77,13 +77,20 @@ export function createPhysicsObjectMesh(obj: PhysicsObject, scene: any): void {
   group.add(mesh);
 
   group.position.set(obj.pos.x, 0, obj.pos.z);
+  // Store the base geometry size so bend visuals can scale relative to it
+  group.userData._baseGeoSize = obj.radius * obj.scale;
   scene.add(group);
   obj.mesh = group;
 }
 
 export function applyBendVisuals(obj: PhysicsObject, tintColor: number): void {
   if (!obj.mesh) return;
-  obj.mesh.scale.set(obj.scale, obj.scale, obj.scale);
+  // Scale mesh so visual matches collision radius.
+  // Geometry was built at baseGeoSize = originalRadius * originalScale.
+  // We want the visual to reflect the new radius.
+  const base = obj.mesh.userData._baseGeoSize || 1;
+  const s = obj.radius / base;
+  obj.mesh.scale.set(s, s, s);
   obj.mesh.traverse((child: any) => {
     if (child.isMesh && child.material) {
       child.material.emissive.setHex(tintColor);

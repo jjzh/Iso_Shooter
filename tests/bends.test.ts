@@ -137,23 +137,27 @@ describe('bend system', () => {
 import { applyBendVisuals } from '../src/entities/physicsObject';
 
 describe('bend visuals', () => {
-  it('applyBendVisuals updates mesh scale', () => {
+  it('applyBendVisuals scales mesh to match collision radius', () => {
     const childMat = { emissive: { setHex: () => {} }, emissiveIntensity: 0.3 };
     const child = { material: childMat, isMesh: true };
     const mockScale = { x: 1, y: 1, z: 1 };
+    // Simulate mesh created at original radius=0.8, scale=1.0 → baseGeoSize=0.8
     const mesh = {
       scale: { set: (x: number, y: number, z: number) => {
         mockScale.x = x; mockScale.y = y; mockScale.z = z;
       }},
       traverse: (fn: (c: any) => void) => fn(child),
+      userData: { _baseGeoSize: 0.8 },
     };
 
+    // After Enlarge: radius becomes 1.6 (0.8 * 2)
     const obj = { scale: 2.5, radius: 1.6, mesh } as any;
 
     applyBendVisuals(obj, 0x4488ff);
-    expect(mockScale.x).toBeCloseTo(2.5);
-    expect(mockScale.y).toBeCloseTo(2.5);
-    expect(mockScale.z).toBeCloseTo(2.5);
+    // Mesh scale = newRadius / baseGeoSize = 1.6 / 0.8 = 2.0
+    expect(mockScale.x).toBeCloseTo(2.0);
+    expect(mockScale.y).toBeCloseTo(2.0);
+    expect(mockScale.z).toBeCloseTo(2.0);
   });
 });
 

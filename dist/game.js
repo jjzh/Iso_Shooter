@@ -4501,6 +4501,39 @@ function resolveObjectCollisions(gameState2) {
     }
   }
 }
+function resolvePhysicsObjectBodyCollisions(gameState2) {
+  const objects = gameState2.physicsObjects;
+  const playerPos2 = getPlayerPos();
+  const playerR = PLAYER.size.radius;
+  for (const obj of objects) {
+    if (obj.destroyed) continue;
+    const pdx = playerPos2.x - obj.pos.x;
+    const pdz = playerPos2.z - obj.pos.z;
+    const pDistSq = pdx * pdx + pdz * pdz;
+    const pMinDist = playerR + obj.radius;
+    if (pDistSq < pMinDist * pMinDist && pDistSq > 1e-4) {
+      const pDist = Math.sqrt(pDistSq);
+      const pOverlap = pMinDist - pDist;
+      playerPos2.x += pdx / pDist * pOverlap;
+      playerPos2.z += pdz / pDist * pOverlap;
+    }
+    for (const enemy of gameState2.enemies) {
+      if (enemy.health <= 0) continue;
+      if (enemy.isLeaping) continue;
+      const edx = enemy.pos.x - obj.pos.x;
+      const edz = enemy.pos.z - obj.pos.z;
+      const eDistSq = edx * edx + edz * edz;
+      const eRadEnemy = enemy.config.size.radius;
+      const eMinDist = eRadEnemy + obj.radius;
+      if (eDistSq < eMinDist * eMinDist && eDistSq > 1e-4) {
+        const eDist = Math.sqrt(eDistSq);
+        const eOverlap = eMinDist - eDist;
+        enemy.pos.x += edx / eDist * eOverlap;
+        enemy.pos.z += edz / eDist * eOverlap;
+      }
+    }
+  }
+}
 var pendingObstacleDestructions = [];
 function resolveObjectObstacleCollisions(gameState2) {
   const objects = gameState2.physicsObjects;
@@ -5737,12 +5770,15 @@ function createPhysicsObjectMesh(obj, scene2) {
   mesh.position.y = obj.radius * obj.scale * 0.5;
   group.add(mesh);
   group.position.set(obj.pos.x, 0, obj.pos.z);
+  group.userData._baseGeoSize = obj.radius * obj.scale;
   scene2.add(group);
   obj.mesh = group;
 }
 function applyBendVisuals(obj, tintColor) {
   if (!obj.mesh) return;
-  obj.mesh.scale.set(obj.scale, obj.scale, obj.scale);
+  const base = obj.mesh.userData._baseGeoSize || 1;
+  const s = obj.radius / base;
+  obj.mesh.scale.set(s, s, s);
   obj.mesh.traverse((child) => {
     if (child.isMesh && child.material) {
       child.material.emissive.setHex(tintColor);
@@ -11608,6 +11644,7 @@ function gameLoop(timestamp) {
   applyObjectVelocities(gameDt, gameState);
   resolveEnemyCollisions(gameState);
   resolveObjectCollisions(gameState);
+  resolvePhysicsObjectBodyCollisions(gameState);
   resolveObjectObstacleCollisions(gameState);
   checkPitFalls(gameState);
   processDestroyedObstacles();
