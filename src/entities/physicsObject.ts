@@ -50,11 +50,15 @@ export function createPhysicsObjectMesh(obj: PhysicsObject, scene: any): void {
       geo = new THREE.SphereGeometry(obj.radius * obj.scale, 8, 6);
       break;
     case 'crate': {
-      const s = obj.radius * obj.scale * 1.4; // box inscribed in circle
+      // Box visual fits inside collision circle. Side length chosen so corners
+      // stay within ~85% of the collision radius, preventing visual overlap
+      // with terrain that the circle collision doesn't detect.
+      const s = obj.radius * obj.scale * 1.2;
       geo = new THREE.BoxGeometry(s, s, s);
       break;
     }
     case 'barrel':
+      // Max ground-plane radius = bottom radius = obj.radius * obj.scale
       geo = new THREE.CylinderGeometry(
         obj.radius * obj.scale * 0.8,
         obj.radius * obj.scale,
@@ -63,6 +67,7 @@ export function createPhysicsObjectMesh(obj: PhysicsObject, scene: any): void {
       );
       break;
     case 'pillar':
+      // Max ground-plane radius = bottom radius = obj.radius * obj.scale
       geo = new THREE.CylinderGeometry(
         obj.radius * obj.scale * 0.6,
         obj.radius * obj.scale,

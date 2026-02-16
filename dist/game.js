@@ -5796,7 +5796,7 @@ function createPhysicsObjectMesh(obj, scene2) {
       geo = new THREE.SphereGeometry(obj.radius * obj.scale, 8, 6);
       break;
     case "crate": {
-      const s = obj.radius * obj.scale * 1.4;
+      const s = obj.radius * obj.scale * 1.2;
       geo = new THREE.BoxGeometry(s, s, s);
       break;
     }
