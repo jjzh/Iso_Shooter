@@ -4272,6 +4272,30 @@ function applyObjectVelocities(dt, gameState2) {
         const slideSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
         if (slideSpeed < PHYSICS.minVelocity) break;
       }
+      let hitObject = false;
+      for (const other of gameState2.physicsObjects) {
+        if (other === obj || other.destroyed) continue;
+        const odx = obj.pos.x - other.pos.x;
+        const odz = obj.pos.z - other.pos.z;
+        const oDistSq = odx * odx + odz * odz;
+        const oMinDist = obj.radius + other.radius;
+        if (oDistSq < oMinDist * oMinDist && oDistSq > 1e-4) {
+          const oDist = Math.sqrt(oDistSq);
+          const oOverlap = oMinDist - oDist;
+          const onx = odx / oDist;
+          const onz = odz / oDist;
+          obj.pos.x += onx * oOverlap;
+          obj.pos.z += onz * oOverlap;
+          const vDot = vel.x * -onx + vel.z * -onz;
+          if (vDot > 0) {
+            vel.x += vDot * onx;
+            vel.z += vDot * onz;
+          }
+          hitObject = true;
+          break;
+        }
+      }
+      if (hitObject) break;
     }
     if (obj.mesh) {
       obj.mesh.position.set(obj.pos.x, 0, obj.pos.z);
@@ -4401,71 +4425,68 @@ function resolveEnemyCollisions(gameState2) {
 function resolveObjectCollisions(gameState2) {
   const objects = gameState2.physicsObjects;
   const enemies = gameState2.enemies;
-  for (let i = 0; i < objects.length; i++) {
-    const a = objects[i];
-    if (a.destroyed) continue;
-    for (let j = i + 1; j < objects.length; j++) {
-      const b = objects[j];
-      if (b.destroyed) continue;
-      const dx = b.pos.x - a.pos.x;
-      const dz = b.pos.z - a.pos.z;
-      const distSq = dx * dx + dz * dz;
-      const minDist = a.radius + b.radius;
-      if (distSq >= minDist * minDist) continue;
-      const dist = Math.sqrt(distSq);
-      if (dist < 0.01) continue;
-      const overlap = minDist - dist;
-      const nx = dx / dist;
-      const nz = dz / dist;
-      const totalMass = a.mass + b.mass;
-      const ratioA = b.mass / totalMass;
-      const ratioB = a.mass / totalMass;
-      const aPosBeforeX = a.pos.x, aPosBeforeZ = a.pos.z;
-      const bPosBeforeX = b.pos.x, bPosBeforeZ = b.pos.z;
-      a.pos.x -= nx * overlap * ratioA;
-      a.pos.z -= nz * overlap * ratioA;
-      b.pos.x += nx * overlap * ratioB;
-      b.pos.z += nz * overlap * ratioB;
-      const aResolved = resolveTerrainCollisionEx(a.pos.x, a.pos.z, a.radius);
-      const bResolved = resolveTerrainCollisionEx(b.pos.x, b.pos.z, b.radius);
-      a.pos.x = aResolved.x;
-      a.pos.z = aResolved.z;
-      b.pos.x = bResolved.x;
-      b.pos.z = bResolved.z;
-      const aActualMoveX = a.pos.x - aPosBeforeX;
-      const aActualMoveZ = a.pos.z - aPosBeforeZ;
-      const bActualMoveX = b.pos.x - bPosBeforeX;
-      const bActualMoveZ = b.pos.z - bPosBeforeZ;
-      const aMoved = -(aActualMoveX * nx + aActualMoveZ * nz);
-      const bMoved = bActualMoveX * nx + bActualMoveZ * nz;
-      const totalMoved = aMoved + bMoved;
-      const deficit = overlap - totalMoved;
-      if (deficit > 0.01) {
-        if (!aResolved.hitWall && bResolved.hitWall) {
-          a.pos.x -= nx * deficit;
-          a.pos.z -= nz * deficit;
-        } else if (aResolved.hitWall && !bResolved.hitWall) {
-          b.pos.x += nx * deficit;
-          b.pos.z += nz * deficit;
+  for (let iter = 0; iter < 3; iter++) {
+    for (let i = 0; i < objects.length; i++) {
+      const a = objects[i];
+      if (a.destroyed) continue;
+      for (let j = i + 1; j < objects.length; j++) {
+        const b = objects[j];
+        if (b.destroyed) continue;
+        const dx = b.pos.x - a.pos.x;
+        const dz = b.pos.z - a.pos.z;
+        const distSq = dx * dx + dz * dz;
+        const minDist = a.radius + b.radius;
+        if (distSq >= minDist * minDist) continue;
+        const dist = Math.sqrt(distSq);
+        if (dist < 0.01) continue;
+        const overlap = minDist - dist;
+        const nx = dx / dist;
+        const nz = dz / dist;
+        const aTerrainCheck = resolveTerrainCollisionEx(
+          a.pos.x - nx * 0.05,
+          a.pos.z - nz * 0.05,
+          a.radius
+        );
+        const bTerrainCheck = resolveTerrainCollisionEx(
+          b.pos.x + nx * 0.05,
+          b.pos.z + nz * 0.05,
+          b.radius
+        );
+        const aBlocked = aTerrainCheck.hitWall;
+        const bBlocked = bTerrainCheck.hitWall;
+        let ratioA, ratioB;
+        if (aBlocked && !bBlocked) {
+          ratioA = 0;
+          ratioB = 1;
+        } else if (!aBlocked && bBlocked) {
+          ratioA = 1;
+          ratioB = 0;
         } else {
-          a.pos.x -= nx * deficit * 0.5;
-          a.pos.z -= nz * deficit * 0.5;
-          b.pos.x += nx * deficit * 0.5;
-          b.pos.z += nz * deficit * 0.5;
+          const totalMass = a.mass + b.mass;
+          ratioA = b.mass / totalMass;
+          ratioB = a.mass / totalMass;
         }
+        a.pos.x -= nx * overlap * ratioA;
+        a.pos.z -= nz * overlap * ratioA;
+        b.pos.x += nx * overlap * ratioB;
+        b.pos.z += nz * overlap * ratioB;
+        if (iter === 0) {
+          const totalMass = a.mass + b.mass;
+          const relVelX = a.vel.x - b.vel.x;
+          const relVelZ = a.vel.z - b.vel.z;
+          const relVelDotN = relVelX * nx + relVelZ * nz;
+          if (relVelDotN > 0) {
+            const e = PHYSICS.objectWallSlamBounce;
+            const impulse = (1 + e) * relVelDotN / totalMass;
+            a.vel.x -= impulse * b.mass * nx;
+            a.vel.z -= impulse * b.mass * nz;
+            b.vel.x += impulse * a.mass * nx;
+            b.vel.z += impulse * a.mass * nz;
+          }
+        }
+        if (a.mesh) a.mesh.position.set(a.pos.x, 0, a.pos.z);
+        if (b.mesh) b.mesh.position.set(b.pos.x, 0, b.pos.z);
       }
-      const relVelX = a.vel.x - b.vel.x;
-      const relVelZ = a.vel.z - b.vel.z;
-      const relVelDotN = relVelX * nx + relVelZ * nz;
-      if (relVelDotN <= 0) continue;
-      const e = PHYSICS.objectWallSlamBounce;
-      const impulse = (1 + e) * relVelDotN / totalMass;
-      a.vel.x -= impulse * b.mass * nx;
-      a.vel.z -= impulse * b.mass * nz;
-      b.vel.x += impulse * a.mass * nx;
-      b.vel.z += impulse * a.mass * nz;
-      if (a.mesh) a.mesh.position.set(a.pos.x, 0, a.pos.z);
-      if (b.mesh) b.mesh.position.set(b.pos.x, 0, b.pos.z);
     }
   }
   for (const obj of objects) {

@@ -387,17 +387,44 @@ export function applyObjectVelocities(dt: number, gameState: GameState): void {
 
       if (result.hitWall) {
         // Slide along wall: remove velocity component into the wall normal
-        // This prevents objects from getting stuck against walls — they glide along instead
         const dot = vel.x * result.normalX + vel.z * result.normalZ;
         if (dot < 0) {
           vel.x -= dot * result.normalX;
           vel.z -= dot * result.normalZ;
         }
-        // If remaining velocity is negligible, stop stepping
         const slideSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
         if (slideSpeed < PHYSICS.minVelocity) break;
-        // Otherwise continue stepping — object slides along the wall
       }
+
+      // Check collision with other physics objects during stepping.
+      // This prevents a fast-moving object from tunneling through another.
+      let hitObject = false;
+      for (const other of gameState.physicsObjects) {
+        if (other === obj || other.destroyed) continue;
+        const odx = obj.pos.x - other.pos.x;
+        const odz = obj.pos.z - other.pos.z;
+        const oDistSq = odx * odx + odz * odz;
+        const oMinDist = obj.radius + other.radius;
+        if (oDistSq < oMinDist * oMinDist && oDistSq > 0.0001) {
+          // Push this object back out and stop stepping
+          const oDist = Math.sqrt(oDistSq);
+          const oOverlap = oMinDist - oDist;
+          const onx = odx / oDist;
+          const onz = odz / oDist;
+          obj.pos.x += onx * oOverlap;
+          obj.pos.z += onz * oOverlap;
+
+          // Remove velocity component into the other object
+          const vDot = vel.x * (-onx) + vel.z * (-onz);
+          if (vDot > 0) {
+            vel.x += vDot * onx;
+            vel.z += vDot * onz;
+          }
+          hitObject = true;
+          break;
+        }
+      }
+      if (hitObject) break;
     }
 
     // Sync mesh position
@@ -572,98 +599,76 @@ export function resolveObjectCollisions(gameState: GameState): void {
   const objects = gameState.physicsObjects;
   const enemies = gameState.enemies;
 
-  // Object-Object collisions
-  for (let i = 0; i < objects.length; i++) {
-    const a = objects[i];
-    if (a.destroyed) continue;
+  // Object-Object collisions — run multiple iterations to handle chain/wall cases
+  for (let iter = 0; iter < 3; iter++) {
+    for (let i = 0; i < objects.length; i++) {
+      const a = objects[i];
+      if (a.destroyed) continue;
 
-    for (let j = i + 1; j < objects.length; j++) {
-      const b = objects[j];
-      if (b.destroyed) continue;
+      for (let j = i + 1; j < objects.length; j++) {
+        const b = objects[j];
+        if (b.destroyed) continue;
 
-      const dx = b.pos.x - a.pos.x;
-      const dz = b.pos.z - a.pos.z;
-      const distSq = dx * dx + dz * dz;
-      const minDist = a.radius + b.radius;
+        const dx = b.pos.x - a.pos.x;
+        const dz = b.pos.z - a.pos.z;
+        const distSq = dx * dx + dz * dz;
+        const minDist = a.radius + b.radius;
 
-      if (distSq >= minDist * minDist) continue;
+        if (distSq >= minDist * minDist) continue;
 
-      const dist = Math.sqrt(distSq);
-      if (dist < 0.01) continue;
+        const dist = Math.sqrt(distSq);
+        if (dist < 0.01) continue;
 
-      const overlap = minDist - dist;
-      const nx = dx / dist;
-      const nz = dz / dist;
+        const overlap = minDist - dist;
+        const nx = dx / dist;
+        const nz = dz / dist;
 
-      const totalMass = a.mass + b.mass;
-      const ratioA = b.mass / totalMass;
-      const ratioB = a.mass / totalMass;
+        // Check which objects are terrain-blocked (can't move in separation direction)
+        const aTerrainCheck = resolveTerrainCollisionEx(
+          a.pos.x - nx * 0.05, a.pos.z - nz * 0.05, a.radius);
+        const bTerrainCheck = resolveTerrainCollisionEx(
+          b.pos.x + nx * 0.05, b.pos.z + nz * 0.05, b.radius);
+        const aBlocked = aTerrainCheck.hitWall;
+        const bBlocked = bTerrainCheck.hitWall;
 
-      // Separate by mass ratio first
-      const aPosBeforeX = a.pos.x, aPosBeforeZ = a.pos.z;
-      const bPosBeforeX = b.pos.x, bPosBeforeZ = b.pos.z;
-
-      a.pos.x -= nx * overlap * ratioA;
-      a.pos.z -= nz * overlap * ratioA;
-      b.pos.x += nx * overlap * ratioB;
-      b.pos.z += nz * overlap * ratioB;
-
-      // Resolve terrain — if one object is against a wall, it can't move
-      const aResolved = resolveTerrainCollisionEx(a.pos.x, a.pos.z, a.radius);
-      const bResolved = resolveTerrainCollisionEx(b.pos.x, b.pos.z, b.radius);
-      a.pos.x = aResolved.x;
-      a.pos.z = aResolved.z;
-      b.pos.x = bResolved.x;
-      b.pos.z = bResolved.z;
-
-      // If terrain blocked one object, it didn't move its share of the separation.
-      // Transfer remaining overlap to the other object.
-      const aActualMoveX = a.pos.x - aPosBeforeX;
-      const aActualMoveZ = a.pos.z - aPosBeforeZ;
-      const bActualMoveX = b.pos.x - bPosBeforeX;
-      const bActualMoveZ = b.pos.z - bPosBeforeZ;
-
-      // How much each actually moved along the separation normal
-      const aMoved = -(aActualMoveX * nx + aActualMoveZ * nz); // negative because a moves opposite to normal
-      const bMoved = bActualMoveX * nx + bActualMoveZ * nz;
-      const totalMoved = aMoved + bMoved;
-      const deficit = overlap - totalMoved;
-
-      if (deficit > 0.01) {
-        // One was blocked by terrain. Push the other the remaining amount.
-        // Determine which can still move (the one NOT against a wall)
-        if (!aResolved.hitWall && bResolved.hitWall) {
-          a.pos.x -= nx * deficit;
-          a.pos.z -= nz * deficit;
-        } else if (aResolved.hitWall && !bResolved.hitWall) {
-          b.pos.x += nx * deficit;
-          b.pos.z += nz * deficit;
+        // Distribute separation: blocked objects get 0 share
+        let ratioA: number, ratioB: number;
+        if (aBlocked && !bBlocked) {
+          ratioA = 0; ratioB = 1;
+        } else if (!aBlocked && bBlocked) {
+          ratioA = 1; ratioB = 0;
         } else {
-          // Both blocked or neither — split remaining evenly
-          a.pos.x -= nx * deficit * 0.5;
-          a.pos.z -= nz * deficit * 0.5;
-          b.pos.x += nx * deficit * 0.5;
-          b.pos.z += nz * deficit * 0.5;
+          const totalMass = a.mass + b.mass;
+          ratioA = b.mass / totalMass;
+          ratioB = a.mass / totalMass;
         }
+
+        a.pos.x -= nx * overlap * ratioA;
+        a.pos.z -= nz * overlap * ratioA;
+        b.pos.x += nx * overlap * ratioB;
+        b.pos.z += nz * overlap * ratioB;
+
+        // Momentum transfer (only on first iteration to avoid double-counting)
+        if (iter === 0) {
+          const totalMass = a.mass + b.mass;
+          const relVelX = a.vel.x - b.vel.x;
+          const relVelZ = a.vel.z - b.vel.z;
+          const relVelDotN = relVelX * nx + relVelZ * nz;
+          if (relVelDotN > 0) {
+            const e = PHYSICS.objectWallSlamBounce;
+            const impulse = (1 + e) * relVelDotN / totalMass;
+
+            a.vel.x -= impulse * b.mass * nx;
+            a.vel.z -= impulse * b.mass * nz;
+            b.vel.x += impulse * a.mass * nx;
+            b.vel.z += impulse * a.mass * nz;
+          }
+        }
+
+        // Sync meshes
+        if (a.mesh) a.mesh.position.set(a.pos.x, 0, a.pos.z);
+        if (b.mesh) b.mesh.position.set(b.pos.x, 0, b.pos.z);
       }
-
-      // Momentum transfer
-      const relVelX = a.vel.x - b.vel.x;
-      const relVelZ = a.vel.z - b.vel.z;
-      const relVelDotN = relVelX * nx + relVelZ * nz;
-      if (relVelDotN <= 0) continue;
-
-      const e = PHYSICS.objectWallSlamBounce;
-      const impulse = (1 + e) * relVelDotN / totalMass;
-
-      a.vel.x -= impulse * b.mass * nx;
-      a.vel.z -= impulse * b.mass * nz;
-      b.vel.x += impulse * a.mass * nx;
-      b.vel.z += impulse * a.mass * nz;
-
-      // Sync meshes
-      if (a.mesh) a.mesh.position.set(a.pos.x, 0, a.pos.z);
-      if (b.mesh) b.mesh.position.set(b.pos.x, 0, b.pos.z);
     }
   }
 
