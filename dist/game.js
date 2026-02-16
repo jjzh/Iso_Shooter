@@ -4420,10 +4420,40 @@ function resolveObjectCollisions(gameState2) {
       const totalMass = a.mass + b.mass;
       const ratioA = b.mass / totalMass;
       const ratioB = a.mass / totalMass;
+      const aPosBeforeX = a.pos.x, aPosBeforeZ = a.pos.z;
+      const bPosBeforeX = b.pos.x, bPosBeforeZ = b.pos.z;
       a.pos.x -= nx * overlap * ratioA;
       a.pos.z -= nz * overlap * ratioA;
       b.pos.x += nx * overlap * ratioB;
       b.pos.z += nz * overlap * ratioB;
+      const aResolved = resolveTerrainCollisionEx(a.pos.x, a.pos.z, a.radius);
+      const bResolved = resolveTerrainCollisionEx(b.pos.x, b.pos.z, b.radius);
+      a.pos.x = aResolved.x;
+      a.pos.z = aResolved.z;
+      b.pos.x = bResolved.x;
+      b.pos.z = bResolved.z;
+      const aActualMoveX = a.pos.x - aPosBeforeX;
+      const aActualMoveZ = a.pos.z - aPosBeforeZ;
+      const bActualMoveX = b.pos.x - bPosBeforeX;
+      const bActualMoveZ = b.pos.z - bPosBeforeZ;
+      const aMoved = -(aActualMoveX * nx + aActualMoveZ * nz);
+      const bMoved = bActualMoveX * nx + bActualMoveZ * nz;
+      const totalMoved = aMoved + bMoved;
+      const deficit = overlap - totalMoved;
+      if (deficit > 0.01) {
+        if (!aResolved.hitWall && bResolved.hitWall) {
+          a.pos.x -= nx * deficit;
+          a.pos.z -= nz * deficit;
+        } else if (aResolved.hitWall && !bResolved.hitWall) {
+          b.pos.x += nx * deficit;
+          b.pos.z += nz * deficit;
+        } else {
+          a.pos.x -= nx * deficit * 0.5;
+          a.pos.z -= nz * deficit * 0.5;
+          b.pos.x += nx * deficit * 0.5;
+          b.pos.z += nz * deficit * 0.5;
+        }
+      }
       const relVelX = a.vel.x - b.vel.x;
       const relVelZ = a.vel.z - b.vel.z;
       const relVelDotN = relVelX * nx + relVelZ * nz;

@@ -599,11 +599,53 @@ export function resolveObjectCollisions(gameState: GameState): void {
       const ratioA = b.mass / totalMass;
       const ratioB = a.mass / totalMass;
 
-      // Separate
+      // Separate by mass ratio first
+      const aPosBeforeX = a.pos.x, aPosBeforeZ = a.pos.z;
+      const bPosBeforeX = b.pos.x, bPosBeforeZ = b.pos.z;
+
       a.pos.x -= nx * overlap * ratioA;
       a.pos.z -= nz * overlap * ratioA;
       b.pos.x += nx * overlap * ratioB;
       b.pos.z += nz * overlap * ratioB;
+
+      // Resolve terrain — if one object is against a wall, it can't move
+      const aResolved = resolveTerrainCollisionEx(a.pos.x, a.pos.z, a.radius);
+      const bResolved = resolveTerrainCollisionEx(b.pos.x, b.pos.z, b.radius);
+      a.pos.x = aResolved.x;
+      a.pos.z = aResolved.z;
+      b.pos.x = bResolved.x;
+      b.pos.z = bResolved.z;
+
+      // If terrain blocked one object, it didn't move its share of the separation.
+      // Transfer remaining overlap to the other object.
+      const aActualMoveX = a.pos.x - aPosBeforeX;
+      const aActualMoveZ = a.pos.z - aPosBeforeZ;
+      const bActualMoveX = b.pos.x - bPosBeforeX;
+      const bActualMoveZ = b.pos.z - bPosBeforeZ;
+
+      // How much each actually moved along the separation normal
+      const aMoved = -(aActualMoveX * nx + aActualMoveZ * nz); // negative because a moves opposite to normal
+      const bMoved = bActualMoveX * nx + bActualMoveZ * nz;
+      const totalMoved = aMoved + bMoved;
+      const deficit = overlap - totalMoved;
+
+      if (deficit > 0.01) {
+        // One was blocked by terrain. Push the other the remaining amount.
+        // Determine which can still move (the one NOT against a wall)
+        if (!aResolved.hitWall && bResolved.hitWall) {
+          a.pos.x -= nx * deficit;
+          a.pos.z -= nz * deficit;
+        } else if (aResolved.hitWall && !bResolved.hitWall) {
+          b.pos.x += nx * deficit;
+          b.pos.z += nz * deficit;
+        } else {
+          // Both blocked or neither — split remaining evenly
+          a.pos.x -= nx * deficit * 0.5;
+          a.pos.z -= nz * deficit * 0.5;
+          b.pos.x += nx * deficit * 0.5;
+          b.pos.z += nz * deficit * 0.5;
+        }
+      }
 
       // Momentum transfer
       const relVelX = a.vel.x - b.vel.x;
