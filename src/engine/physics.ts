@@ -1247,13 +1247,12 @@ export function checkCollisions(gameState: GameState): void {
           obj.vel.z = dirZ * v0;
 
           // Nudge object away from any touching wall before velocity is applied.
-          // This prevents enlarged objects from being "stuck" to walls — the small
-          // positional offset ensures the first movement step clears the wall.
+          // Uses wall normal to push outward, ensuring the first movement step
+          // clears the collision boundary regardless of push direction.
           const nudgeResult = resolveTerrainCollisionEx(obj.pos.x, obj.pos.z, obj.radius);
           if (nudgeResult.hitWall) {
-            // Push center slightly past the collision boundary
-            obj.pos.x = nudgeResult.x + dirX * 0.05;
-            obj.pos.z = nudgeResult.z + dirZ * 0.05;
+            obj.pos.x = nudgeResult.x + nudgeResult.normalX * 0.1;
+            obj.pos.z = nudgeResult.z + nudgeResult.normalZ * 0.1;
             if (obj.mesh) {
               obj.mesh.position.set(obj.pos.x, 0, obj.pos.z);
             }
