@@ -55,6 +55,7 @@ export function getCollisionBounds(): AABB[] {
       maxX: o.x + o.w / 2,
       minZ: o.z - o.d / 2,
       maxZ: o.z + o.d / 2,
+      maxY: o.h,  // entities above this height can pass over
     });
   }
 

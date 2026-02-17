@@ -481,6 +481,7 @@ export interface AABB {
   maxX: number;
   minZ: number;
   maxZ: number;
+  maxY?: number;  // top height — entities above this Y skip collision (undefined = infinite)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

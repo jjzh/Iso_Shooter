@@ -180,10 +180,11 @@ function pointVsAABB(px: number, pz: number, box: AABB): boolean {
   return px >= box.minX && px <= box.maxX && pz >= box.minZ && pz <= box.maxZ;
 }
 
-export function resolveTerrainCollision(x: number, z: number, radius: number): { x: number; z: number } {
+export function resolveTerrainCollision(x: number, z: number, radius: number, entityY = 0): { x: number; z: number } {
   const bounds = getBounds();
   let rx = x, rz = z;
   for (const box of bounds) {
+    if (box.maxY !== undefined && entityY > box.maxY) continue;
     const push = circleVsAABB(rx, rz, radius, box);
     if (push) {
       rx += push.x;
@@ -201,11 +202,12 @@ export function pointHitsTerrain(px: number, pz: number): boolean {
   return false;
 }
 
-export function resolveMovementCollision(x: number, z: number, radius: number): { x: number; z: number; wasDeflected: boolean } {
+export function resolveMovementCollision(x: number, z: number, radius: number, entityY = 0): { x: number; z: number; wasDeflected: boolean } {
   const bounds = getMoveBounds();
   let rx = x, rz = z;
   let wasDeflected = false;
   for (const box of bounds) {
+    if (box.maxY !== undefined && entityY > box.maxY) continue;
     const push = circleVsAABB(rx, rz, radius, box);
     if (push) {
       rx += push.x;
@@ -225,13 +227,14 @@ interface CollisionResult {
   normalZ: number;
 }
 
-function resolveTerrainCollisionEx(x: number, z: number, radius: number): CollisionResult {
+function resolveTerrainCollisionEx(x: number, z: number, radius: number, entityY = 0): CollisionResult {
   const bounds = getBounds();
   let rx = x, rz = z;
   let hitWall = false;
   let totalNX = 0, totalNZ = 0;
 
   for (const box of bounds) {
+    if (box.maxY !== undefined && entityY > box.maxY) continue;
     const push = circleVsAABB(rx, rz, radius, box);
     if (push) {
       rx += push.x;
@@ -299,7 +302,7 @@ export function applyVelocities(dt: number, gameState: GameState): void {
           break;
         }
 
-        result = resolveTerrainCollisionEx(enemy.pos.x, enemy.pos.z, enemyRadius);
+        result = resolveTerrainCollisionEx(enemy.pos.x, enemy.pos.z, enemyRadius, enemy.pos.y);
         enemy.pos.x = result.x;
         enemy.pos.z = result.z;
         if (result.hitWall) break;
@@ -639,7 +642,7 @@ export function checkCollisions(gameState: GameState): void {
   const playerR = PLAYER.size.radius;
 
   if (!isPlayerDashing()) {
-    const resolved = resolveMovementCollision(playerPos.x, playerPos.z, playerR);
+    const resolved = resolveMovementCollision(playerPos.x, playerPos.z, playerR, playerPos.y);
     playerPos.x = resolved.x;
     playerPos.z = resolved.z;
   }
@@ -657,6 +660,8 @@ export function checkCollisions(gameState: GameState): void {
     let rx = enemy.pos.x, rz = enemy.pos.z;
     let wasDeflected = false;
     for (const box of bounds) {
+      // Skip obstacles the enemy is above (airborne or on higher platform)
+      if (box.maxY !== undefined && enemy.pos.y > box.maxY) continue;
       const push = circleVsAABB(rx, rz, enemy.config.size.radius, box);
       if (push) {
         rx += push.x;
