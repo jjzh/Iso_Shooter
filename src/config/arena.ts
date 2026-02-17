@@ -1,4 +1,5 @@
 import { Obstacle, Pit, AABB } from '../types/index';
+import { HEIGHT_ZONES } from './terrain';
 
 export let ARENA_HALF_X = 20;
 export let ARENA_HALF_Z = 20;
@@ -56,6 +57,17 @@ export function getCollisionBounds(): AABB[] {
       minZ: o.z - o.d / 2,
       maxZ: o.z + o.d / 2,
       maxY: o.h,  // entities above this height can pass over
+    });
+  }
+
+  // Height zone platforms — act as walls for entities below their surface
+  for (const zone of HEIGHT_ZONES) {
+    bounds.push({
+      minX: zone.x - zone.w / 2,
+      maxX: zone.x + zone.w / 2,
+      minZ: zone.z - zone.d / 2,
+      maxZ: zone.z + zone.d / 2,
+      maxY: zone.y,  // entities above platform height can walk on top
     });
   }
 

@@ -1,5 +1,6 @@
 import { PLAYER, MELEE, JUMP } from '../config/player';
 import { getGroundHeight } from '../config/terrain';
+import { PHYSICS } from '../config/physics';
 import { ABILITIES } from '../config/abilities';
 import { ARENA_HALF_X, ARENA_HALF_Z } from '../config/arena';
 import { screenShake, getScene } from '../engine/renderer';
@@ -167,6 +168,16 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   const clampZ = ARENA_HALF_Z - 0.5;
   playerPos.x = Math.max(-clampX, Math.min(clampX, playerPos.x));
   playerPos.z = Math.max(-clampZ, Math.min(clampZ, playerPos.z));
+
+  // === LEDGE FALL — walking off a platform edge ===
+  if (!isPlayerAirborne) {
+    const groundBelow = getGroundHeight(playerPos.x, playerPos.z);
+    if (playerPos.y > groundBelow + PHYSICS.groundEpsilon) {
+      // Ground dropped out — start falling
+      isPlayerAirborne = true;
+      playerVelY = 0; // no upward velocity, just fall
+    }
+  }
 
   // === PLAYER Y PHYSICS ===
   if (isPlayerAirborne) {

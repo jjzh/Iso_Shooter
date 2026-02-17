@@ -1,5 +1,6 @@
 import { ENEMY_TYPES, MOB_GLOBAL } from '../config/enemies';
 import { getCollisionBounds, getPitBounds } from '../config/arena';
+import { getGroundHeight } from '../config/terrain';
 import { applyAoeEffect } from '../engine/aoeTelegraph';
 import { getPlayerPos, isPlayerInvincible } from './player';
 import { screenShake } from '../engine/renderer';
@@ -298,6 +299,17 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
     // Arena clamp
     enemy.pos.x = Math.max(-19, Math.min(19, enemy.pos.x));
     enemy.pos.z = Math.max(-19, Math.min(19, enemy.pos.z));
+
+    // Ledge fall — if grounded enemy walks off platform edge, start falling
+    if (!enemy.isLeaping) {
+      const groundBelow = getGroundHeight(enemy.pos.x, enemy.pos.z);
+      if (enemy.pos.y > groundBelow + 0.05) {
+        // Ground dropped out — gravity will pull them down in applyVelocities
+        const vel = (enemy as any).vel;
+        if (vel && vel.y === 0) vel.y = 0; // ensure Y vel exists, gravity handles the rest
+      }
+    }
+
     if (enemy.isLeaping) {
       // Sync clamped XZ but preserve arc Y set by updateLeap
       enemy.mesh.position.x = enemy.pos.x;
