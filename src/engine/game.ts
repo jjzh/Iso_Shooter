@@ -15,6 +15,7 @@ import { initSpawnEditor, checkEditorToggle, updateSpawnEditor, isEditorActive }
 import { initAudio, resumeAudio } from './audio';
 import { initParticles, updateParticles } from './particles';
 import { initBulletTime, toggleBulletTime, updateBulletTime, getBulletTimeScale, resetBulletTime } from './bulletTime';
+import { initGroundShadows, updateGroundShadows } from './groundShadows';
 import { PLAYER, MELEE } from '../config/player';
 import { on } from './events';
 import { applyUrlParams, snapshotDefaults } from './urlParams';
@@ -128,6 +129,9 @@ function gameLoop(timestamp: number): void {
   // 10. Camera (real dt — smooth camera)
   updateCamera(getPlayerPos(), dt);
 
+  // 10b. Ground shadows (track entity positions)
+  updateGroundShadows(gameState);
+
   // 11. HUD
   updateHUD(gameState);
 
@@ -180,6 +184,7 @@ function init(): void {
     initAudio();
     initParticles(scene);
     initBulletTime();
+    initGroundShadows();
 
     // Melee hit pause — subscribe to meleeHit event
     on('meleeHit', () => {
