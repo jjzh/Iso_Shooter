@@ -318,6 +318,36 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
       enemy.mesh.position.copy(enemy.pos);
     }
 
+    // Airborne visual — tumble rotation when launched/falling
+    const groundBelowEnemy = getGroundHeight(enemy.pos.x, enemy.pos.z);
+    const enemyAirborne = enemy.pos.y > groundBelowEnemy + 0.15 && !enemy.isLeaping;
+    if (enemyAirborne) {
+      // Accumulate tumble rotation — fast spin that looks like they were popped up
+      if (!enemy._tumbleAngle) enemy._tumbleAngle = 0;
+      enemy._tumbleAngle += dt * 12; // ~2 full rotations per second
+      enemy.mesh.rotation.x = Math.sin(enemy._tumbleAngle) * 0.4;
+      enemy.mesh.rotation.z = Math.cos(enemy._tumbleAngle * 0.7) * 0.3;
+      // Squash/stretch based on vertical velocity
+      const vy = enemy.vel ? enemy.vel.y : 0;
+      if (vy > 2) {
+        // Rising — stretch vertically
+        enemy.mesh.scale.set(0.9, 1.15, 0.9);
+      } else if (vy < -2) {
+        // Falling — compress vertically
+        enemy.mesh.scale.set(1.1, 0.85, 1.1);
+      } else {
+        enemy.mesh.scale.set(1, 1, 1);
+      }
+    } else {
+      // On ground — reset tumble
+      if (enemy._tumbleAngle) {
+        enemy._tumbleAngle = 0;
+        enemy.mesh.rotation.x = 0;
+        enemy.mesh.rotation.z = 0;
+        enemy.mesh.scale.set(1, 1, 1);
+      }
+    }
+
     // Flash timer (hit feedback)
     if (enemy.flashTimer > 0) {
       enemy.flashTimer -= dt * 1000;
