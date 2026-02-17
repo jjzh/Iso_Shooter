@@ -3611,7 +3611,9 @@ function updatePlayer(inputState2, dt, gameState2) {
   }
   if (dunkPendingTarget && isPlayerAirborne && !isSlamming && !isDunking) {
     const pt = dunkPendingTarget;
-    if (pt.health <= 0 || pt.fellInPit || pt.pos.y <= 0.3) {
+    const ptVel = pt.vel;
+    const ptRising = ptVel && ptVel.y > 0;
+    if (pt.health <= 0 || pt.fellInPit || pt.pos.y <= 0.3 && !ptRising) {
       dunkPendingTarget = null;
       removeDunkDecal();
     } else {

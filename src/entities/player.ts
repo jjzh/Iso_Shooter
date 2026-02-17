@@ -250,8 +250,10 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   // === AUTO-GRAB — proximity check for pending dunk target ===
   if (dunkPendingTarget && isPlayerAirborne && !isSlamming && !isDunking) {
     const pt = dunkPendingTarget;
-    // Check if pending target is still valid (alive, airborne)
-    if (pt.health <= 0 || (pt as any).fellInPit || pt.pos.y <= 0.3) {
+    const ptVel = (pt as any).vel;
+    const ptRising = ptVel && ptVel.y > 0; // still being launched upward
+    // Check if pending target is still valid (alive, airborne or still rising)
+    if (pt.health <= 0 || (pt as any).fellInPit || (pt.pos.y <= 0.3 && !ptRising)) {
       // Target died or landed — cancel pending dunk
       dunkPendingTarget = null;
       removeDunkDecal();
