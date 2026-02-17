@@ -3466,6 +3466,7 @@ var launchCooldownTimer = 0;
 var isSlamming = false;
 var isDunking = false;
 var dunkTarget = null;
+var dunkPendingTarget = null;
 var dunkLandingX = 0;
 var dunkLandingZ = 0;
 var dunkOriginX = 0;
@@ -3585,6 +3586,19 @@ function updatePlayer(inputState2, dt, gameState2) {
       playerVelY = LAUNCH.selfJumpVelocity;
       isPlayerAirborne = true;
       launchCooldownTimer = LAUNCH.cooldown;
+      dunkPendingTarget = closestEnemy;
+      dunkOriginX = closestEnemy.pos.x;
+      dunkOriginZ = closestEnemy.pos.z;
+      dunkLandingX = inputState2.aimWorldPos.x;
+      dunkLandingZ = inputState2.aimWorldPos.z;
+      const aimDxL = dunkLandingX - dunkOriginX;
+      const aimDzL = dunkLandingZ - dunkOriginZ;
+      const aimDistL = Math.sqrt(aimDxL * aimDxL + aimDzL * aimDzL) || 0.01;
+      if (aimDistL > DUNK.targetRadius) {
+        dunkLandingX = dunkOriginX + aimDxL / aimDistL * DUNK.targetRadius;
+        dunkLandingZ = dunkOriginZ + aimDzL / aimDistL * DUNK.targetRadius;
+      }
+      createDunkDecal(dunkOriginX, dunkOriginZ);
       emit({
         type: "enemyLaunched",
         enemy: closestEnemy,
@@ -3595,56 +3609,43 @@ function updatePlayer(inputState2, dt, gameState2) {
       inputState2.launch = false;
     }
   }
-  if (inputState2.launch && isPlayerAirborne && !isSlamming && !isDunking) {
-    const enemies = gameState2.enemies;
-    let grabTarget = null;
-    let grabDistSq = DUNK.grabRange * DUNK.grabRange;
-    if (enemies) {
-      for (let i = 0; i < enemies.length; i++) {
-        const e = enemies[i];
-        if (e.health <= 0 || e.fellInPit) continue;
-        if (e.pos.y <= 0.5) continue;
-        const dx = e.pos.x - playerPos.x;
-        const dz = e.pos.z - playerPos.z;
-        const distSq = dx * dx + dz * dz;
-        if (distSq < grabDistSq) {
-          grabDistSq = distSq;
-          grabTarget = e;
-        }
-      }
-    }
-    if (grabTarget) {
-      isDunking = true;
-      dunkTarget = grabTarget;
-      playerVelY = DUNK.slamVelocity;
-      dunkOriginX = (playerPos.x + grabTarget.pos.x) / 2;
-      dunkOriginZ = (playerPos.z + grabTarget.pos.z) / 2;
-      playerPos.x = grabTarget.pos.x;
-      playerPos.z = grabTarget.pos.z;
-      const aimDx = inputState2.aimWorldPos.x - dunkOriginX;
-      const aimDz = inputState2.aimWorldPos.z - dunkOriginZ;
-      const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
-      const clampedDist = Math.min(aimDist, DUNK.targetRadius);
-      dunkLandingX = dunkOriginX + aimDx / aimDist * clampedDist;
-      dunkLandingZ = dunkOriginZ + aimDz / aimDist * clampedDist;
-      const vel = grabTarget.vel;
-      if (vel) vel.y = DUNK.slamVelocity;
-      const faceDx = dunkLandingX - playerPos.x;
-      const faceDz = dunkLandingZ - playerPos.z;
-      if (faceDx !== 0 || faceDz !== 0) {
-        playerGroup.rotation.y = Math.atan2(-faceDx, -faceDz);
-      }
-      createDunkDecal(dunkOriginX, dunkOriginZ);
-      emit({
-        type: "dunkGrab",
-        enemy: grabTarget,
-        position: { x: grabTarget.pos.x, z: grabTarget.pos.z }
-      });
-      spawnDamageNumber(grabTarget.pos.x, grabTarget.pos.z, "GRAB!", "#ff44ff");
+  if (dunkPendingTarget && isPlayerAirborne && !isSlamming && !isDunking) {
+    const pt = dunkPendingTarget;
+    if (pt.health <= 0 || pt.fellInPit || pt.pos.y <= 0.3) {
+      dunkPendingTarget = null;
+      removeDunkDecal();
     } else {
-      isSlamming = true;
-      playerVelY = SELF_SLAM.slamVelocity;
+      const dx = pt.pos.x - playerPos.x;
+      const dz = pt.pos.z - playerPos.z;
+      const dy = pt.pos.y - playerPos.y;
+      const distSq = dx * dx + dz * dz + dy * dy;
+      if (distSq < DUNK.grabRange * DUNK.grabRange) {
+        isDunking = true;
+        dunkTarget = pt;
+        dunkPendingTarget = null;
+        playerVelY = DUNK.slamVelocity;
+        playerPos.x = pt.pos.x;
+        playerPos.z = pt.pos.z;
+        const vel = pt.vel;
+        if (vel) vel.y = DUNK.slamVelocity;
+        const faceDx = dunkLandingX - playerPos.x;
+        const faceDz = dunkLandingZ - playerPos.z;
+        if (faceDx !== 0 || faceDz !== 0) {
+          playerGroup.rotation.y = Math.atan2(-faceDx, -faceDz);
+        }
+        emit({
+          type: "dunkGrab",
+          enemy: pt,
+          position: { x: pt.pos.x, z: pt.pos.z }
+        });
+        spawnDamageNumber(pt.pos.x, pt.pos.z, "GRAB!", "#ff44ff");
+      }
     }
+  }
+  if (inputState2.launch && isPlayerAirborne && !isSlamming && !isDunking && !dunkPendingTarget) {
+    isSlamming = true;
+    playerVelY = SELF_SLAM.slamVelocity;
+    removeDunkDecal();
   }
   if (Math.abs(inputState2.moveX) > 0.01 || Math.abs(inputState2.moveZ) > 0.01) {
     const chargeSlow = isCharging ? ABILITIES.ultimate.chargeMoveSpeedMult : 1;
@@ -3667,13 +3668,16 @@ function updatePlayer(inputState2, dt, gameState2) {
   if (isPlayerAirborne) {
     playerVelY -= JUMP.gravity * dt;
     playerPos.y += playerVelY * dt;
-    if (isDunking && dunkTarget) {
+    if (dunkPendingTarget || isDunking && dunkTarget) {
       const aimDx = inputState2.aimWorldPos.x - dunkOriginX;
       const aimDz = inputState2.aimWorldPos.z - dunkOriginZ;
       const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
       const clampedDist = Math.min(aimDist, DUNK.targetRadius);
       dunkLandingX = dunkOriginX + aimDx / aimDist * clampedDist;
       dunkLandingZ = dunkOriginZ + aimDz / aimDist * clampedDist;
+      updateDunkDecal(dunkLandingX, dunkLandingZ);
+    }
+    if (isDunking && dunkTarget) {
       const toDx = dunkLandingX - playerPos.x;
       const toDz = dunkLandingZ - playerPos.z;
       const toDist = Math.sqrt(toDx * toDx + toDz * toDz);
@@ -3688,7 +3692,6 @@ function updatePlayer(inputState2, dt, gameState2) {
       if (toDist > 0.1) {
         playerGroup.rotation.y = Math.atan2(-toDx, -toDz);
       }
-      updateDunkDecal(dunkLandingX, dunkLandingZ);
     }
     const groundHeight = getGroundHeight(playerPos.x, playerPos.z);
     if (playerPos.y <= groundHeight) {
@@ -3769,6 +3772,10 @@ function updatePlayer(inputState2, dt, gameState2) {
       } else {
         landingLagTimer = JUMP.landingLag;
         emit({ type: "playerLand", position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+      }
+      if (dunkPendingTarget) {
+        dunkPendingTarget = null;
+        removeDunkDecal();
       }
     }
   }
@@ -4252,6 +4259,7 @@ function resetPlayer() {
   isSlamming = false;
   isDunking = false;
   dunkTarget = null;
+  dunkPendingTarget = null;
   removeDunkDecal();
   removeChargeTelegraph();
   restoreDefaultEmissive();

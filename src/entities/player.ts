@@ -65,6 +65,7 @@ let isSlamming = false;
 // Dunk state
 let isDunking = false;
 let dunkTarget: any = null;
+let dunkPendingTarget: any = null;  // enemy we launched — waiting for auto-grab
 let dunkLandingX = 0;           // target landing position XZ
 let dunkLandingZ = 0;
 let dunkOriginX = 0;            // XZ where grab happened (decal center)
@@ -215,6 +216,22 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
       // Set cooldown
       launchCooldownTimer = LAUNCH.cooldown;
 
+      // Begin dunk targeting immediately — decal shows while rising
+      dunkPendingTarget = closestEnemy;
+      dunkOriginX = closestEnemy.pos.x;
+      dunkOriginZ = closestEnemy.pos.z;
+      dunkLandingX = inputState.aimWorldPos.x;
+      dunkLandingZ = inputState.aimWorldPos.z;
+      // Clamp initial target to radius
+      const aimDxL = dunkLandingX - dunkOriginX;
+      const aimDzL = dunkLandingZ - dunkOriginZ;
+      const aimDistL = Math.sqrt(aimDxL * aimDxL + aimDzL * aimDzL) || 0.01;
+      if (aimDistL > DUNK.targetRadius) {
+        dunkLandingX = dunkOriginX + (aimDxL / aimDistL) * DUNK.targetRadius;
+        dunkLandingZ = dunkOriginZ + (aimDzL / aimDistL) * DUNK.targetRadius;
+      }
+      createDunkDecal(dunkOriginX, dunkOriginZ);
+
       emit({
         type: 'enemyLaunched',
         enemy: closestEnemy,
@@ -230,74 +247,58 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     }
   }
 
-  // === GRAB/DUNK or SELF-SLAM (E while airborne) ===
-  if (inputState.launch && isPlayerAirborne && !isSlamming && !isDunking) {
-    // Find closest airborne enemy for grab
-    const enemies = gameState.enemies;
-    let grabTarget: any = null;
-    let grabDistSq = DUNK.grabRange * DUNK.grabRange;
-    if (enemies) {
-      for (let i = 0; i < enemies.length; i++) {
-        const e = enemies[i];
-        if (e.health <= 0 || (e as any).fellInPit) continue;
-        if (e.pos.y <= 0.5) continue; // only grab airborne enemies
-        const dx = e.pos.x - playerPos.x;
-        const dz = e.pos.z - playerPos.z;
-        const distSq = dx * dx + dz * dz;
-        if (distSq < grabDistSq) {
-          grabDistSq = distSq;
-          grabTarget = e;
-        }
-      }
-    }
-
-    if (grabTarget) {
-      // GRAB AND DUNK — lock onto enemy, begin targeted slam
-      isDunking = true;
-      dunkTarget = grabTarget;
-      playerVelY = DUNK.slamVelocity;
-
-      // Record origin (midpoint between player and target)
-      dunkOriginX = (playerPos.x + grabTarget.pos.x) / 2;
-      dunkOriginZ = (playerPos.z + grabTarget.pos.z) / 2;
-
-      // Snap player XZ to grab target (initial grab contact)
-      playerPos.x = grabTarget.pos.x;
-      playerPos.z = grabTarget.pos.z;
-
-      // Compute initial landing target from aim direction, clamped to radius
-      const aimDx = inputState.aimWorldPos.x - dunkOriginX;
-      const aimDz = inputState.aimWorldPos.z - dunkOriginZ;
-      const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
-      const clampedDist = Math.min(aimDist, DUNK.targetRadius);
-      dunkLandingX = dunkOriginX + (aimDx / aimDist) * clampedDist;
-      dunkLandingZ = dunkOriginZ + (aimDz / aimDist) * clampedDist;
-
-      // Slam enemy downward too
-      const vel = (grabTarget as any).vel;
-      if (vel) vel.y = DUNK.slamVelocity;
-
-      // Face the landing target
-      const faceDx = dunkLandingX - playerPos.x;
-      const faceDz = dunkLandingZ - playerPos.z;
-      if (faceDx !== 0 || faceDz !== 0) {
-        playerGroup.rotation.y = Math.atan2(-faceDx, -faceDz);
-      }
-
-      // Show targeting decal
-      createDunkDecal(dunkOriginX, dunkOriginZ);
-
-      emit({
-        type: 'dunkGrab',
-        enemy: grabTarget,
-        position: { x: grabTarget.pos.x, z: grabTarget.pos.z },
-      });
-      spawnDamageNumber(grabTarget.pos.x, grabTarget.pos.z, 'GRAB!', '#ff44ff');
+  // === AUTO-GRAB — proximity check for pending dunk target ===
+  if (dunkPendingTarget && isPlayerAirborne && !isSlamming && !isDunking) {
+    const pt = dunkPendingTarget;
+    // Check if pending target is still valid (alive, airborne)
+    if (pt.health <= 0 || (pt as any).fellInPit || pt.pos.y <= 0.3) {
+      // Target died or landed — cancel pending dunk
+      dunkPendingTarget = null;
+      removeDunkDecal();
     } else {
-      // No airborne enemy nearby — self-slam
-      isSlamming = true;
-      playerVelY = SELF_SLAM.slamVelocity;
+      const dx = pt.pos.x - playerPos.x;
+      const dz = pt.pos.z - playerPos.z;
+      const dy = pt.pos.y - playerPos.y;
+      const distSq = dx * dx + dz * dz + dy * dy;
+
+      if (distSq < DUNK.grabRange * DUNK.grabRange) {
+        // Close enough — auto-grab!
+        isDunking = true;
+        dunkTarget = pt;
+        dunkPendingTarget = null;
+        playerVelY = DUNK.slamVelocity;
+
+        // Snap player XZ to grab target
+        playerPos.x = pt.pos.x;
+        playerPos.z = pt.pos.z;
+
+        // Slam enemy downward too
+        const vel = (pt as any).vel;
+        if (vel) vel.y = DUNK.slamVelocity;
+
+        // Face the landing target
+        const faceDx = dunkLandingX - playerPos.x;
+        const faceDz = dunkLandingZ - playerPos.z;
+        if (faceDx !== 0 || faceDz !== 0) {
+          playerGroup.rotation.y = Math.atan2(-faceDx, -faceDz);
+        }
+
+        emit({
+          type: 'dunkGrab',
+          enemy: pt,
+          position: { x: pt.pos.x, z: pt.pos.z },
+        });
+        spawnDamageNumber(pt.pos.x, pt.pos.z, 'GRAB!', '#ff44ff');
+      }
     }
+  }
+
+  // === SELF-SLAM (E while airborne, no pending dunk) ===
+  if (inputState.launch && isPlayerAirborne && !isSlamming && !isDunking && !dunkPendingTarget) {
+    isSlamming = true;
+    playerVelY = SELF_SLAM.slamVelocity;
+    // Cancel any lingering decal
+    removeDunkDecal();
   }
 
   // === MOVEMENT ===
@@ -332,8 +333,8 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     playerVelY -= JUMP.gravity * dt;
     playerPos.y += playerVelY * dt;
 
-    // === DUNK XZ TARGETING — home toward landing spot ===
-    if (isDunking && dunkTarget) {
+    // === DUNK TARGETING — update decal + aim while pending or grabbed ===
+    if (dunkPendingTarget || (isDunking && dunkTarget)) {
       // Update landing target from current aim, clamped to radius
       const aimDx = inputState.aimWorldPos.x - dunkOriginX;
       const aimDz = inputState.aimWorldPos.z - dunkOriginZ;
@@ -342,6 +343,12 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
       dunkLandingX = dunkOriginX + (aimDx / aimDist) * clampedDist;
       dunkLandingZ = dunkOriginZ + (aimDz / aimDist) * clampedDist;
 
+      // Update ground decal (visible during both pending and grabbed phases)
+      updateDunkDecal(dunkLandingX, dunkLandingZ);
+    }
+
+    // XZ homing only after grab (not while pending — player rises freely)
+    if (isDunking && dunkTarget) {
       // Home player XZ toward landing target
       const toDx = dunkLandingX - playerPos.x;
       const toDz = dunkLandingZ - playerPos.z;
@@ -361,9 +368,6 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
       if (toDist > 0.1) {
         playerGroup.rotation.y = Math.atan2(-toDx, -toDz);
       }
-
-      // Update ground decal
-      updateDunkDecal(dunkLandingX, dunkLandingZ);
     }
 
     const groundHeight = getGroundHeight(playerPos.x, playerPos.z);
@@ -454,6 +458,12 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
         // Normal landing
         landingLagTimer = JUMP.landingLag;
         emit({ type: 'playerLand', position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+      }
+
+      // Clean up any pending dunk on any landing
+      if (dunkPendingTarget) {
+        dunkPendingTarget = null;
+        removeDunkDecal();
       }
     }
   }
@@ -1066,6 +1076,7 @@ export function resetPlayer() {
   isSlamming = false;
   isDunking = false;
   dunkTarget = null;
+  dunkPendingTarget = null;
   removeDunkDecal();
   removeChargeTelegraph();
   restoreDefaultEmissive();
