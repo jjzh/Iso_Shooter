@@ -15,6 +15,9 @@ const inputState = {
   interact: false,
   toggleEditor: false,
   bulletTime: false,
+  jump: false,
+  launch: false,
+  chargeStarted: false,
 };
 
 // Isometric basis vectors (from prototype)
@@ -42,6 +45,8 @@ let touchAimX = 0, touchAimY = 0;    // screen-space from right stick
 let touchAimActive = false;
 let touchActive = false;             // true when any touch joystick is in use
 
+let _checkMouseHold: () => void = () => {};
+
 export function initInput() {
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
@@ -49,8 +54,9 @@ export function initInput() {
     usingGamepad = false;
 
     // Edge-triggered ability inputs
-    if (e.code === 'Space') { inputState.dash = true; e.preventDefault(); }
-    if (e.code === 'KeyE') inputState.ultimate = true;
+    if (e.code === 'Space') { inputState.jump = true; e.preventDefault(); }
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') inputState.dash = true;
+    if (e.code === 'KeyE') inputState.launch = true;
     if (e.code === 'KeyF' || e.code === 'Enter') inputState.interact = true;
     if (e.code === 'Backquote') inputState.toggleEditor = true;
     if (e.code === 'KeyQ') inputState.bulletTime = true;
@@ -66,12 +72,31 @@ export function initInput() {
     usingGamepad = false;
   });
 
+  let mouseDownTime = 0;
+  let mouseIsDown = false;
+  const HOLD_THRESHOLD = 200; // ms — LMB hold longer than this triggers force push charge
+
   window.addEventListener('mousedown', (e) => {
     if (e.button === 0) { // left click
       inputState.attack = true;
+      mouseDownTime = performance.now();
+      mouseIsDown = true;
       usingGamepad = false;
     }
   });
+
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 0) {
+      mouseIsDown = false;
+    }
+  });
+
+  // Check LMB hold each frame (called from updateInput)
+  _checkMouseHold = () => {
+    if (mouseIsDown && (performance.now() - mouseDownTime > HOLD_THRESHOLD)) {
+      inputState.chargeStarted = true;
+    }
+  };
 
   // Gamepad connect/disconnect
   window.addEventListener('gamepadconnected', (e: GamepadEvent) => {
@@ -291,6 +316,9 @@ export function updateInput() {
     inputState.moveZ /= len;
   }
 
+  // Check LMB hold for force push charge
+  _checkMouseHold();
+
   // Continuous held state for charge abilities
   // Merge keyboard + touch button hold (gamepad sets it in pollGamepad)
   inputState.ultimateHeld = !!keys['KeyE'] || _touchUltHeld;
@@ -317,6 +345,9 @@ export function consumeInput() {
   inputState.interact = false;
   inputState.toggleEditor = false;
   inputState.bulletTime = false;
+  inputState.jump = false;
+  inputState.launch = false;
+  inputState.chargeStarted = false;
 }
 
 export function getInputState() { return inputState; }

@@ -497,6 +497,9 @@ export interface InputState {
   ultimate: boolean;
   ultimateHeld: boolean;
   toggleEditor: boolean;
+  jump: boolean;
+  launch: boolean;
+  chargeStarted: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
