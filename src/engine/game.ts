@@ -16,7 +16,7 @@ import { initAudio, resumeAudio } from './audio';
 import { initParticles, updateParticles } from './particles';
 import { initBulletTime, toggleBulletTime, updateBulletTime, getBulletTimeScale, resetBulletTime } from './bulletTime';
 import { initGroundShadows, updateGroundShadows } from './groundShadows';
-import { PLAYER, MELEE } from '../config/player';
+import { PLAYER, MELEE, DUNK } from '../config/player';
 import { on } from './events';
 import { applyUrlParams, snapshotDefaults } from './urlParams';
 import { GameState } from '../types/index';
@@ -186,9 +186,12 @@ function init(): void {
     initBulletTime();
     initGroundShadows();
 
-    // Melee hit pause — subscribe to meleeHit event
+    // Hit pause — subscribe to impact events
     on('meleeHit', () => {
       hitPauseTimer = MELEE.hitPause;
+    });
+    on('dunkGrab', () => {
+      hitPauseTimer = DUNK.grabPause;
     });
     initHUD();
     initDamageNumbers();

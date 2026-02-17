@@ -42,16 +42,24 @@ export const AERIAL_STRIKE = {
 
 // Grab and dunk config — E while airborne near airborne enemy
 export const DUNK = {
-  grabRange: 3.0,          // XZ range to grab airborne enemy
   slamVelocity: -25,       // downward velocity for both player + enemy
   damage: 35,              // big damage on impact (the payoff)
   landingShake: 4.0,       // massive screen shake
   landingLag: 200,         // ms of end-lag
-  aoeRadius: 3.0,          // splash damage radius on impact
+  aoeRadius: 1.5,          // splash damage radius on impact
   aoeDamage: 10,           // splash damage to other nearby enemies
   aoeKnockback: 10,        // knockback to nearby enemies
-  targetRadius: 4.0,       // radius of landing target circle (world units)
-  homing: 15,              // XZ homing speed toward target (units/sec)
+  targetRadius: 6.0,       // radius of landing target circle (world units)
+  homing: 60,              // XZ homing speed toward target (units/sec) — high to compensate for arc ease-in
+  grabPause: 60,           // ms freeze-frame on grab (punctuates the moment)
+  grabShake: 1.5,          // screen shake on grab (smaller than landing shake)
+  carryOffsetY: -0.4,      // enemy offset below player during slam fall
+  carryOffsetZ: 0.35,      // enemy offset forward (toward landing) during slam fall
+  // Float phase — zero-gravity hang time when player & enemy converge mid-air
+  floatDuration: 600,      // ms of zero-gravity float (aim window before dunk)
+  floatConvergeDist: 3.5,  // Y distance threshold to trigger float (enemy descends within this of player)
+  floatEnemyOffsetY: 0.6,  // enemy hovers this far above player during float
+  floatDriftSpeed: 3,      // XZ drift speed toward each other during float (units/sec)
 };
 
 // Self-slam config — E while airborne, no enemy nearby
@@ -65,10 +73,11 @@ export const SELF_SLAM = {
 };
 
 // Launch verb config — E while grounded near an enemy
+// Velocities are derived from JUMP.initialVelocity via multipliers so tuning jump auto-tunes launch.
 export const LAUNCH = {
   range: 3.0,             // max range to find a target
-  launchVelocity: 15,     // upward velocity given to enemy
+  enemyVelMult: 1.3,      // enemy launch velocity = JUMP.initialVelocity × this (goes higher than player)
+  playerVelMult: 1.15,    // player hop velocity = JUMP.initialVelocity × this (slightly higher to stay airborne for catch)
   cooldown: 600,          // ms cooldown between launches
   damage: 5,              // small chip damage on launch
-  selfJumpVelocity: 13,   // player hops up to follow (tuned to stay airborne ~1s)
 };

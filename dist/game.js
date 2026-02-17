@@ -292,7 +292,12 @@ function createPlatforms() {
     metalness: 0.1
   });
   const edgeMat = new THREE.MeshBasicMaterial({
-    color: 4491468,
+    color: 6732782,
+    transparent: true,
+    opacity: 0.8
+  });
+  const vertEdgeMat = new THREE.MeshBasicMaterial({
+    color: 4495820,
     transparent: true,
     opacity: 0.5
   });
@@ -335,8 +340,8 @@ function createPlatforms() {
     westCliff.position.set(x - w / 2, y / 2, z);
     scene.add(westCliff);
     platformMeshes.push(westCliff);
-    const edgeHeight = 0.04;
-    const edgeW = 0.06;
+    const edgeHeight = 0.06;
+    const edgeW = 0.1;
     const ne = new THREE.Mesh(new THREE.BoxGeometry(w + edgeW, edgeHeight, edgeW), edgeMat);
     ne.position.set(x, y + 0.01, z + d / 2);
     scene.add(ne);
@@ -353,6 +358,23 @@ function createPlatforms() {
     we.position.set(x - w / 2, y + 0.01, z);
     scene.add(we);
     platformMeshes.push(we);
+    const vertW = 0.08;
+    const neVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    neVert.position.set(x + w / 2, y / 2, z + d / 2);
+    scene.add(neVert);
+    platformMeshes.push(neVert);
+    const nwVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    nwVert.position.set(x - w / 2, y / 2, z + d / 2);
+    scene.add(nwVert);
+    platformMeshes.push(nwVert);
+    const seVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    seVert.position.set(x + w / 2, y / 2, z - d / 2);
+    scene.add(seVert);
+    platformMeshes.push(seVert);
+    const swVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    swVert.position.set(x - w / 2, y / 2, z - d / 2);
+    scene.add(swVert);
+    platformMeshes.push(swVert);
   }
 }
 function rebuildArenaVisuals() {
@@ -480,8 +502,6 @@ var AERIAL_STRIKE = {
   // ms between aerial strikes (shorter than ground melee)
 };
 var DUNK = {
-  grabRange: 3,
-  // XZ range to grab airborne enemy
   slamVelocity: -25,
   // downward velocity for both player + enemy
   damage: 35,
@@ -490,16 +510,33 @@ var DUNK = {
   // massive screen shake
   landingLag: 200,
   // ms of end-lag
-  aoeRadius: 3,
+  aoeRadius: 1.5,
   // splash damage radius on impact
   aoeDamage: 10,
   // splash damage to other nearby enemies
   aoeKnockback: 10,
   // knockback to nearby enemies
-  targetRadius: 4,
+  targetRadius: 6,
   // radius of landing target circle (world units)
-  homing: 15
-  // XZ homing speed toward target (units/sec)
+  homing: 60,
+  // XZ homing speed toward target (units/sec) — high to compensate for arc ease-in
+  grabPause: 60,
+  // ms freeze-frame on grab (punctuates the moment)
+  grabShake: 1.5,
+  // screen shake on grab (smaller than landing shake)
+  carryOffsetY: -0.4,
+  // enemy offset below player during slam fall
+  carryOffsetZ: 0.35,
+  // enemy offset forward (toward landing) during slam fall
+  // Float phase — zero-gravity hang time when player & enemy converge mid-air
+  floatDuration: 600,
+  // ms of zero-gravity float (aim window before dunk)
+  floatConvergeDist: 3.5,
+  // Y distance threshold to trigger float (enemy descends within this of player)
+  floatEnemyOffsetY: 0.6,
+  // enemy hovers this far above player during float
+  floatDriftSpeed: 3
+  // XZ drift speed toward each other during float (units/sec)
 };
 var SELF_SLAM = {
   slamVelocity: -30,
@@ -518,14 +555,14 @@ var SELF_SLAM = {
 var LAUNCH = {
   range: 3,
   // max range to find a target
-  launchVelocity: 15,
-  // upward velocity given to enemy
+  enemyVelMult: 1.3,
+  // enemy launch velocity = JUMP.initialVelocity × this (goes higher than player)
+  playerVelMult: 1.15,
+  // player hop velocity = JUMP.initialVelocity × this (slightly higher to stay airborne for catch)
   cooldown: 600,
   // ms cooldown between launches
-  damage: 5,
+  damage: 5
   // small chip damage on launch
-  selfJumpVelocity: 13
-  // player hops up to follow (tuned to stay airborne ~1s)
 };
 
 // src/config/physics.ts
@@ -579,7 +616,7 @@ var PHYSICS = {
 var ABILITIES = {
   dash: {
     name: "Shadow Dash",
-    key: "Space",
+    key: "Shift",
     cooldown: 3e3,
     duration: 200,
     distance: 5,
@@ -599,7 +636,7 @@ var ABILITIES = {
     description: "Dash forward, briefly invincible"
   },
   ultimate: {
-    name: "Force Push",
+    name: "Launch / Push",
     key: "E",
     cooldown: 500,
     chargeTimeMs: 1500,
@@ -3467,13 +3504,24 @@ var isSlamming = false;
 var isDunking = false;
 var dunkTarget = null;
 var dunkPendingTarget = null;
+var isFloating = false;
+var floatTimer = 0;
 var dunkLandingX = 0;
 var dunkLandingZ = 0;
 var dunkOriginX = 0;
 var dunkOriginZ = 0;
 var dunkDecalGroup = null;
 var dunkDecalFill = null;
+var dunkDecalAge = 0;
+var DECAL_EXPAND_MS = 250;
 var dunkDecalRing = null;
+var dunkSlamStartY = 0;
+var dunkSlamStartX = 0;
+var dunkSlamStartZ = 0;
+var DUNK_TRAIL_MAX = 20;
+var dunkTrailLine = null;
+var dunkTrailPoints = [];
+var dunkTrailLife = 0;
 var DEFAULT_EMISSIVE = 2271846;
 var DEFAULT_EMISSIVE_INTENSITY = 0.4;
 function restoreDefaultEmissive() {
@@ -3578,12 +3626,12 @@ function updatePlayer(inputState2, dt, gameState2) {
     }
     if (closestEnemy) {
       const vel = closestEnemy.vel;
-      if (vel) vel.y = LAUNCH.launchVelocity;
+      if (vel) vel.y = JUMP.initialVelocity * LAUNCH.enemyVelMult;
       closestEnemy.health -= LAUNCH.damage;
       const dx = closestEnemy.pos.x - playerPos.x;
       const dz = closestEnemy.pos.z - playerPos.z;
       playerGroup.rotation.y = Math.atan2(-dx, -dz);
-      playerVelY = LAUNCH.selfJumpVelocity;
+      playerVelY = JUMP.initialVelocity * LAUNCH.playerVelMult;
       isPlayerAirborne = true;
       launchCooldownTimer = LAUNCH.cooldown;
       dunkPendingTarget = closestEnemy;
@@ -3603,13 +3651,70 @@ function updatePlayer(inputState2, dt, gameState2) {
         type: "enemyLaunched",
         enemy: closestEnemy,
         position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z },
-        velocity: LAUNCH.launchVelocity
+        velocity: JUMP.initialVelocity * LAUNCH.enemyVelMult
       });
       spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, "LAUNCH!", "#ffaa00");
       inputState2.launch = false;
     }
   }
-  if (dunkPendingTarget && isPlayerAirborne && !isSlamming && !isDunking) {
+  if (isFloating && dunkPendingTarget) {
+    floatTimer -= dt * 1e3;
+    const pt = dunkPendingTarget;
+    const ptVel = pt.vel;
+    playerVelY = 0;
+    if (ptVel) ptVel.y = 0;
+    const targetEnemyY = playerPos.y + DUNK.floatEnemyOffsetY;
+    pt.pos.y += (targetEnemyY - pt.pos.y) * Math.min(1, dt * 10);
+    const driftDx = playerPos.x - pt.pos.x;
+    const driftDz = playerPos.z - pt.pos.z;
+    const driftDist = Math.sqrt(driftDx * driftDx + driftDz * driftDz);
+    if (driftDist > 0.05) {
+      const step = Math.min(DUNK.floatDriftSpeed * dt, driftDist);
+      pt.pos.x += driftDx / driftDist * step;
+      pt.pos.z += driftDz / driftDist * step;
+    }
+    if (pt.mesh) pt.mesh.position.copy(pt.pos);
+    if (pt.health <= 0 || pt.fellInPit) {
+      isFloating = false;
+      floatTimer = 0;
+      dunkPendingTarget = null;
+      removeDunkDecal();
+    } else if (inputState2.launch) {
+      inputState2.launch = false;
+      isFloating = false;
+      floatTimer = 0;
+      isDunking = true;
+      dunkTarget = pt;
+      dunkPendingTarget = null;
+      playerVelY = DUNK.slamVelocity;
+      pt.pos.x = playerPos.x;
+      pt.pos.z = playerPos.z;
+      pt.pos.y = playerPos.y + DUNK.carryOffsetY;
+      if (ptVel) ptVel.y = DUNK.slamVelocity;
+      const faceDx = dunkLandingX - playerPos.x;
+      const faceDz = dunkLandingZ - playerPos.z;
+      if (faceDx !== 0 || faceDz !== 0) {
+        playerGroup.rotation.y = Math.atan2(-faceDx, -faceDz);
+      }
+      dunkSlamStartY = playerPos.y;
+      dunkSlamStartX = playerPos.x;
+      dunkSlamStartZ = playerPos.z;
+      dunkTrailPoints = [{ x: playerPos.x, y: playerPos.y, z: playerPos.z }];
+      createDunkTrail();
+      screenShake(DUNK.grabShake);
+      emit({
+        type: "dunkGrab",
+        enemy: pt,
+        position: { x: playerPos.x, z: playerPos.z }
+      });
+      spawnDamageNumber(playerPos.x, playerPos.z, "GRAB!", "#ff44ff");
+    } else if (floatTimer <= 0) {
+      isFloating = false;
+      dunkPendingTarget = null;
+      removeDunkDecal();
+    }
+  }
+  if (dunkPendingTarget && !isFloating && isPlayerAirborne && !isSlamming && !isDunking) {
     const pt = dunkPendingTarget;
     const ptVel = pt.vel;
     const ptRising = ptVel && ptVel.y > 0;
@@ -3617,34 +3722,16 @@ function updatePlayer(inputState2, dt, gameState2) {
       dunkPendingTarget = null;
       removeDunkDecal();
     } else {
-      const dx = pt.pos.x - playerPos.x;
-      const dz = pt.pos.z - playerPos.z;
       const dy = pt.pos.y - playerPos.y;
-      const distSq = dx * dx + dz * dz + dy * dy;
-      if (distSq < DUNK.grabRange * DUNK.grabRange) {
-        isDunking = true;
-        dunkTarget = pt;
-        dunkPendingTarget = null;
-        playerVelY = DUNK.slamVelocity;
-        playerPos.x = pt.pos.x;
-        playerPos.z = pt.pos.z;
-        const vel = pt.vel;
-        if (vel) vel.y = DUNK.slamVelocity;
-        const faceDx = dunkLandingX - playerPos.x;
-        const faceDz = dunkLandingZ - playerPos.z;
-        if (faceDx !== 0 || faceDz !== 0) {
-          playerGroup.rotation.y = Math.atan2(-faceDx, -faceDz);
-        }
-        emit({
-          type: "dunkGrab",
-          enemy: pt,
-          position: { x: pt.pos.x, z: pt.pos.z }
-        });
-        spawnDamageNumber(pt.pos.x, pt.pos.z, "GRAB!", "#ff44ff");
+      if (ptVel && ptVel.y <= 0 && dy >= 0 && dy <= DUNK.floatConvergeDist) {
+        isFloating = true;
+        floatTimer = DUNK.floatDuration;
+        screenShake(DUNK.grabShake * 0.5);
+        spawnDamageNumber(playerPos.x, playerPos.z, "CATCH!", "#ff88ff");
       }
     }
   }
-  if (inputState2.launch && isPlayerAirborne && !isSlamming && !isDunking && !dunkPendingTarget) {
+  if (inputState2.launch && isPlayerAirborne && !isSlamming && !isDunking && !dunkPendingTarget && !isFloating) {
     isSlamming = true;
     playerVelY = SELF_SLAM.slamVelocity;
     removeDunkDecal();
@@ -3668,29 +3755,51 @@ function updatePlayer(inputState2, dt, gameState2) {
     }
   }
   if (isPlayerAirborne) {
-    playerVelY -= JUMP.gravity * dt;
-    playerPos.y += playerVelY * dt;
+    if (!isFloating) {
+      playerVelY -= JUMP.gravity * dt;
+      playerPos.y += playerVelY * dt;
+    }
     if (dunkPendingTarget || isDunking && dunkTarget) {
+      dunkOriginX = playerPos.x;
+      dunkOriginZ = playerPos.z;
       const aimDx = inputState2.aimWorldPos.x - dunkOriginX;
       const aimDz = inputState2.aimWorldPos.z - dunkOriginZ;
       const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
       const clampedDist = Math.min(aimDist, DUNK.targetRadius);
       dunkLandingX = dunkOriginX + aimDx / aimDist * clampedDist;
       dunkLandingZ = dunkOriginZ + aimDz / aimDist * clampedDist;
-      updateDunkDecal(dunkLandingX, dunkLandingZ);
+      updateDunkDecal(dunkLandingX, dunkLandingZ, dt);
     }
     if (isDunking && dunkTarget) {
+      const groundY = getGroundHeight(playerPos.x, playerPos.z);
+      const totalDrop = Math.max(dunkSlamStartY - groundY, 0.1);
+      const dropped = Math.max(dunkSlamStartY - playerPos.y, 0);
+      const progress = Math.min(dropped / totalDrop, 1);
+      const arcMult = 0.3 + 0.7 * progress;
       const toDx = dunkLandingX - playerPos.x;
       const toDz = dunkLandingZ - playerPos.z;
       const toDist = Math.sqrt(toDx * toDx + toDz * toDz);
       if (toDist > 0.05) {
-        const moveStep = Math.min(DUNK.homing * dt, toDist);
+        const moveStep = Math.min(DUNK.homing * arcMult * dt, toDist);
         playerPos.x += toDx / toDist * moveStep;
         playerPos.z += toDz / toDist * moveStep;
       }
+      dunkTrailPoints.push({ x: playerPos.x, y: playerPos.y, z: playerPos.z });
+      if (dunkTrailPoints.length > DUNK_TRAIL_MAX) dunkTrailPoints.shift();
+      updateDunkTrail();
       dunkTarget.pos.x = playerPos.x;
       dunkTarget.pos.z = playerPos.z;
-      if (dunkTarget.mesh) dunkTarget.mesh.position.copy(dunkTarget.pos);
+      dunkTarget.pos.y = playerPos.y + DUNK.carryOffsetY;
+      if (dunkTarget.mesh) {
+        const aimAngle = playerGroup.rotation.y;
+        const fwdX = -Math.sin(aimAngle) * DUNK.carryOffsetZ;
+        const fwdZ = -Math.cos(aimAngle) * DUNK.carryOffsetZ;
+        dunkTarget.mesh.position.set(
+          dunkTarget.pos.x + fwdX,
+          dunkTarget.pos.y,
+          dunkTarget.pos.z + fwdZ
+        );
+      }
       if (toDist > 0.1) {
         playerGroup.rotation.y = Math.atan2(-toDx, -toDz);
       }
@@ -3771,18 +3880,24 @@ function updatePlayer(inputState2, dt, gameState2) {
         });
         spawnDamageNumber(playerPos.x, playerPos.z, "DUNK!", "#ff2244");
         dunkTarget = null;
+        startDunkTrailFade();
       } else {
         landingLagTimer = JUMP.landingLag;
         emit({ type: "playerLand", position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
       }
-      if (dunkPendingTarget) {
+      if (dunkPendingTarget || isFloating) {
         dunkPendingTarget = null;
+        isFloating = false;
+        floatTimer = 0;
         removeDunkDecal();
       }
     }
   }
   if (landingLagTimer > 0) {
     landingLagTimer -= dt * 1e3;
+  }
+  if (dunkTrailLife > 0) {
+    updateDunkTrailFade(dt * 1e3);
   }
   playerGroup.position.copy(playerPos);
   aimAtCursor(inputState2);
@@ -4178,27 +4293,37 @@ function createDunkDecal(cx, cz) {
   dunkDecalRing = new THREE.Mesh(ringGeo3, ringMat);
   dunkDecalRing.rotation.x = -Math.PI / 2;
   dunkDecalGroup.add(dunkDecalRing);
-  const dotGeo = new THREE.CircleGeometry(0.12, 12);
+  const dotGeo = new THREE.CircleGeometry(DUNK.aoeRadius, 24);
   const dotMat = new THREE.MeshBasicMaterial({
-    color: 16777215,
+    color: 16746751,
     transparent: true,
-    opacity: 0.6,
+    opacity: 0.15,
     depthWrite: false
   });
   const dot = new THREE.Mesh(dotGeo, dotMat);
   dot.rotation.x = -Math.PI / 2;
   dot.name = "dunkCrosshair";
   dunkDecalGroup.add(dot);
+  dunkDecalGroup.scale.set(0, 0, 0);
+  dunkDecalAge = 0;
   scene2.add(dunkDecalGroup);
 }
-function updateDunkDecal(aimX, aimZ) {
+function updateDunkDecal(aimX, aimZ, dt) {
   if (!dunkDecalGroup) return;
+  if (dt && dunkDecalAge < DECAL_EXPAND_MS) {
+    dunkDecalAge += dt * 1e3;
+    const t = Math.min(dunkDecalAge / DECAL_EXPAND_MS, 1);
+    const eased = 1 - (1 - t) * (1 - t);
+    dunkDecalGroup.scale.set(eased, eased, eased);
+  } else if (dunkDecalGroup.scale.x < 1) {
+    dunkDecalGroup.scale.set(1, 1, 1);
+  }
   dunkDecalGroup.position.set(dunkOriginX, 0.06, dunkOriginZ);
   const dot = dunkDecalGroup.getObjectByName("dunkCrosshair");
   if (dot) {
     const dx = dunkLandingX - dunkOriginX;
     const dz = dunkLandingZ - dunkOriginZ;
-    dot.position.set(dx, 0, -dz);
+    dot.position.set(dx, 0, dz);
   }
   if (dunkDecalRing) {
     const pulse = 0.3 + 0.15 * Math.sin(Date.now() * 8e-3);
@@ -4217,6 +4342,58 @@ function removeDunkDecal() {
   dunkDecalFill = null;
   dunkDecalRing = null;
 }
+function createDunkTrail() {
+  removeDunkTrail();
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(DUNK_TRAIL_MAX * 3);
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setDrawRange(0, 0);
+  const mat = new THREE.LineBasicMaterial({
+    color: 16738047,
+    transparent: true,
+    opacity: 0.7,
+    linewidth: 1
+  });
+  dunkTrailLine = new THREE.Line(geo, mat);
+  dunkTrailLine.frustumCulled = false;
+  getScene().add(dunkTrailLine);
+  dunkTrailLife = 0;
+}
+function updateDunkTrail() {
+  if (!dunkTrailLine) return;
+  const posAttr = dunkTrailLine.geometry.getAttribute("position");
+  const arr = posAttr.array;
+  for (let i = 0; i < dunkTrailPoints.length; i++) {
+    const p = dunkTrailPoints[i];
+    arr[i * 3] = p.x;
+    arr[i * 3 + 1] = p.y;
+    arr[i * 3 + 2] = p.z;
+  }
+  posAttr.needsUpdate = true;
+  dunkTrailLine.geometry.setDrawRange(0, dunkTrailPoints.length);
+}
+function startDunkTrailFade() {
+  dunkTrailLife = 300;
+}
+function updateDunkTrailFade(dtMs) {
+  if (!dunkTrailLine || dunkTrailLife <= 0) return;
+  dunkTrailLife -= dtMs;
+  const opacity = Math.max(0, dunkTrailLife / 300) * 0.7;
+  dunkTrailLine.material.opacity = opacity;
+  if (dunkTrailLife <= 0) {
+    removeDunkTrail();
+  }
+}
+function removeDunkTrail() {
+  if (!dunkTrailLine) return;
+  const scene2 = getScene();
+  scene2.remove(dunkTrailLine);
+  if (dunkTrailLine.geometry) dunkTrailLine.geometry.dispose();
+  if (dunkTrailLine.material) dunkTrailLine.material.dispose();
+  dunkTrailLine = null;
+  dunkTrailPoints = [];
+  dunkTrailLife = 0;
+}
 function isMeleeSwinging() {
   return meleeSwinging;
 }
@@ -4234,6 +4411,12 @@ function isPlayerInvincible() {
 }
 function isPlayerDashing() {
   return isDashing;
+}
+function getDunkPendingTarget() {
+  return dunkPendingTarget;
+}
+function getIsFloating() {
+  return isFloating;
 }
 function consumePushEvent() {
   const evt = pushEvent;
@@ -4262,7 +4445,10 @@ function resetPlayer() {
   isDunking = false;
   dunkTarget = null;
   dunkPendingTarget = null;
+  isFloating = false;
+  floatTimer = 0;
   removeDunkDecal();
+  removeDunkTrail();
   removeChargeTelegraph();
   restoreDefaultEmissive();
   resetAnimatorState(animState);
@@ -5040,7 +5226,8 @@ function applyVelocities(dt, gameState2) {
       vel.x = 0;
       vel.z = 0;
     }
-    if (enemy.pos.y > PHYSICS.groundEpsilon || vel.y > 0) {
+    const isFloatingTarget = getIsFloating() && enemy === getDunkPendingTarget();
+    if (!isFloatingTarget && (enemy.pos.y > PHYSICS.groundEpsilon || vel.y > 0)) {
       enemy.pos.y += vel.y * dt;
       vel.y -= PHYSICS.gravity * dt;
       vel.y = Math.max(vel.y, -PHYSICS.terminalVelocity);
@@ -8810,24 +8997,24 @@ var SECTIONS = [
         tip: "Max range to target an enemy for launch."
       },
       {
-        label: "Launch Velocity",
+        label: "Enemy Vel Mult",
         config: () => LAUNCH,
-        key: "launchVelocity",
-        min: 5,
-        max: 30,
-        step: 1,
-        unit: "u/s",
-        tip: "Upward velocity given to launched enemy."
+        key: "enemyVelMult",
+        min: 1,
+        max: 3,
+        step: 0.1,
+        unit: "\xD7",
+        tip: "Enemy launch velocity = jump velocity \xD7 this. Higher = enemy goes higher above player."
       },
       {
-        label: "Self Jump Vel",
+        label: "Player Vel Mult",
         config: () => LAUNCH,
-        key: "selfJumpVelocity",
-        min: 5,
-        max: 25,
-        step: 1,
-        unit: "u/s",
-        tip: "Player upward velocity on launch (to follow)."
+        key: "playerVelMult",
+        min: 0.5,
+        max: 2,
+        step: 0.1,
+        unit: "\xD7",
+        tip: "Player hop velocity = jump velocity \xD7 this. Lower than enemy = player catches the ball."
       },
       {
         label: "Cooldown",
@@ -8973,14 +9160,44 @@ var SECTIONS = [
     collapsed: true,
     items: [
       {
-        label: "Grab Range",
+        label: "Float Duration",
         config: () => DUNK,
-        key: "grabRange",
-        min: 1,
-        max: 6,
-        step: 0.5,
+        key: "floatDuration",
+        min: 100,
+        max: 800,
+        step: 25,
+        unit: "ms",
+        tip: "Zero-gravity hang time \u2014 aim window before dunk."
+      },
+      {
+        label: "Converge Dist",
+        config: () => DUNK,
+        key: "floatConvergeDist",
+        min: 0.5,
+        max: 4,
+        step: 0.25,
         unit: "u",
-        tip: "Max range to grab airborne enemy."
+        tip: "Y distance threshold to trigger float phase."
+      },
+      {
+        label: "Float Enemy Y",
+        config: () => DUNK,
+        key: "floatEnemyOffsetY",
+        min: 0.2,
+        max: 2,
+        step: 0.1,
+        unit: "u",
+        tip: "Enemy hovers this far above player during float."
+      },
+      {
+        label: "Float Drift",
+        config: () => DUNK,
+        key: "floatDriftSpeed",
+        min: 1,
+        max: 10,
+        step: 0.5,
+        unit: "u/s",
+        tip: "Speed enemy drifts toward player during float."
       },
       {
         label: "Slam Velocity",
@@ -12037,6 +12254,9 @@ function init() {
     initGroundShadows();
     on("meleeHit", () => {
       hitPauseTimer = MELEE.hitPause;
+    });
+    on("dunkGrab", () => {
+      hitPauseTimer = DUNK.grabPause;
     });
     initHUD();
     initDamageNumbers();

@@ -1,4 +1,4 @@
-import { getPlayerPos, isPlayerInvincible, isPlayerDashing, consumePushEvent, isMeleeSwinging, getMeleeSwingDir, getMeleeHitEnemies } from '../entities/player';
+import { getPlayerPos, isPlayerInvincible, isPlayerDashing, consumePushEvent, isMeleeSwinging, getMeleeSwingDir, getMeleeHitEnemies, getDunkPendingTarget, getIsFloating } from '../entities/player';
 import { getPlayerProjectiles, getEnemyProjectiles, releaseProjectile } from '../entities/projectile';
 import { stunEnemy } from '../entities/enemy';
 import { getIceEffects } from '../entities/mortarProjectile';
@@ -349,7 +349,10 @@ export function applyVelocities(dt: number, gameState: GameState): void {
     }
 
     // ─── Y-axis Integration (gravity + ground clamping) ───
-    if (enemy.pos.y > PHYSICS.groundEpsilon || vel.y > 0) {
+    // Skip gravity for the dunk pending target during float phase —
+    // player.ts handles its Y position directly in that case.
+    const isFloatingTarget = getIsFloating() && enemy === getDunkPendingTarget();
+    if (!isFloatingTarget && (enemy.pos.y > PHYSICS.groundEpsilon || vel.y > 0)) {
       // Apply Y velocity
       enemy.pos.y += vel.y * dt;
       // Apply gravity

@@ -253,9 +253,16 @@ function createPlatforms() {
     metalness: 0.1,
   });
 
-  // Edge highlight material — subtle bright line at platform top edge
+  // Edge highlight material — bright line at platform top edge
   const edgeMat = new THREE.MeshBasicMaterial({
-    color: 0x4488cc,
+    color: 0x66bbee,
+    transparent: true,
+    opacity: 0.8,
+  });
+
+  // Vertical edge material — highlights the cliff face edges (visible from isometric angle)
+  const vertEdgeMat = new THREE.MeshBasicMaterial({
+    color: 0x4499cc,
     transparent: true,
     opacity: 0.5,
   });
@@ -312,33 +319,61 @@ function createPlatforms() {
     scene.add(westCliff);
     platformMeshes.push(westCliff);
 
-    // Edge highlight — thin bright strip around top perimeter
-    const edgeHeight = 0.04;
-    const edgeW = 0.06;
+    // Edge highlight — bright strip around top perimeter
+    const edgeHeight = 0.06;
+    const edgeW = 0.1;
 
-    // North edge
+    // North edge (top)
     const ne = new THREE.Mesh(new THREE.BoxGeometry(w + edgeW, edgeHeight, edgeW), edgeMat);
     ne.position.set(x, y + 0.01, z + d / 2);
     scene.add(ne);
     platformMeshes.push(ne);
 
-    // South edge
+    // South edge (top)
     const se = new THREE.Mesh(new THREE.BoxGeometry(w + edgeW, edgeHeight, edgeW), edgeMat);
     se.position.set(x, y + 0.01, z - d / 2);
     scene.add(se);
     platformMeshes.push(se);
 
-    // East edge
+    // East edge (top)
     const ee = new THREE.Mesh(new THREE.BoxGeometry(edgeW, edgeHeight, d), edgeMat);
     ee.position.set(x + w / 2, y + 0.01, z);
     scene.add(ee);
     platformMeshes.push(ee);
 
-    // West edge
+    // West edge (top)
     const we = new THREE.Mesh(new THREE.BoxGeometry(edgeW, edgeHeight, d), edgeMat);
     we.position.set(x - w / 2, y + 0.01, z);
     scene.add(we);
     platformMeshes.push(we);
+
+    // Vertical edge highlights — bright strips running down each corner
+    // Makes the cliff edges readable from isometric camera angle
+    const vertW = 0.08;
+
+    // North-East vertical
+    const neVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    neVert.position.set(x + w / 2, y / 2, z + d / 2);
+    scene.add(neVert);
+    platformMeshes.push(neVert);
+
+    // North-West vertical
+    const nwVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    nwVert.position.set(x - w / 2, y / 2, z + d / 2);
+    scene.add(nwVert);
+    platformMeshes.push(nwVert);
+
+    // South-East vertical
+    const seVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    seVert.position.set(x + w / 2, y / 2, z - d / 2);
+    scene.add(seVert);
+    platformMeshes.push(seVert);
+
+    // South-West vertical
+    const swVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    swVert.position.set(x - w / 2, y / 2, z - d / 2);
+    scene.add(swVert);
+    platformMeshes.push(swVert);
   }
 }
 
