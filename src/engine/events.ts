@@ -37,7 +37,9 @@ export type GameEvent =
   | { type: 'playerLand'; position: { x: number; z: number }; fallSpeed: number }
   | { type: 'enemyLaunched'; enemy: any; position: { x: number; z: number }; velocity: number }
   | { type: 'aerialStrike'; enemy: any; damage: number; position: { x: number; z: number } }
-  | { type: 'playerSlam'; position: { x: number; z: number }; fallSpeed: number };
+  | { type: 'playerSlam'; position: { x: number; z: number }; fallSpeed: number }
+  | { type: 'dunkGrab'; enemy: any; position: { x: number; z: number } }
+  | { type: 'dunkImpact'; enemy: any; damage: number; position: { x: number; z: number } };
 
 // ─── Bus Implementation ───
 

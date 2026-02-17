@@ -40,6 +40,18 @@ export const AERIAL_STRIKE = {
   cooldown: 300,           // ms between aerial strikes (shorter than ground melee)
 };
 
+// Grab and dunk config — E while airborne near airborne enemy
+export const DUNK = {
+  grabRange: 3.0,          // XZ range to grab airborne enemy
+  slamVelocity: -25,       // downward velocity for both player + enemy
+  damage: 35,              // big damage on impact (the payoff)
+  landingShake: 4.0,       // massive screen shake
+  landingLag: 200,         // ms of end-lag
+  aoeRadius: 3.0,          // splash damage radius on impact
+  aoeDamage: 10,           // splash damage to other nearby enemies
+  aoeKnockback: 10,        // knockback to nearby enemies
+};
+
 // Self-slam config — E while airborne, no enemy nearby
 export const SELF_SLAM = {
   slamVelocity: -30,       // fast downward velocity

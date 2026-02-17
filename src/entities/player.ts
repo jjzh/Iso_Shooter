@@ -1,4 +1,4 @@
-import { PLAYER, MELEE, JUMP, LAUNCH, AERIAL_STRIKE, SELF_SLAM } from '../config/player';
+import { PLAYER, MELEE, JUMP, LAUNCH, AERIAL_STRIKE, SELF_SLAM, DUNK } from '../config/player';
 import { getGroundHeight } from '../config/terrain';
 import { PHYSICS } from '../config/physics';
 import { ABILITIES } from '../config/abilities';
@@ -60,6 +60,10 @@ let launchCooldownTimer = 0;
 
 // Self-slam state
 let isSlamming = false;
+
+// Dunk state
+let isDunking = false;
+let dunkTarget: any = null;
 
 // Original emissive colors (used for charge glow reset)
 const DEFAULT_EMISSIVE = 0x22aa66;
@@ -212,11 +216,12 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     }
   }
 
-  // === SELF-SLAM (E while airborne, no nearby enemy for grab) ===
-  if (inputState.launch && isPlayerAirborne && !isSlamming) {
-    // Check if any enemy is close enough for a grab (Task 4.1 will use this)
+  // === GRAB/DUNK or SELF-SLAM (E while airborne) ===
+  if (inputState.launch && isPlayerAirborne && !isSlamming && !isDunking) {
+    // Find closest airborne enemy for grab
     const enemies = gameState.enemies;
-    let hasNearbyAirborneEnemy = false;
+    let grabTarget: any = null;
+    let grabDistSq = DUNK.grabRange * DUNK.grabRange;
     if (enemies) {
       for (let i = 0; i < enemies.length; i++) {
         const e = enemies[i];
@@ -225,19 +230,44 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
         const dx = e.pos.x - playerPos.x;
         const dz = e.pos.z - playerPos.z;
         const distSq = dx * dx + dz * dz;
-        if (distSq < LAUNCH.range * LAUNCH.range) {
-          hasNearbyAirborneEnemy = true;
-          break;
+        if (distSq < grabDistSq) {
+          grabDistSq = distSq;
+          grabTarget = e;
         }
       }
     }
 
-    if (!hasNearbyAirborneEnemy) {
-      // Self-slam — fast fall to ground
+    if (grabTarget) {
+      // GRAB AND DUNK — lock onto enemy, both slam down
+      isDunking = true;
+      dunkTarget = grabTarget;
+      playerVelY = DUNK.slamVelocity;
+
+      // Snap player XZ toward grab target
+      playerPos.x = grabTarget.pos.x;
+      playerPos.z = grabTarget.pos.z;
+
+      // Slam enemy downward too
+      const vel = (grabTarget as any).vel;
+      if (vel) vel.y = DUNK.slamVelocity;
+
+      // Face the target
+      const dx = grabTarget.pos.x - playerPos.x;
+      const dz = grabTarget.pos.z - playerPos.z;
+      if (dx !== 0 || dz !== 0) {
+        playerGroup.rotation.y = Math.atan2(-dx, -dz);
+      }
+
+      emit({
+        type: 'dunkGrab',
+        enemy: grabTarget,
+        position: { x: grabTarget.pos.x, z: grabTarget.pos.z },
+      });
+    } else {
+      // No airborne enemy nearby — self-slam
       isSlamming = true;
       playerVelY = SELF_SLAM.slamVelocity;
     }
-    // else: Task 4.1 grab/dunk will handle this case
   }
 
   // === MOVEMENT ===
@@ -309,6 +339,50 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
         }
 
         emit({ type: 'playerSlam', position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+      } else if (isDunking && dunkTarget) {
+        // Dunk landing — massive damage to grabbed enemy + AoE splash
+        isDunking = false;
+        landingLagTimer = DUNK.landingLag;
+        screenShake(DUNK.landingShake);
+
+        // Primary damage to dunk target
+        dunkTarget.health -= DUNK.damage;
+        dunkTarget.flashTimer = 150;
+        dunkTarget.pos.y = groundHeight; // slam to ground
+        const tVel = (dunkTarget as any).vel;
+        if (tVel) { tVel.x = 0; tVel.y = 0; tVel.z = 0; }
+        (dunkTarget as any).mesh.position.copy(dunkTarget.pos);
+
+        // AoE splash damage to other nearby enemies
+        const enemies = gameState.enemies;
+        if (enemies) {
+          for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
+            if (e === dunkTarget) continue;
+            if (e.health <= 0 || (e as any).fellInPit) continue;
+            const dx = e.pos.x - playerPos.x;
+            const dz = e.pos.z - playerPos.z;
+            const distSq = dx * dx + dz * dz;
+            if (distSq < DUNK.aoeRadius * DUNK.aoeRadius) {
+              e.health -= DUNK.aoeDamage;
+              e.flashTimer = 100;
+              const dist = Math.sqrt(distSq) || 0.1;
+              const vel = (e as any).vel;
+              if (vel) {
+                vel.x += (dx / dist) * DUNK.aoeKnockback;
+                vel.z += (dz / dist) * DUNK.aoeKnockback;
+              }
+            }
+          }
+        }
+
+        emit({
+          type: 'dunkImpact',
+          enemy: dunkTarget,
+          damage: DUNK.damage,
+          position: { x: playerPos.x, z: playerPos.z },
+        });
+        dunkTarget = null;
       } else {
         // Normal landing
         landingLagTimer = JUMP.landingLag;
@@ -831,6 +905,8 @@ export function resetPlayer() {
   landingLagTimer = 0;
   launchCooldownTimer = 0;
   isSlamming = false;
+  isDunking = false;
+  dunkTarget = null;
   removeChargeTelegraph();
   restoreDefaultEmissive();
   resetAnimatorState(animState);
