@@ -5,6 +5,7 @@
 
 import { ROOMS, RoomDefinition } from '../config/rooms';
 import { setArenaConfig, ARENA_HALF_X, ARENA_HALF_Z } from '../config/arena';
+import { setHeightZones } from '../config/terrain';
 import { SPAWN_CONFIG } from '../config/spawn';
 import { spawnEnemy, clearEnemies } from '../entities/enemy';
 import { getPlayerPos, isPlayerDashing } from '../entities/player';
@@ -98,6 +99,7 @@ export function loadRoom(index: number, gameState: any) {
 
   // Swap arena layout
   setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);
+  setHeightZones(room.heightZones || []);
   invalidateCollisionBounds();
   rebuildArenaVisuals();
 

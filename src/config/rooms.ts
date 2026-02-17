@@ -4,6 +4,7 @@
 // progresses toward -Z (top-right in iso), exits through a door at the far end
 
 import { Obstacle, Pit, SpawnPack, RoomSpawnBudget } from '../types/index';
+import type { HeightZone } from './terrain';
 
 export interface RoomDefinition {
   name: string;
@@ -11,6 +12,7 @@ export interface RoomDefinition {
   arenaHalfZ: number;
   obstacles: Obstacle[];
   pits: Pit[];
+  heightZones?: HeightZone[];
   spawnBudget: RoomSpawnBudget;
   playerStart: { x: number; z: number };
   isRestRoom?: boolean;
@@ -54,6 +56,10 @@ export const ROOMS: RoomDefinition[] = [
     ],
     pits: [
       { x: 5, z: -8, w: 3, d: 3 },                // small pit mid-right (teaches force push)
+    ],
+    heightZones: [
+      { x: -6, z: -2, w: 5, d: 4, y: 1.2, label: 'raised left' },    // low platform, jumpable
+      { x: 3, z: -15, w: 4, d: 3, y: 1.5, label: 'raised far-right' }, // slightly higher
     ],
     spawnBudget: {
       maxConcurrent: 4,
