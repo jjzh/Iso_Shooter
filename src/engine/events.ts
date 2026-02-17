@@ -34,7 +34,8 @@ export type GameEvent =
   | { type: 'bulletTimeActivated' }
   | { type: 'bulletTimeDeactivated' }
   | { type: 'playerJump'; position: { x: number; z: number } }
-  | { type: 'playerLand'; position: { x: number; z: number }; fallSpeed: number };
+  | { type: 'playerLand'; position: { x: number; z: number }; fallSpeed: number }
+  | { type: 'enemyLaunched'; enemy: any; position: { x: number; z: number }; velocity: number };
 
 // ─── Bus Implementation ───
 

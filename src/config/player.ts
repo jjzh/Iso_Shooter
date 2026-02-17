@@ -29,3 +29,12 @@ export const MELEE = {
   screenShake: 1.5,      // shake intensity on hit
   hitPause: 40,          // ms of freeze-frame on hit (juice)
 };
+
+// Launch verb config — E while grounded near an enemy
+export const LAUNCH = {
+  range: 3.0,             // max range to find a target
+  launchVelocity: 15,     // upward velocity given to enemy
+  cooldown: 600,          // ms cooldown between launches
+  damage: 5,              // small chip damage on launch
+  selfJumpVelocity: 10,   // player also hops up to follow
+};

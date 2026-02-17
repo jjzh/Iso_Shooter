@@ -1,4 +1,4 @@
-import { PLAYER, MELEE, JUMP } from '../config/player';
+import { PLAYER, MELEE, JUMP, LAUNCH } from '../config/player';
 import { getGroundHeight } from '../config/terrain';
 import { PHYSICS } from '../config/physics';
 import { ABILITIES } from '../config/abilities';
@@ -54,6 +54,9 @@ let chargeBorderGeo: any = null;
 let playerVelY = 0;
 let isPlayerAirborne = false;
 let landingLagTimer = 0;
+
+// Launch verb state
+let launchCooldownTimer = 0;
 
 // Original emissive colors (used for charge glow reset)
 const DEFAULT_EMISSIVE = 0x22aa66;
@@ -150,6 +153,60 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     playerVelY = JUMP.initialVelocity;
     isPlayerAirborne = true;
     emit({ type: 'playerJump', position: { x: playerPos.x, z: playerPos.z } });
+  }
+
+  // === LAUNCH COOLDOWN ===
+  if (launchCooldownTimer > 0) {
+    launchCooldownTimer -= dt * 1000;
+  }
+
+  // === LAUNCH VERB (E while grounded) ===
+  if (inputState.launch && !isPlayerAirborne && !isDashing && launchCooldownTimer <= 0) {
+    // Find closest enemy within range (360° — no arc restriction)
+    const enemies = gameState.enemies;
+    let closestEnemy: any = null;
+    let closestDistSq = LAUNCH.range * LAUNCH.range;
+    if (enemies) {
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e.health <= 0 || (e as any).fellInPit) continue;
+        const dx = e.pos.x - playerPos.x;
+        const dz = e.pos.z - playerPos.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq < closestDistSq) {
+          closestDistSq = distSq;
+          closestEnemy = e;
+        }
+      }
+    }
+
+    if (closestEnemy) {
+      // Launch the enemy upward
+      const vel = (closestEnemy as any).vel;
+      if (vel) vel.y = LAUNCH.launchVelocity;
+
+      // Chip damage
+      closestEnemy.health -= LAUNCH.damage;
+
+      // Face the target
+      const dx = closestEnemy.pos.x - playerPos.x;
+      const dz = closestEnemy.pos.z - playerPos.z;
+      playerGroup.rotation.y = Math.atan2(-dx, -dz);
+
+      // Player hops up to follow
+      playerVelY = LAUNCH.selfJumpVelocity;
+      isPlayerAirborne = true;
+
+      // Set cooldown
+      launchCooldownTimer = LAUNCH.cooldown;
+
+      emit({
+        type: 'enemyLaunched',
+        enemy: closestEnemy,
+        position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z },
+        velocity: LAUNCH.launchVelocity,
+      });
+    }
   }
 
   // === MOVEMENT ===
@@ -648,6 +705,7 @@ export function resetPlayer() {
   playerVelY = 0;
   isPlayerAirborne = false;
   landingLagTimer = 0;
+  launchCooldownTimer = 0;
   removeChargeTelegraph();
   restoreDefaultEmissive();
   resetAnimatorState(animState);
