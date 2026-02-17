@@ -2,8 +2,8 @@ import { OBSTACLES, PITS, ARENA_HALF_X, ARENA_HALF_Z, WALL_THICKNESS, WALL_HEIGH
 import { HEIGHT_ZONES } from '../config/terrain';
 
 let scene: any, camera: any, renderer: any;
-const baseFrustum = 12;
-let currentFrustum = 12;
+const baseFrustum = 9.6;
+let currentFrustum = 9.6;
 const cameraOffset = new THREE.Vector3(20, 20, 20);
 
 // Tracked arena meshes for dynamic rebuild

@@ -80,6 +80,7 @@ export interface AnimatorState {
   dashDir: number;             // direction of dash (for squash orientation)
   dashT: number;               // 0–1 progress through dash
   time: number;                // accumulated time for idle oscillations
+  punchSide: number;           // 0 = right (cross), 1 = left (jab) — alternates
 }
 
 export function createAnimatorState(): AnimatorState {
@@ -96,6 +97,7 @@ export function createAnimatorState(): AnimatorState {
     dashDir: 0,
     dashT: 0,
     time: 0,
+    punchSide: 0,
   };
 }
 
@@ -174,6 +176,7 @@ export function updateAnimation(
   } else if (isSwinging) {
     if (anim.currentState !== 'swing') {
       transitionTo(anim, 'swing', 0); // instant
+      anim.punchSide = 1 - anim.punchSide; // alternate left/right on each new swing
     }
     anim.dashT = swingProgress; // reuse dashT for swing progress
   } else if (isAirborne && isSlamming) {
@@ -473,55 +476,66 @@ function applyEndLag(joints: PlayerJoints, anim: AnimatorState) {
   joints.upperArmR.rotation.x = -0.2 * (1 - ease);
 }
 
-// ─── Melee Swing Pose ───
+// ─── Melee Punch Pose (alternating jab/cross) ───
 
 function applySwing(joints: PlayerJoints, anim: AnimatorState) {
   const t = clamp(anim.dashT, 0, 1); // dashT reused for swing progress
+  const isLeft = anim.punchSide === 1;
 
-  // Two sub-phases: wind-up (0-0.3), follow-through (0.3-1.0)
-  if (t < 0.3) {
-    // WIND-UP — coil back, brief preparation
-    const subT = t / 0.3;
+  // Punching arm & guarding arm references
+  const punchUpper = isLeft ? joints.upperArmL : joints.upperArmR;
+  const punchLower = isLeft ? joints.lowerArmL : joints.lowerArmR;
+  const guardUpper = isLeft ? joints.upperArmR : joints.upperArmL;
+  const guardLower = isLeft ? joints.lowerArmR : joints.lowerArmL;
+  const torsoTwistSign = isLeft ? 1 : -1;
+
+  // Two sub-phases: wind-up (0-0.25), punch + retract (0.25-1.0)
+  if (t < 0.25) {
+    // WIND-UP — pull shoulder back, coil torso
+    const subT = t / 0.25;
     const ease = easeOutQuad(subT);
 
-    // Right arm winds back
-    joints.upperArmR.rotation.x = 0.4 * ease;    // pull back
-    joints.upperArmR.rotation.z = -0.3 * ease;    // out to side
-    joints.lowerArmR.rotation.x = -0.6 * ease;    // elbow bent
+    // Punching arm pulls back
+    punchUpper.rotation.x = 0.3 * ease;     // shoulder pulls back
+    punchLower.rotation.x = -0.8 * ease;    // elbow bends tight
 
-    // Left arm guards
-    joints.upperArmL.rotation.x = -0.2 * ease;
-    joints.lowerArmL.rotation.x = -0.3 * ease;
+    // Guard arm comes up
+    guardUpper.rotation.x = -0.3 * ease;    // forward guard position
+    guardLower.rotation.x = -0.7 * ease;    // bent at elbow
 
-    // Torso coils opposite to swing
-    joints.torso.rotation.y = -0.25 * ease;
+    // Torso coils away from punch
+    joints.torso.rotation.y = -0.2 * torsoTwistSign * ease;
 
     // Slight crouch
-    joints.rigRoot.rotation.x = 0.06 * ease;
+    joints.rigRoot.rotation.x = 0.05 * ease;
   } else {
-    // FOLLOW-THROUGH — explosive sweep across body
-    const subT = (t - 0.3) / 0.7;
+    // PUNCH — arm extends straight forward, torso rotates through
+    const subT = (t - 0.25) / 0.75;
     const ease = easeOutQuad(subT);
 
-    // Right arm sweeps forward and across
-    joints.upperArmR.rotation.x = 0.4 + (-1.0 - 0.4) * ease;   // -1.0: fully forward
-    joints.upperArmR.rotation.z = -0.3 + (0.5 + 0.3) * ease;    // 0.5: across body
-    joints.lowerArmR.rotation.x = -0.6 + (0.6 - 0.2) * ease;    // extend arm
+    // Punching arm drives forward — straight extension
+    punchUpper.rotation.x = 0.3 + (-1.2 - 0.3) * ease;    // -1.2: fully extended forward
+    punchLower.rotation.x = -0.8 + (0.8 - 0.15) * ease;    // nearly straight (slight bend)
 
-    // Left arm sweeps back for counterbalance
-    joints.upperArmL.rotation.x = -0.2 + (0.3 + 0.2) * ease;
-    joints.lowerArmL.rotation.x = -0.3 + (-0.2 + 0.3) * ease;
+    // Guard arm stays up
+    guardUpper.rotation.x = -0.3;
+    guardLower.rotation.x = -0.7;
 
-    // Torso twists through — big rotation sells the swing
-    joints.torso.rotation.y = -0.25 + (0.45 + 0.25) * ease;
+    // Torso rotates into the punch — sells the weight
+    joints.torso.rotation.y = (-0.2 + (0.35 + 0.2) * ease) * torsoTwistSign;
 
-    // Forward lean intensifies then settles
-    const leanCurve = subT < 0.5 ? easeOutQuad(subT * 2) : 1 - easeOutQuad((subT - 0.5) * 2);
-    joints.rigRoot.rotation.x = 0.06 + 0.08 * leanCurve;
+    // Forward lean peaks then settles
+    const leanCurve = subT < 0.4 ? easeOutQuad(subT / 0.4) : 1 - easeOutQuad((subT - 0.4) / 0.6);
+    joints.rigRoot.rotation.x = 0.05 + 0.1 * leanCurve;
 
-    // Front leg plants, back leg braces
-    joints.thighL.rotation.x = 0.2 * ease;
-    joints.thighR.rotation.x = -0.15 * ease;
+    // Lead leg steps forward slightly
+    if (isLeft) {
+      joints.thighL.rotation.x = 0.15 * ease;
+      joints.thighR.rotation.x = -0.1 * ease;
+    } else {
+      joints.thighR.rotation.x = 0.15 * ease;
+      joints.thighL.rotation.x = -0.1 * ease;
+    }
   }
 }
 

@@ -17,7 +17,6 @@ export interface PlayerJoints {
   shoulderR: any;
   upperArmR: any;
   lowerArmR: any;
-  sword: any;      // sword group attached to right forearm
   thighL: any;
   shinL: any;
   thighR: any;
@@ -84,7 +83,7 @@ const COLORS = {
   head:     { color: 0x55ddaa, emissive: 0x33bb88, emissiveIntensity: 0.5 },
   arm:      { color: 0x3ab87a, emissive: 0x1e9960, emissiveIntensity: 0.35 },
   leg:      { color: 0x38b575, emissive: 0x1c9658, emissiveIntensity: 0.35 },
-  sword:    { color: 0xccccdd, emissive: 0x8888aa, emissiveIntensity: 0.3 },
+  fist:     { color: 0x55ddaa, emissive: 0x33bb88, emissiveIntensity: 0.5 },  // bright like head — reads as "hands"
 };
 
 // ─── Shared Geometry Cache (created once) ───
@@ -95,8 +94,7 @@ let _upperArmGeo: any = null;
 let _lowerArmGeo: any = null;
 let _thighGeo: any = null;
 let _shinGeo: any = null;
-let _swordBladeGeo: any = null;
-let _swordGuardGeo: any = null;
+let _fistGeo: any = null;
 
 function ensureGeometry() {
   if (_torsoGeo) return;
@@ -106,8 +104,7 @@ function ensureGeometry() {
   _lowerArmGeo = new THREE.BoxGeometry(P.lowerArmWidth, P.lowerArmHeight, P.lowerArmDepth);
   _thighGeo    = new THREE.BoxGeometry(P.thighWidth, P.thighHeight, P.thighDepth);
   _shinGeo     = new THREE.BoxGeometry(P.shinWidth, P.shinHeight, P.shinDepth);
-  _swordBladeGeo = new THREE.BoxGeometry(0.06, 0.50, 0.03);  // visible blade, ~3× forearm length
-  _swordGuardGeo = new THREE.BoxGeometry(0.18, 0.04, 0.05);  // wide crosspiece
+  _fistGeo = new THREE.BoxGeometry(0.10, 0.08, 0.10);  // chunky fist — wider than forearm for readability
 }
 
 function makeMat(palette: { color: number; emissive: number; emissiveIntensity: number }) {
@@ -177,6 +174,7 @@ export function createPlayerRig(parentGroup: any): PlayerRig {
   lowerArmL.position.y = P.elbowY;
   upperArmL.add(lowerArmL);
   addMesh(_lowerArmGeo, COLORS.arm, lowerArmL, 0, P.lowerArmY, 0);
+  addMesh(_fistGeo, COLORS.fist, lowerArmL, 0, P.lowerArmY - P.lowerArmHeight / 2 - 0.02, 0);  // fist at end of forearm
 
   // Right shoulder pivot
   const shoulderR = new THREE.Group();
@@ -193,13 +191,7 @@ export function createPlayerRig(parentGroup: any): PlayerRig {
   lowerArmR.position.y = P.elbowY;
   upperArmR.add(lowerArmR);
   addMesh(_lowerArmGeo, COLORS.arm, lowerArmR, 0, P.lowerArmY, 0);
-
-  // ─── Sword (attached to right forearm) ───
-  const sword = new THREE.Group();
-  sword.position.set(0, -0.24, 0);  // extends below hand
-  lowerArmR.add(sword);
-  addMesh(_swordBladeGeo, COLORS.sword, sword, 0, -0.22, 0);  // blade center
-  addMesh(_swordGuardGeo, COLORS.sword, sword, 0, 0.03, 0);   // guard at top (handguard)
+  addMesh(_fistGeo, COLORS.fist, lowerArmR, 0, P.lowerArmY - P.lowerArmHeight / 2 - 0.02, 0);  // fist at end of forearm
 
   // ─── Legs ───
 
@@ -239,7 +231,6 @@ export function createPlayerRig(parentGroup: any): PlayerRig {
       shoulderR,
       upperArmR,
       lowerArmR,
-      sword,
       thighL,
       shinL,
       thighR,
