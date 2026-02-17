@@ -320,8 +320,8 @@ export function updateInput() {
   _checkMouseHold();
 
   // Continuous held state for charge abilities
-  // Merge keyboard + touch button hold (gamepad sets it in pollGamepad)
-  inputState.ultimateHeld = !!keys['KeyE'] || _touchUltHeld;
+  // Merge keyboard + touch button hold + LMB hold (gamepad sets it in pollGamepad)
+  inputState.ultimateHeld = !!keys['KeyE'] || _touchUltHeld || inputState.chargeStarted;
 
   // Mouse → world position on y=0 plane (only if not overridden by gamepad/touch/ability drag)
   if ((!usingGamepad || !gamepadAimActive) && !touchAimActive && !_abilityAimActive) {

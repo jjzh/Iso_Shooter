@@ -133,8 +133,8 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     startDash(inputState, gameState);
   }
 
-  // Trigger charge (start)
-  if (inputState.ultimate && gameState.abilities.ultimate.cooldownRemaining <= 0 && !isCharging) {
+  // Trigger charge (start) — LMB hold (chargeStarted) or E key (ultimate) both work
+  if ((inputState.chargeStarted || inputState.ultimate) && gameState.abilities.ultimate.cooldownRemaining <= 0 && !isCharging) {
     startCharge(inputState, gameState);
   }
 
