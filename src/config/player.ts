@@ -40,6 +40,16 @@ export const AERIAL_STRIKE = {
   cooldown: 300,           // ms between aerial strikes (shorter than ground melee)
 };
 
+// Self-slam config — E while airborne, no enemy nearby
+export const SELF_SLAM = {
+  slamVelocity: -30,       // fast downward velocity
+  landingShake: 3.0,       // screen shake on impact
+  landingLag: 150,         // ms of end-lag (longer than normal landing)
+  damageRadius: 2.5,       // AoE damage radius on impact
+  damage: 15,              // AoE damage to nearby grounded enemies
+  knockback: 8,            // knockback force on nearby enemies
+};
+
 // Launch verb config — E while grounded near an enemy
 export const LAUNCH = {
   range: 3.0,             // max range to find a target

@@ -1,4 +1,4 @@
-import { PLAYER, MELEE, JUMP, LAUNCH, AERIAL_STRIKE } from '../config/player';
+import { PLAYER, MELEE, JUMP, LAUNCH, AERIAL_STRIKE, SELF_SLAM } from '../config/player';
 import { getGroundHeight } from '../config/terrain';
 import { PHYSICS } from '../config/physics';
 import { ABILITIES } from '../config/abilities';
@@ -57,6 +57,9 @@ let landingLagTimer = 0;
 
 // Launch verb state
 let launchCooldownTimer = 0;
+
+// Self-slam state
+let isSlamming = false;
 
 // Original emissive colors (used for charge glow reset)
 const DEFAULT_EMISSIVE = 0x22aa66;
@@ -209,6 +212,34 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     }
   }
 
+  // === SELF-SLAM (E while airborne, no nearby enemy for grab) ===
+  if (inputState.launch && isPlayerAirborne && !isSlamming) {
+    // Check if any enemy is close enough for a grab (Task 4.1 will use this)
+    const enemies = gameState.enemies;
+    let hasNearbyAirborneEnemy = false;
+    if (enemies) {
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e.health <= 0 || (e as any).fellInPit) continue;
+        if (e.pos.y <= 0.5) continue; // only grab airborne enemies
+        const dx = e.pos.x - playerPos.x;
+        const dz = e.pos.z - playerPos.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq < LAUNCH.range * LAUNCH.range) {
+          hasNearbyAirborneEnemy = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasNearbyAirborneEnemy) {
+      // Self-slam — fast fall to ground
+      isSlamming = true;
+      playerVelY = SELF_SLAM.slamVelocity;
+    }
+    // else: Task 4.1 grab/dunk will handle this case
+  }
+
   // === MOVEMENT ===
   if (Math.abs(inputState.moveX) > 0.01 || Math.abs(inputState.moveZ) > 0.01) {
     const chargeSlow = isCharging ? ABILITIES.ultimate.chargeMoveSpeedMult : 1;
@@ -247,8 +278,42 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
       playerPos.y = groundHeight;
       playerVelY = 0;
       isPlayerAirborne = false;
-      landingLagTimer = JUMP.landingLag;
-      emit({ type: 'playerLand', position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+
+      if (isSlamming) {
+        // Self-slam landing — AoE damage + big impact
+        isSlamming = false;
+        landingLagTimer = SELF_SLAM.landingLag;
+        screenShake(SELF_SLAM.landingShake);
+
+        // AoE damage to nearby grounded enemies
+        const enemies = gameState.enemies;
+        if (enemies) {
+          for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
+            if (e.health <= 0 || (e as any).fellInPit) continue;
+            const dx = e.pos.x - playerPos.x;
+            const dz = e.pos.z - playerPos.z;
+            const distSq = dx * dx + dz * dz;
+            if (distSq < SELF_SLAM.damageRadius * SELF_SLAM.damageRadius) {
+              e.health -= SELF_SLAM.damage;
+              e.flashTimer = 100;
+              // Knockback away from slam point
+              const dist = Math.sqrt(distSq) || 0.1;
+              const vel = (e as any).vel;
+              if (vel) {
+                vel.x += (dx / dist) * SELF_SLAM.knockback;
+                vel.z += (dz / dist) * SELF_SLAM.knockback;
+              }
+            }
+          }
+        }
+
+        emit({ type: 'playerSlam', position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+      } else {
+        // Normal landing
+        landingLagTimer = JUMP.landingLag;
+        emit({ type: 'playerLand', position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+      }
     }
   }
   if (landingLagTimer > 0) {
@@ -765,6 +830,7 @@ export function resetPlayer() {
   isPlayerAirborne = false;
   landingLagTimer = 0;
   launchCooldownTimer = 0;
+  isSlamming = false;
   removeChargeTelegraph();
   restoreDefaultEmissive();
   resetAnimatorState(animState);
