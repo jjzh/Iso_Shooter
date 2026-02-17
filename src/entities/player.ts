@@ -1,4 +1,4 @@
-import { PLAYER, MELEE, JUMP, LAUNCH } from '../config/player';
+import { PLAYER, MELEE, JUMP, LAUNCH, AERIAL_STRIKE } from '../config/player';
 import { getGroundHeight } from '../config/terrain';
 import { PHYSICS } from '../config/physics';
 import { ABILITIES } from '../config/abilities';
@@ -290,47 +290,106 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
 
   // === MELEE ATTACK (left click) ===
   if (inputState.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging) {
-    // Auto-targeting: snap aim to nearest enemy within cone before swinging
-    const enemies = gameState.enemies;
-    if (enemies) {
-      let bestDist = MELEE.autoTargetRange * MELEE.autoTargetRange;
-      let bestEnemy: any = null;
-      const aimAngle = playerGroup.rotation.y;
-      for (let i = 0; i < enemies.length; i++) {
-        const e = enemies[i];
-        if (e.health <= 0 || e.fellInPit) continue;
-        const dx = e.pos.x - playerPos.x;
-        const dz = e.pos.z - playerPos.z;
-        const distSq = dx * dx + dz * dz;
-        if (distSq > bestDist) continue;
-        // Check if within auto-target arc
-        const angleToEnemy = Math.atan2(-dx, -dz);
-        let angleDiff = angleToEnemy - aimAngle;
-        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-        if (Math.abs(angleDiff) <= MELEE.autoTargetArc / 2) {
-          bestDist = distSq;
-          bestEnemy = e;
+
+    if (isPlayerAirborne) {
+      // ─── AERIAL STRIKE — downward spike on nearby enemy ───
+      const enemies = gameState.enemies;
+      let closestEnemy: any = null;
+      let closestDistSq = AERIAL_STRIKE.range * AERIAL_STRIKE.range;
+      if (enemies) {
+        for (let i = 0; i < enemies.length; i++) {
+          const e = enemies[i];
+          if (e.health <= 0 || (e as any).fellInPit) continue;
+          const dx = e.pos.x - playerPos.x;
+          const dz = e.pos.z - playerPos.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq < closestDistSq) {
+            closestDistSq = distSq;
+            closestEnemy = e;
+          }
         }
       }
-      if (bestEnemy) {
-        const dx = bestEnemy.pos.x - playerPos.x;
-        const dz = bestEnemy.pos.z - playerPos.z;
+
+      if (closestEnemy) {
+        // Deal enhanced damage
+        closestEnemy.health -= AERIAL_STRIKE.damage;
+        closestEnemy.flashTimer = 120;
+
+        // Slam enemy downward
+        const vel = (closestEnemy as any).vel;
+        if (vel) vel.y = AERIAL_STRIKE.slamVelocity;
+
+        // Face the target
+        const dx = closestEnemy.pos.x - playerPos.x;
+        const dz = closestEnemy.pos.z - playerPos.z;
         playerGroup.rotation.y = Math.atan2(-dx, -dz);
+
+        // Screen shake + cooldown
+        screenShake(AERIAL_STRIKE.screenShake);
+        meleeCooldownTimer = AERIAL_STRIKE.cooldown;
+
+        emit({
+          type: 'aerialStrike',
+          enemy: closestEnemy,
+          damage: AERIAL_STRIKE.damage,
+          position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z },
+        });
+      } else {
+        // No target — still do the swing animation in the air
+        meleeSwinging = true;
+        meleeSwingTimer = 0;
+        meleeCooldownTimer = MELEE.cooldown;
+        meleeHitEnemies.clear();
+        meleeSwingDir = playerGroup.rotation.y;
+        emit({
+          type: 'meleeSwing',
+          position: { x: playerPos.x, z: playerPos.z },
+          direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) },
+        });
       }
+
+    } else {
+      // ─── GROUND MELEE — normal swing with auto-targeting ───
+      const enemies = gameState.enemies;
+      if (enemies) {
+        let bestDist = MELEE.autoTargetRange * MELEE.autoTargetRange;
+        let bestEnemy: any = null;
+        const aimAngle = playerGroup.rotation.y;
+        for (let i = 0; i < enemies.length; i++) {
+          const e = enemies[i];
+          if (e.health <= 0 || e.fellInPit) continue;
+          const dx = e.pos.x - playerPos.x;
+          const dz = e.pos.z - playerPos.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq > bestDist) continue;
+          const angleToEnemy = Math.atan2(-dx, -dz);
+          let angleDiff = angleToEnemy - aimAngle;
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+          if (Math.abs(angleDiff) <= MELEE.autoTargetArc / 2) {
+            bestDist = distSq;
+            bestEnemy = e;
+          }
+        }
+        if (bestEnemy) {
+          const dx = bestEnemy.pos.x - playerPos.x;
+          const dz = bestEnemy.pos.z - playerPos.z;
+          playerGroup.rotation.y = Math.atan2(-dx, -dz);
+        }
+      }
+
+      meleeSwinging = true;
+      meleeSwingTimer = 0;
+      meleeCooldownTimer = MELEE.cooldown;
+      meleeHitEnemies.clear();
+      meleeSwingDir = playerGroup.rotation.y;
+
+      emit({
+        type: 'meleeSwing',
+        position: { x: playerPos.x, z: playerPos.z },
+        direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) },
+      });
     }
-
-    meleeSwinging = true;
-    meleeSwingTimer = 0;
-    meleeCooldownTimer = MELEE.cooldown;
-    meleeHitEnemies.clear();
-    meleeSwingDir = playerGroup.rotation.y;
-
-    emit({
-      type: 'meleeSwing',
-      position: { x: playerPos.x, z: playerPos.z },
-      direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) },
-    });
   }
 
   updateAfterimages(dt);

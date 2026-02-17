@@ -30,6 +30,16 @@ export const MELEE = {
   hitPause: 40,          // ms of freeze-frame on hit (juice)
 };
 
+// Aerial strike config — LMB while airborne
+export const AERIAL_STRIKE = {
+  damage: 20,              // bonus damage (more than ground melee)
+  range: 2.5,              // XZ range to find target
+  slamVelocity: -18,       // downward velocity applied to enemy (negative = down)
+  screenShake: 2.5,        // bigger shake than ground melee
+  hitPause: 60,            // longer freeze-frame for impact
+  cooldown: 300,           // ms between aerial strikes (shorter than ground melee)
+};
+
 // Launch verb config — E while grounded near an enemy
 export const LAUNCH = {
   range: 3.0,             // max range to find a target
