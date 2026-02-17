@@ -2,7 +2,7 @@
 // Mutates config objects directly; game reads them each frame so changes are instant
 // Sections are collapsible so you can focus on what you're tuning
 
-import { PLAYER, MELEE } from '../config/player';
+import { PLAYER, MELEE, JUMP, LAUNCH, AERIAL_STRIKE, SELF_SLAM, DUNK } from '../config/player';
 import { ENEMY_TYPES, MOB_GLOBAL } from '../config/enemies';
 import { ABILITIES } from '../config/abilities';
 import { PHYSICS } from '../config/physics';
@@ -326,6 +326,96 @@ const SECTIONS: SliderSection[] = [
         unit: 'u', tip: 'How close player must be to enter door.' },
       { label: 'Rest Pause',        config: () => DOOR_CONFIG,  key: 'restPause',          min: 500,  max: 5000, step: 500,
         unit: 'ms', tip: 'How long before rest room door opens.' },
+    ]
+  },
+
+  // ── Vertical Combat ──
+  {
+    section: 'Jump / Gravity',
+    collapsed: true,
+    items: [
+      { label: 'Jump Velocity',   config: () => JUMP,  key: 'initialVelocity',  min: 5,   max: 25,  step: 0.5,
+        unit: 'u/s', tip: 'Upward velocity when jumping.' },
+      { label: 'Gravity',         config: () => JUMP,  key: 'gravity',          min: 10,  max: 50,  step: 1,
+        unit: 'u/s²', tip: 'Downward acceleration while airborne.' },
+      { label: 'Air Control',     config: () => JUMP,  key: 'airControlMult',   min: 0.2, max: 1.5, step: 0.1,
+        tip: 'XZ movement multiplier while airborne.' },
+      { label: 'Landing Lag',     config: () => JUMP,  key: 'landingLag',       min: 0,   max: 200, step: 10,
+        unit: 'ms', tip: 'Lockout time after landing.' },
+      { label: 'Coyote Time',     config: () => JUMP,  key: 'coyoteTime',       min: 0,   max: 200, step: 10,
+        unit: 'ms', tip: 'Grace period after walking off ledge.' },
+    ]
+  },
+  {
+    section: 'Launch',
+    collapsed: true,
+    items: [
+      { label: 'Range',           config: () => LAUNCH,  key: 'range',            min: 1,   max: 6,   step: 0.5,
+        unit: 'u', tip: 'Max range to target an enemy for launch.' },
+      { label: 'Launch Velocity', config: () => LAUNCH,  key: 'launchVelocity',   min: 5,   max: 30,  step: 1,
+        unit: 'u/s', tip: 'Upward velocity given to launched enemy.' },
+      { label: 'Self Jump Vel',   config: () => LAUNCH,  key: 'selfJumpVelocity', min: 5,   max: 25,  step: 1,
+        unit: 'u/s', tip: 'Player upward velocity on launch (to follow).' },
+      { label: 'Cooldown',        config: () => LAUNCH,  key: 'cooldown',         min: 200, max: 1500, step: 50,
+        unit: 'ms', tip: 'Time between launches.' },
+      { label: 'Chip Damage',     config: () => LAUNCH,  key: 'damage',           min: 0,   max: 20,  step: 1,
+        tip: 'Damage dealt on launch.' },
+    ]
+  },
+  {
+    section: 'Aerial Strike',
+    collapsed: true,
+    items: [
+      { label: 'Damage',          config: () => AERIAL_STRIKE,  key: 'damage',        min: 5,   max: 50,  step: 1,
+        tip: 'Damage dealt by aerial strike.' },
+      { label: 'Range',           config: () => AERIAL_STRIKE,  key: 'range',         min: 1,   max: 5,   step: 0.5,
+        unit: 'u', tip: 'Max range to target for aerial strike.' },
+      { label: 'Slam Velocity',   config: () => AERIAL_STRIKE,  key: 'slamVelocity',  min: -30, max: -5,  step: 1,
+        unit: 'u/s', tip: 'Downward velocity applied to hit enemy.' },
+      { label: 'Screen Shake',    config: () => AERIAL_STRIKE,  key: 'screenShake',   min: 0,   max: 5,   step: 0.5,
+        tip: 'Camera shake intensity on hit.' },
+      { label: 'Cooldown',        config: () => AERIAL_STRIKE,  key: 'cooldown',      min: 100, max: 800, step: 50,
+        unit: 'ms', tip: 'Time between aerial strikes.' },
+    ]
+  },
+  {
+    section: 'Self-Slam',
+    collapsed: true,
+    items: [
+      { label: 'Slam Velocity',   config: () => SELF_SLAM,  key: 'slamVelocity',  min: -50, max: -10, step: 1,
+        unit: 'u/s', tip: 'Downward velocity during slam.' },
+      { label: 'AoE Damage',      config: () => SELF_SLAM,  key: 'damage',        min: 0,   max: 40,  step: 1,
+        tip: 'Damage to enemies in landing radius.' },
+      { label: 'AoE Radius',      config: () => SELF_SLAM,  key: 'damageRadius',  min: 1,   max: 6,   step: 0.5,
+        unit: 'u', tip: 'Splash damage radius on landing.' },
+      { label: 'Knockback',       config: () => SELF_SLAM,  key: 'knockback',     min: 1,   max: 20,  step: 1,
+        unit: 'u', tip: 'Push force on nearby enemies.' },
+      { label: 'Landing Lag',     config: () => SELF_SLAM,  key: 'landingLag',    min: 50,  max: 400, step: 25,
+        unit: 'ms', tip: 'Lockout after slam landing.' },
+      { label: 'Screen Shake',    config: () => SELF_SLAM,  key: 'landingShake',  min: 0,   max: 6,   step: 0.5,
+        tip: 'Camera shake on slam landing.' },
+    ]
+  },
+  {
+    section: 'Grab & Dunk',
+    collapsed: true,
+    items: [
+      { label: 'Grab Range',      config: () => DUNK,  key: 'grabRange',     min: 1,   max: 6,   step: 0.5,
+        unit: 'u', tip: 'Max range to grab airborne enemy.' },
+      { label: 'Slam Velocity',   config: () => DUNK,  key: 'slamVelocity',  min: -40, max: -10, step: 1,
+        unit: 'u/s', tip: 'Downward velocity for dunk.' },
+      { label: 'Damage',          config: () => DUNK,  key: 'damage',        min: 10,  max: 60,  step: 5,
+        tip: 'Damage to dunked enemy on landing.' },
+      { label: 'AoE Radius',      config: () => DUNK,  key: 'aoeRadius',     min: 1,   max: 6,   step: 0.5,
+        unit: 'u', tip: 'Splash damage radius on dunk landing.' },
+      { label: 'AoE Damage',      config: () => DUNK,  key: 'aoeDamage',     min: 0,   max: 30,  step: 1,
+        tip: 'Splash damage to nearby enemies.' },
+      { label: 'AoE Knockback',   config: () => DUNK,  key: 'aoeKnockback',  min: 1,   max: 20,  step: 1,
+        unit: 'u', tip: 'Push force on splash hit enemies.' },
+      { label: 'Landing Lag',     config: () => DUNK,  key: 'landingLag',    min: 50,  max: 500, step: 25,
+        unit: 'ms', tip: 'Lockout after dunk landing.' },
+      { label: 'Screen Shake',    config: () => DUNK,  key: 'landingShake',  min: 0,   max: 8,   step: 0.5,
+        tip: 'Camera shake on dunk landing.' },
     ]
   },
 ];
