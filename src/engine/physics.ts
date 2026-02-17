@@ -7,6 +7,7 @@ import { emit } from './events';
 import { screenShake, getScene } from './renderer';
 import { PLAYER, MELEE } from '../config/player';
 import { PHYSICS } from '../config/physics';
+import { getGroundHeight } from '../config/terrain';
 import { isInMeleeArc } from './meleemath';
 import { getCollisionBounds, getPitBounds } from '../config/arena';
 import { spawnDamageNumber } from '../ui/damageNumbers';
@@ -354,7 +355,7 @@ export function applyVelocities(dt: number, gameState: GameState): void {
     }
 
     // Ground clamping
-    const groundHeight = 0; // TODO: getGroundHeight(enemy.pos.x, enemy.pos.z) in Task 2.1
+    const groundHeight = getGroundHeight(enemy.pos.x, enemy.pos.z);
     if (enemy.pos.y < groundHeight) {
       enemy.pos.y = groundHeight;
       vel.y = 0;

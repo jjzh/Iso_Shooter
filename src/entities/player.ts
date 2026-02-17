@@ -1,4 +1,5 @@
 import { PLAYER, MELEE, JUMP } from '../config/player';
+import { getGroundHeight } from '../config/terrain';
 import { ABILITIES } from '../config/abilities';
 import { ARENA_HALF_X, ARENA_HALF_Z } from '../config/arena';
 import { screenShake, getScene } from '../engine/renderer';
@@ -172,7 +173,7 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     playerVelY -= JUMP.gravity * dt;
     playerPos.y += playerVelY * dt;
 
-    const groundHeight = 0; // TODO: getGroundHeight(playerPos.x, playerPos.z) in Task 2.1
+    const groundHeight = getGroundHeight(playerPos.x, playerPos.z);
     if (playerPos.y <= groundHeight) {
       const fallSpeed = Math.abs(playerVelY);
       playerPos.y = groundHeight;

@@ -5,6 +5,7 @@
 import { getScene } from './renderer';
 import { getPlayerPos, getPlayerGroup } from '../entities/player';
 import { PHYSICS } from '../config/physics';
+import { getGroundHeight } from '../config/terrain';
 import type { GameState } from '../types/index';
 
 let playerShadow: any = null;
@@ -40,7 +41,7 @@ function createShadowMesh(radius: number): any {
 }
 
 function updateShadowForEntity(shadow: any, posX: number, posZ: number, posY: number, baseRadius: number) {
-  const groundHeight = 0; // TODO: getGroundHeight(posX, posZ) in Task 2.1
+  const groundHeight = getGroundHeight(posX, posZ);
   const altitude = posY - groundHeight;
 
   shadow.position.x = posX;
