@@ -167,7 +167,7 @@ export interface Enemy extends Entity {
   mortarTarget: { x: number; z: number };
   mortarArcLine: any;
   mortarGroundCircle: any;
-  vel: { x: number; z: number };  // knockback velocity (physics system)
+  vel: { x: number; y: number; z: number };  // knockback velocity (physics system)
   wasDeflected: boolean;
   fellInPit: boolean;
   isLeaping: boolean;

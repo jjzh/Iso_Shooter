@@ -92,7 +92,7 @@ export function spawnEnemy(typeName: string, position: any, gameState: any) {
     mortarArcLine: null as any,       // THREE.Line for aim arc preview
     mortarGroundCircle: null as any,  // THREE.Mesh for persistent ground circle
     // Physics velocity (knockback system)
-    vel: { x: 0, z: 0 },      // knockback velocity — integrated by applyVelocities()
+    vel: { x: 0, y: 0, z: 0 },      // knockback velocity — integrated by applyVelocities()
     // Pit / edge-slide
     wasDeflected: false,       // true when movement was deflected by collision (edge-sliding)
     fellInPit: false,          // true when killed by falling into a pit
