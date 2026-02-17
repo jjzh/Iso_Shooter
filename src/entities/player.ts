@@ -215,6 +215,11 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
         velocity: LAUNCH.launchVelocity,
       });
       spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, 'LAUNCH!', '#ffaa00');
+
+      // Consume the launch input so the grab/slam block below doesn't
+      // also fire on the same frame (launch sets isPlayerAirborne = true,
+      // which would immediately trigger self-slam otherwise)
+      inputState.launch = false;
     }
   }
 
