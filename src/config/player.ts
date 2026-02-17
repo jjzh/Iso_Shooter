@@ -8,6 +8,15 @@ export const PLAYER: PlayerConfig = {
   size: { radius: 0.35, height: 1.2 }
 };
 
+// Jump config — tunable via tuning panel
+export const JUMP = {
+  initialVelocity: 12,     // upward velocity on jump
+  gravity: 25,              // player gravity (may differ from enemy gravity)
+  airControlMult: 1.0,      // XZ speed multiplier while airborne
+  landingLag: 50,           // ms of end-lag on landing
+  coyoteTime: 80,           // ms of grace period after walking off ledge
+};
+
 // Melee combat config — tunable via tuning panel
 export const MELEE = {
   damage: 10,

@@ -1,4 +1,4 @@
-import { PLAYER, MELEE } from '../config/player';
+import { PLAYER, MELEE, JUMP } from '../config/player';
 import { ABILITIES } from '../config/abilities';
 import { ARENA_HALF_X, ARENA_HALF_Z } from '../config/arena';
 import { screenShake, getScene } from '../engine/renderer';
@@ -47,6 +47,11 @@ let chargeTelegraphGroup: any = null;
 let chargeFillMesh: any = null;
 let chargeBorderMesh: any = null;
 let chargeBorderGeo: any = null;
+
+// Jump / vertical state
+let playerVelY = 0;
+let isPlayerAirborne = false;
+let landingLagTimer = 0;
 
 // Original emissive colors (used for charge glow reset)
 const DEFAULT_EMISSIVE = 0x22aa66;
@@ -138,6 +143,13 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     startCharge(inputState, gameState);
   }
 
+  // === JUMP ===
+  if (inputState.jump && !isPlayerAirborne && !isDashing && landingLagTimer <= 0) {
+    playerVelY = JUMP.initialVelocity;
+    isPlayerAirborne = true;
+    emit({ type: 'playerJump', position: { x: playerPos.x, z: playerPos.z } });
+  }
+
   // === MOVEMENT ===
   if (Math.abs(inputState.moveX) > 0.01 || Math.abs(inputState.moveZ) > 0.01) {
     const chargeSlow = isCharging ? ABILITIES.ultimate.chargeMoveSpeedMult : 1;
@@ -154,6 +166,25 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   const clampZ = ARENA_HALF_Z - 0.5;
   playerPos.x = Math.max(-clampX, Math.min(clampX, playerPos.x));
   playerPos.z = Math.max(-clampZ, Math.min(clampZ, playerPos.z));
+
+  // === PLAYER Y PHYSICS ===
+  if (isPlayerAirborne) {
+    playerVelY -= JUMP.gravity * dt;
+    playerPos.y += playerVelY * dt;
+
+    const groundHeight = 0; // TODO: getGroundHeight(playerPos.x, playerPos.z) in Task 2.1
+    if (playerPos.y <= groundHeight) {
+      const fallSpeed = Math.abs(playerVelY);
+      playerPos.y = groundHeight;
+      playerVelY = 0;
+      isPlayerAirborne = false;
+      landingLagTimer = JUMP.landingLag;
+      emit({ type: 'playerLand', position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+    }
+  }
+  if (landingLagTimer > 0) {
+    landingLagTimer -= dt * 1000;
+  }
 
   playerGroup.position.copy(playerPos);
 
@@ -580,6 +611,8 @@ export function getPlayerPos() { return playerPos; }
 export function getPlayerGroup() { return playerGroup; }
 export function isPlayerInvincible() { return isInvincible; }
 export function isPlayerDashing() { return isDashing; }
+export function getIsPlayerAirborne() { return isPlayerAirborne; }
+export function getPlayerVelY() { return playerVelY; }
 export function consumePushEvent() {
   const evt = pushEvent;
   pushEvent = null;
@@ -600,6 +633,9 @@ export function resetPlayer() {
   isCharging = false;
   chargeTimer = 0;
   pushEvent = null;
+  playerVelY = 0;
+  isPlayerAirborne = false;
+  landingLagTimer = 0;
   removeChargeTelegraph();
   restoreDefaultEmissive();
   resetAnimatorState(animState);
