@@ -2,6 +2,24 @@
 const THREE = window.THREE;
 const nipplejs = window.nipplejs;
 
+// src/config/terrain.ts
+var HEIGHT_ZONES = [];
+function setHeightZones(zones) {
+  HEIGHT_ZONES.length = 0;
+  zones.forEach((z) => HEIGHT_ZONES.push(z));
+}
+function getGroundHeight(x, z) {
+  let maxY = 0;
+  for (const zone of HEIGHT_ZONES) {
+    const halfW = zone.w / 2;
+    const halfD = zone.d / 2;
+    if (x >= zone.x - halfW && x <= zone.x + halfW && z >= zone.z - halfD && z <= zone.z + halfD) {
+      if (zone.y > maxY) maxY = zone.y;
+    }
+  }
+  return maxY;
+}
+
 // src/config/arena.ts
 var ARENA_HALF_X = 20;
 var ARENA_HALF_Z = 20;
@@ -49,7 +67,19 @@ function getCollisionBounds() {
       minX: o.x - o.w / 2,
       maxX: o.x + o.w / 2,
       minZ: o.z - o.d / 2,
-      maxZ: o.z + o.d / 2
+      maxZ: o.z + o.d / 2,
+      maxY: o.h
+      // entities above this height can pass over
+    });
+  }
+  for (const zone of HEIGHT_ZONES) {
+    bounds.push({
+      minX: zone.x - zone.w / 2,
+      maxX: zone.x + zone.w / 2,
+      minZ: zone.z - zone.d / 2,
+      maxZ: zone.z + zone.d / 2,
+      maxY: zone.y
+      // entities above platform height can walk on top
     });
   }
   const hx = ARENA_HALF_X;
@@ -66,12 +96,13 @@ function getCollisionBounds() {
 var scene;
 var camera;
 var renderer;
-var baseFrustum = 12;
-var currentFrustum = 12;
+var baseFrustum = 9.6;
+var currentFrustum = 9.6;
 var cameraOffset = new THREE.Vector3(20, 20, 20);
 var obstacleMeshes = [];
 var wallMeshes = [];
 var pitMeshes = [];
+var platformMeshes = [];
 var shakeRemaining = 0;
 var shakeIntensity = 0;
 var _camTarget = new THREE.Vector3();
@@ -119,6 +150,7 @@ function initRenderer() {
   scene.add(grid);
   createObstacles();
   createPits();
+  createPlatforms();
   window.addEventListener("resize", onResize);
   window.addEventListener("orientationchange", () => {
     setTimeout(onResize, 150);
@@ -235,9 +267,98 @@ function createPits() {
     pitMeshes.push(wEdge);
   }
 }
+function clearPlatformMeshes() {
+  for (const m of platformMeshes) {
+    scene.remove(m);
+    if (m.geometry) m.geometry.dispose();
+  }
+  platformMeshes = [];
+}
+function createPlatforms() {
+  clearPlatformMeshes();
+  if (HEIGHT_ZONES.length === 0) return;
+  const topMat = new THREE.MeshStandardMaterial({
+    color: 2767450,
+    emissive: 2245734,
+    emissiveIntensity: 0.25,
+    roughness: 0.6,
+    metalness: 0.15
+  });
+  const cliffMat = new THREE.MeshStandardMaterial({
+    color: 1712704,
+    emissive: 1122884,
+    emissiveIntensity: 0.15,
+    roughness: 0.85,
+    metalness: 0.1
+  });
+  const edgeMat = new THREE.MeshBasicMaterial({
+    color: 4491468,
+    transparent: true,
+    opacity: 0.5
+  });
+  for (const zone of HEIGHT_ZONES) {
+    const { x, z, w, d, y } = zone;
+    const topThickness = 0.08;
+    const top = new THREE.Mesh(
+      new THREE.BoxGeometry(w, topThickness, d),
+      topMat
+    );
+    top.position.set(x, y - topThickness / 2, z);
+    scene.add(top);
+    platformMeshes.push(top);
+    const cliffThickness = 0.06;
+    const northCliff = new THREE.Mesh(
+      new THREE.BoxGeometry(w, y, cliffThickness),
+      cliffMat
+    );
+    northCliff.position.set(x, y / 2, z + d / 2);
+    scene.add(northCliff);
+    platformMeshes.push(northCliff);
+    const southCliff = new THREE.Mesh(
+      new THREE.BoxGeometry(w, y, cliffThickness),
+      cliffMat
+    );
+    southCliff.position.set(x, y / 2, z - d / 2);
+    scene.add(southCliff);
+    platformMeshes.push(southCliff);
+    const eastCliff = new THREE.Mesh(
+      new THREE.BoxGeometry(cliffThickness, y, d),
+      cliffMat
+    );
+    eastCliff.position.set(x + w / 2, y / 2, z);
+    scene.add(eastCliff);
+    platformMeshes.push(eastCliff);
+    const westCliff = new THREE.Mesh(
+      new THREE.BoxGeometry(cliffThickness, y, d),
+      cliffMat
+    );
+    westCliff.position.set(x - w / 2, y / 2, z);
+    scene.add(westCliff);
+    platformMeshes.push(westCliff);
+    const edgeHeight = 0.04;
+    const edgeW = 0.06;
+    const ne = new THREE.Mesh(new THREE.BoxGeometry(w + edgeW, edgeHeight, edgeW), edgeMat);
+    ne.position.set(x, y + 0.01, z + d / 2);
+    scene.add(ne);
+    platformMeshes.push(ne);
+    const se = new THREE.Mesh(new THREE.BoxGeometry(w + edgeW, edgeHeight, edgeW), edgeMat);
+    se.position.set(x, y + 0.01, z - d / 2);
+    scene.add(se);
+    platformMeshes.push(se);
+    const ee = new THREE.Mesh(new THREE.BoxGeometry(edgeW, edgeHeight, d), edgeMat);
+    ee.position.set(x + w / 2, y + 0.01, z);
+    scene.add(ee);
+    platformMeshes.push(ee);
+    const we = new THREE.Mesh(new THREE.BoxGeometry(edgeW, edgeHeight, d), edgeMat);
+    we.position.set(x - w / 2, y + 0.01, z);
+    scene.add(we);
+    platformMeshes.push(we);
+  }
+}
 function rebuildArenaVisuals() {
   createObstacles();
   createPits();
+  createPlatforms();
 }
 function getViewportSize() {
   if (window.visualViewport) {
@@ -313,6 +434,18 @@ var PLAYER = {
   projectile: { speed: 16, damage: 10, color: 4521864, size: 0.2 },
   size: { radius: 0.35, height: 1.2 }
 };
+var JUMP = {
+  initialVelocity: 12,
+  // upward velocity on jump
+  gravity: 25,
+  // player gravity (may differ from enemy gravity)
+  airControlMult: 1,
+  // XZ speed multiplier while airborne
+  landingLag: 50,
+  // ms of end-lag on landing
+  coyoteTime: 80
+  // ms of grace period after walking off ledge
+};
 var MELEE = {
   damage: 10,
   range: 2.2,
@@ -331,6 +464,115 @@ var MELEE = {
   // shake intensity on hit
   hitPause: 40
   // ms of freeze-frame on hit (juice)
+};
+var AERIAL_STRIKE = {
+  damage: 20,
+  // bonus damage (more than ground melee)
+  range: 2.5,
+  // XZ range to find target
+  slamVelocity: -18,
+  // downward velocity applied to enemy (negative = down)
+  screenShake: 2.5,
+  // bigger shake than ground melee
+  hitPause: 60,
+  // longer freeze-frame for impact
+  cooldown: 300
+  // ms between aerial strikes (shorter than ground melee)
+};
+var DUNK = {
+  grabRange: 3,
+  // XZ range to grab airborne enemy
+  slamVelocity: -25,
+  // downward velocity for both player + enemy
+  damage: 35,
+  // big damage on impact (the payoff)
+  landingShake: 4,
+  // massive screen shake
+  landingLag: 200,
+  // ms of end-lag
+  aoeRadius: 3,
+  // splash damage radius on impact
+  aoeDamage: 10,
+  // splash damage to other nearby enemies
+  aoeKnockback: 10,
+  // knockback to nearby enemies
+  targetRadius: 4,
+  // radius of landing target circle (world units)
+  homing: 15
+  // XZ homing speed toward target (units/sec)
+};
+var SELF_SLAM = {
+  slamVelocity: -30,
+  // fast downward velocity
+  landingShake: 3,
+  // screen shake on impact
+  landingLag: 150,
+  // ms of end-lag (longer than normal landing)
+  damageRadius: 2.5,
+  // AoE damage radius on impact
+  damage: 15,
+  // AoE damage to nearby grounded enemies
+  knockback: 8
+  // knockback force on nearby enemies
+};
+var LAUNCH = {
+  range: 3,
+  // max range to find a target
+  launchVelocity: 15,
+  // upward velocity given to enemy
+  cooldown: 600,
+  // ms cooldown between launches
+  damage: 5,
+  // small chip damage on launch
+  selfJumpVelocity: 13
+  // player hops up to follow (tuned to stay airborne ~1s)
+};
+
+// src/config/physics.ts
+var PHYSICS = {
+  // Knockback velocity
+  friction: 25,
+  // deceleration rate (units/s²) — higher = snappier stop
+  minVelocity: 0.1,
+  // below this speed, zero out velocity
+  pushInstantRatio: 0,
+  // fraction of knockback as instant position offset (0 = pure velocity)
+  // Wall slam
+  wallSlamMinSpeed: 3,
+  // minimum impact speed for wall damage
+  wallSlamDamage: 8,
+  // damage per unit of impact speed above threshold
+  wallSlamStun: 400,
+  // ms stun on wall slam
+  wallSlamBounce: 0.4,
+  // velocity reflection coefficient (0 = dead stop, 1 = perfect bounce)
+  wallSlamShake: 3,
+  // screen shake intensity on wall slam
+  // Force push wave occlusion
+  pushWaveBlockRadius: 0.8,
+  // lateral distance for one enemy to block another from push wave
+  // Enemy-enemy collision
+  enemyBounce: 0.4,
+  // enemy-enemy restitution coefficient
+  impactMinSpeed: 2,
+  // minimum relative speed for collision damage
+  impactDamage: 5,
+  // damage per unit of relative speed above threshold
+  impactStun: 300,
+  // ms stun when hit by another enemy
+  // Y-axis / vertical physics
+  gravity: 25,
+  // units/s² downward acceleration
+  terminalVelocity: 20,
+  // max downward Y velocity
+  airControlMult: 1,
+  // XZ movement multiplier while airborne (1.0 = full control)
+  landingLagBase: 50,
+  // ms of landing lag (minimum)
+  landingLagPerSpeed: 10,
+  // ms of landing lag per unit of fall speed
+  groundEpsilon: 0.05
+  // height threshold for "grounded" detection
 };
 
 // src/config/abilities.ts
@@ -1331,7 +1573,7 @@ function spawnEnemy(typeName, position, gameState2) {
     mortarGroundCircle: null,
     // THREE.Mesh for persistent ground circle
     // Physics velocity (knockback system)
-    vel: { x: 0, z: 0 },
+    vel: { x: 0, y: 0, z: 0 },
     // knockback velocity — integrated by applyVelocities()
     // Pit / edge-slide
     wasDeflected: false,
@@ -1428,11 +1670,41 @@ function updateEnemies(dt, playerPos2, gameState2) {
     }
     enemy.pos.x = Math.max(-19, Math.min(19, enemy.pos.x));
     enemy.pos.z = Math.max(-19, Math.min(19, enemy.pos.z));
+    if (!enemy.isLeaping) {
+      const groundBelow = getGroundHeight(enemy.pos.x, enemy.pos.z);
+      if (enemy.pos.y > groundBelow + 0.05) {
+        const vel = enemy.vel;
+        if (vel && vel.y === 0) vel.y = 0;
+      }
+    }
     if (enemy.isLeaping) {
       enemy.mesh.position.x = enemy.pos.x;
       enemy.mesh.position.z = enemy.pos.z;
     } else {
       enemy.mesh.position.copy(enemy.pos);
+    }
+    const groundBelowEnemy = getGroundHeight(enemy.pos.x, enemy.pos.z);
+    const enemyAirborne = enemy.pos.y > groundBelowEnemy + 0.15 && !enemy.isLeaping;
+    if (enemyAirborne) {
+      if (!enemy._tumbleAngle) enemy._tumbleAngle = 0;
+      enemy._tumbleAngle += dt * 12;
+      enemy.mesh.rotation.x = Math.sin(enemy._tumbleAngle) * 0.4;
+      enemy.mesh.rotation.z = Math.cos(enemy._tumbleAngle * 0.7) * 0.3;
+      const vy = enemy.vel ? enemy.vel.y : 0;
+      if (vy > 2) {
+        enemy.mesh.scale.set(0.9, 1.15, 0.9);
+      } else if (vy < -2) {
+        enemy.mesh.scale.set(1.1, 0.85, 1.1);
+      } else {
+        enemy.mesh.scale.set(1, 1, 1);
+      }
+    } else {
+      if (enemy._tumbleAngle) {
+        enemy._tumbleAngle = 0;
+        enemy.mesh.rotation.x = 0;
+        enemy.mesh.rotation.z = 0;
+        enemy.mesh.scale.set(1, 1, 1);
+      }
     }
     if (enemy.flashTimer > 0) {
       enemy.flashTimer -= dt * 1e3;
@@ -2488,7 +2760,8 @@ var COLORS = {
   head: { color: 5627306, emissive: 3390344, emissiveIntensity: 0.5 },
   arm: { color: 3848314, emissive: 2005344, emissiveIntensity: 0.35 },
   leg: { color: 3716469, emissive: 1873496, emissiveIntensity: 0.35 },
-  sword: { color: 13421789, emissive: 8947882, emissiveIntensity: 0.3 }
+  fist: { color: 5627306, emissive: 3390344, emissiveIntensity: 0.5 }
+  // bright like head — reads as "hands"
 };
 var _torsoGeo = null;
 var _headGeo = null;
@@ -2496,8 +2769,7 @@ var _upperArmGeo = null;
 var _lowerArmGeo = null;
 var _thighGeo = null;
 var _shinGeo = null;
-var _swordBladeGeo = null;
-var _swordGuardGeo = null;
+var _fistGeo = null;
 function ensureGeometry() {
   if (_torsoGeo) return;
   _torsoGeo = new THREE.BoxGeometry(P.torsoWidth, P.torsoHeight, P.torsoDepth);
@@ -2506,8 +2778,7 @@ function ensureGeometry() {
   _lowerArmGeo = new THREE.BoxGeometry(P.lowerArmWidth, P.lowerArmHeight, P.lowerArmDepth);
   _thighGeo = new THREE.BoxGeometry(P.thighWidth, P.thighHeight, P.thighDepth);
   _shinGeo = new THREE.BoxGeometry(P.shinWidth, P.shinHeight, P.shinDepth);
-  _swordBladeGeo = new THREE.BoxGeometry(0.06, 0.5, 0.03);
-  _swordGuardGeo = new THREE.BoxGeometry(0.18, 0.04, 0.05);
+  _fistGeo = new THREE.BoxGeometry(0.1, 0.08, 0.1);
 }
 function makeMat(palette) {
   return new THREE.MeshStandardMaterial({
@@ -2553,6 +2824,7 @@ function createPlayerRig(parentGroup) {
   lowerArmL.position.y = P.elbowY;
   upperArmL.add(lowerArmL);
   addMesh(_lowerArmGeo, COLORS.arm, lowerArmL, 0, P.lowerArmY, 0);
+  addMesh(_fistGeo, COLORS.fist, lowerArmL, 0, P.lowerArmY - P.lowerArmHeight / 2 - 0.02, 0);
   const shoulderR = new THREE.Group();
   shoulderR.position.set(P.shoulderOffsetX, P.shoulderY, 0);
   torso.add(shoulderR);
@@ -2563,11 +2835,7 @@ function createPlayerRig(parentGroup) {
   lowerArmR.position.y = P.elbowY;
   upperArmR.add(lowerArmR);
   addMesh(_lowerArmGeo, COLORS.arm, lowerArmR, 0, P.lowerArmY, 0);
-  const sword = new THREE.Group();
-  sword.position.set(0, -0.24, 0);
-  lowerArmR.add(sword);
-  addMesh(_swordBladeGeo, COLORS.sword, sword, 0, -0.22, 0);
-  addMesh(_swordGuardGeo, COLORS.sword, sword, 0, 0.03, 0);
+  addMesh(_fistGeo, COLORS.fist, lowerArmR, 0, P.lowerArmY - P.lowerArmHeight / 2 - 0.02, 0);
   const thighL = new THREE.Group();
   thighL.position.set(-P.legOffsetX, 0, 0);
   hip.add(thighL);
@@ -2596,7 +2864,6 @@ function createPlayerRig(parentGroup) {
       shoulderR,
       upperArmR,
       lowerArmR,
-      sword,
       thighL,
       shinL,
       thighR,
@@ -2663,6 +2930,29 @@ var C = {
   // radians — front leg forward
   dashLegTrail: -0.5,
   // radians — back leg behind
+  // Airborne
+  jumpTuckAngle: 0.7,
+  // radians — thigh tuck during jump rise
+  jumpKneeBend: 0.9,
+  // radians — knee bend during tuck
+  jumpArmRaise: -0.4,
+  // radians — arms rise slightly
+  fallSpreadAngle: 0.35,
+  // radians — legs spread slightly during fall
+  fallArmRaise: -0.6,
+  // radians — arms rise higher in freefall
+  slamTuckAngle: 1,
+  // radians — tight tuck during slam
+  slamArmAngle: 0.8,
+  // radians — arms up overhead during slam
+  airSquashY: 1.1,
+  // stretch on jump rise
+  airSquashXZ: 0.92,
+  // compress X/Z on jump rise
+  slamStretchY: 0.8,
+  // compress on slam descent
+  slamStretchXZ: 1.15,
+  // widen on slam descent
   // Transitions (ms)
   idleToRunBlend: 80,
   runToIdleBlend: 120,
@@ -2684,7 +2974,10 @@ function createAnimatorState() {
     currentLean: 0,
     dashDir: 0,
     dashT: 0,
-    time: 0
+    time: 0,
+    punchSide: 0,
+    chargeT: 0,
+    chargeReleaseTimer: 0
   };
 }
 function resetAnimatorState(anim) {
@@ -2715,7 +3008,7 @@ function lerpAngle(from, to, t) {
   while (diff < -Math.PI) diff += Math.PI * 2;
   return from + diff * t;
 }
-function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, isInEndLag, dashProgress, isSwinging = false, swingProgress = 0) {
+function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, isInEndLag, dashProgress, isSwinging = false, swingProgress = 0, isAirborne = false, velY = 0, isSlamming2 = false, isCharging2 = false, chargeT = 0) {
   anim.time += dt;
   const isMoving = Math.abs(inputState2.moveX) > 0.01 || Math.abs(inputState2.moveZ) > 0.01;
   const prevState = anim.currentState;
@@ -2728,11 +3021,41 @@ function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, is
     if (anim.currentState !== "endLag") {
       transitionTo(anim, "endLag", 0);
     }
+  } else if (isCharging2) {
+    if (anim.currentState !== "charge") {
+      transitionTo(anim, "charge", 0);
+    }
+    anim.chargeT = chargeT;
+  } else if (anim.currentState === "charge" && !isCharging2) {
+    transitionTo(anim, "chargeRelease", 0);
+    anim.chargeReleaseTimer = 0;
+  } else if (anim.currentState === "chargeRelease") {
+    anim.chargeReleaseTimer += dt;
+    if (anim.chargeReleaseTimer >= 0.25) {
+      if (isMoving) {
+        transitionTo(anim, "run", C.endLagToNormalBlend / 1e3);
+      } else {
+        transitionTo(anim, "idle", C.endLagToNormalBlend / 1e3);
+      }
+    }
   } else if (isSwinging) {
     if (anim.currentState !== "swing") {
       transitionTo(anim, "swing", 0);
+      anim.punchSide = 1 - anim.punchSide;
     }
     anim.dashT = swingProgress;
+  } else if (isAirborne && isSlamming2) {
+    if (anim.currentState !== "slam") {
+      transitionTo(anim, "slam", 0);
+    }
+  } else if (isAirborne && velY > 0) {
+    if (anim.currentState !== "jump") {
+      transitionTo(anim, "jump", 0);
+    }
+  } else if (isAirborne) {
+    if (anim.currentState !== "fall") {
+      transitionTo(anim, "fall", 0);
+    }
   } else if (isMoving) {
     if (anim.currentState !== "run") {
       const blend = anim.currentState === "endLag" || anim.currentState === "swing" ? C.endLagToNormalBlend : C.idleToRunBlend;
@@ -2772,6 +3095,21 @@ function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, is
       break;
     case "swing":
       applySwing(joints, anim);
+      break;
+    case "charge":
+      applyCharge(joints, anim);
+      break;
+    case "chargeRelease":
+      applyChargeRelease(joints, anim);
+      break;
+    case "jump":
+      applyJump(joints, anim);
+      break;
+    case "fall":
+      applyFall(joints, anim);
+      break;
+    case "slam":
+      applySlam(joints, anim);
       break;
   }
   const hipOffset = anim.moveDirSmoothed - aimAngle;
@@ -2917,30 +3255,179 @@ function applyEndLag(joints, anim) {
 }
 function applySwing(joints, anim) {
   const t = clamp(anim.dashT, 0, 1);
-  if (t < 0.3) {
-    const subT = t / 0.3;
+  const isLeft = anim.punchSide === 1;
+  const punchUpper = isLeft ? joints.upperArmL : joints.upperArmR;
+  const punchLower = isLeft ? joints.lowerArmL : joints.lowerArmR;
+  const guardUpper = isLeft ? joints.upperArmR : joints.upperArmL;
+  const guardLower = isLeft ? joints.lowerArmR : joints.lowerArmL;
+  const torsoTwistSign = isLeft ? 1 : -1;
+  const leadThigh = isLeft ? joints.thighL : joints.thighR;
+  const leadShin = isLeft ? joints.shinL : joints.shinR;
+  const rearThigh = isLeft ? joints.thighR : joints.thighL;
+  const rearShin = isLeft ? joints.shinR : joints.shinL;
+  if (t < 0.25) {
+    const subT = t / 0.25;
     const ease = easeOutQuad2(subT);
-    joints.upperArmR.rotation.x = 0.4 * ease;
-    joints.upperArmR.rotation.z = -0.3 * ease;
-    joints.lowerArmR.rotation.x = -0.6 * ease;
-    joints.upperArmL.rotation.x = -0.2 * ease;
-    joints.lowerArmL.rotation.x = -0.3 * ease;
-    joints.torso.rotation.y = -0.25 * ease;
-    joints.rigRoot.rotation.x = 0.06 * ease;
+    punchUpper.rotation.x = 0.35 * ease;
+    punchLower.rotation.x = -0.9 * ease;
+    guardUpper.rotation.x = -0.35 * ease;
+    guardLower.rotation.x = -0.75 * ease;
+    joints.torso.rotation.y = -0.25 * torsoTwistSign * ease;
+    joints.rigRoot.rotation.x = 0.04 * ease;
+    joints.hip.position.y = 0.5 - 0.02 * ease;
+    rearThigh.rotation.x = -0.12 * ease;
+    rearShin.rotation.x = -0.2 * ease;
+    leadThigh.rotation.x = 0.08 * ease;
+    leadShin.rotation.x = -0.05 * ease;
+    joints.hip.rotation.z = -0.03 * torsoTwistSign * ease;
   } else {
-    const subT = (t - 0.3) / 0.7;
+    const subT = (t - 0.25) / 0.75;
     const ease = easeOutQuad2(subT);
-    joints.upperArmR.rotation.x = 0.4 + (-1 - 0.4) * ease;
-    joints.upperArmR.rotation.z = -0.3 + (0.5 + 0.3) * ease;
-    joints.lowerArmR.rotation.x = -0.6 + (0.6 - 0.2) * ease;
-    joints.upperArmL.rotation.x = -0.2 + (0.3 + 0.2) * ease;
-    joints.lowerArmL.rotation.x = -0.3 + (-0.2 + 0.3) * ease;
-    joints.torso.rotation.y = -0.25 + (0.45 + 0.25) * ease;
-    const leanCurve = subT < 0.5 ? easeOutQuad2(subT * 2) : 1 - easeOutQuad2((subT - 0.5) * 2);
-    joints.rigRoot.rotation.x = 0.06 + 0.08 * leanCurve;
-    joints.thighL.rotation.x = 0.2 * ease;
-    joints.thighR.rotation.x = -0.15 * ease;
+    punchUpper.rotation.x = 0.35 + (-1.3 - 0.35) * ease;
+    punchLower.rotation.x = -0.9 + (0.9 - 0.12) * ease;
+    guardUpper.rotation.x = -0.35;
+    guardLower.rotation.x = -0.75;
+    joints.torso.rotation.y = (-0.25 + (0.4 + 0.25) * ease) * torsoTwistSign;
+    const leanCurve = subT < 0.35 ? easeOutQuad2(subT / 0.35) : 1 - 0.4 * easeOutQuad2((subT - 0.35) / 0.65);
+    joints.rigRoot.rotation.x = 0.04 + 0.16 * leanCurve;
+    const hipDrop = subT < 0.3 ? easeOutQuad2(subT / 0.3) : 1 - 0.5 * easeOutQuad2((subT - 0.3) / 0.7);
+    joints.hip.position.y = 0.5 - 0.02 - 0.025 * hipDrop;
+    joints.hip.rotation.z = (-0.03 + 0.08 * ease) * torsoTwistSign;
+    const stepCurve = subT < 0.4 ? easeOutQuad2(subT / 0.4) : 1 - 0.3 * easeOutQuad2((subT - 0.4) / 0.6);
+    leadThigh.rotation.x = 0.08 + 0.35 * stepCurve;
+    leadShin.rotation.x = -0.05 - 0.25 * stepCurve;
+    const pushCurve = subT < 0.5 ? easeOutQuad2(subT / 0.5) : 1 - 0.2 * easeOutQuad2((subT - 0.5) / 0.5);
+    rearThigh.rotation.x = -0.12 - 0.2 * pushCurve;
+    rearShin.rotation.x = -0.2 - 0.15 * pushCurve;
   }
+}
+function applyCharge(joints, anim) {
+  const chargeT = clamp(anim.chargeT, 0, 1);
+  const blendIn = clamp(anim.stateTimer / 0.15, 0, 1);
+  const ease = easeOutQuad2(blendIn);
+  const loopRate = 3.5;
+  const sway = Math.sin(anim.time * loopRate * Math.PI * 2);
+  const swaySmall = Math.sin(anim.time * loopRate * 0.7 * Math.PI * 2);
+  const crouch = 0.04 + 0.04 * chargeT;
+  joints.hip.position.y = 0.5 - crouch * ease;
+  joints.thighL.rotation.x = 0.15 * ease;
+  joints.thighR.rotation.x = -0.15 * ease;
+  joints.thighL.rotation.z = 0.08 * ease;
+  joints.thighR.rotation.z = -0.08 * ease;
+  joints.shinL.rotation.x = -0.2 * ease;
+  joints.shinR.rotation.x = -0.2 * ease;
+  const armPull = 0.5 + 0.6 * chargeT;
+  const elbowFlare = 0.2 + 0.3 * chargeT;
+  joints.upperArmL.rotation.x = armPull * ease;
+  joints.upperArmR.rotation.x = armPull * ease;
+  joints.upperArmL.rotation.z = elbowFlare * ease;
+  joints.upperArmR.rotation.z = -elbowFlare * ease;
+  joints.lowerArmL.rotation.x = (-0.6 - 0.3 * chargeT) * ease;
+  joints.lowerArmR.rotation.x = (-0.6 - 0.3 * chargeT) * ease;
+  const leanBack = -0.06 - 0.08 * chargeT;
+  joints.rigRoot.rotation.x = leanBack * ease;
+  const puff = 1 + 0.05 * chargeT * ease;
+  joints.torso.rotation.x = -0.04 * chargeT * ease;
+  const swayAmp = 0.02 + 0.03 * chargeT;
+  joints.torso.rotation.y = sway * swayAmp * ease;
+  joints.hip.rotation.z = swaySmall * 0.015 * ease;
+  const armPulse = sway * 0.06 * chargeT * ease;
+  joints.upperArmL.rotation.x += armPulse;
+  joints.upperArmR.rotation.x += armPulse;
+  joints.head.rotation.x = 0.08 * chargeT * ease;
+}
+function applyChargeRelease(joints, anim) {
+  const t = clamp(anim.chargeReleaseTimer / 0.25, 0, 1);
+  if (t < 0.35) {
+    const subT = t / 0.35;
+    const ease = easeOutQuad2(subT);
+    joints.upperArmL.rotation.x = 0.5 + (-1.4 - 0.5) * ease;
+    joints.upperArmR.rotation.x = 0.5 + (-1.4 - 0.5) * ease;
+    joints.lowerArmL.rotation.x = -0.6 + (0.6 - 0.1) * ease;
+    joints.lowerArmR.rotation.x = -0.6 + (0.6 - 0.1) * ease;
+    joints.upperArmL.rotation.z = 0.3 + (-0.3 - 0.3) * ease;
+    joints.upperArmR.rotation.z = -0.3 + (0.3 + 0.3) * ease;
+    joints.rigRoot.rotation.x = -0.1 + (0.22 + 0.1) * ease;
+    joints.hip.position.y = 0.5 - 0.06 * ease;
+    joints.thighL.rotation.x = 0.15 + 0.35 * ease;
+    joints.shinL.rotation.x = -0.2 - 0.2 * ease;
+    joints.thighR.rotation.x = -0.15 - 0.15 * ease;
+    joints.shinR.rotation.x = -0.2 - 0.1 * ease;
+    joints.torso.rotation.x = 0.06 * ease;
+  } else {
+    const subT = (t - 0.35) / 0.65;
+    const ease = easeOutQuad2(subT);
+    const armRetract = 1 - ease;
+    joints.upperArmL.rotation.x = -1.4 * armRetract;
+    joints.upperArmR.rotation.x = -1.4 * armRetract;
+    joints.lowerArmL.rotation.x = -0.1 * armRetract;
+    joints.lowerArmR.rotation.x = -0.1 * armRetract;
+    joints.upperArmL.rotation.z = 0;
+    joints.upperArmR.rotation.z = 0;
+    joints.rigRoot.rotation.x = 0.22 * armRetract;
+    joints.hip.position.y = 0.5 - 0.06 * armRetract;
+    joints.thighL.rotation.x = 0.5 * armRetract;
+    joints.shinL.rotation.x = -0.4 * armRetract;
+    joints.thighR.rotation.x = -0.3 * armRetract;
+    joints.shinR.rotation.x = -0.3 * armRetract;
+    joints.torso.rotation.x = 0.06 * armRetract;
+  }
+}
+function applyJump(joints, anim) {
+  const t = clamp(anim.stateTimer / 0.15, 0, 1);
+  const ease = easeOutQuad2(t);
+  joints.rigRoot.scale.set(
+    1 + (C.airSquashXZ - 1) * ease,
+    1 + (C.airSquashY - 1) * ease,
+    1 + (C.airSquashXZ - 1) * ease
+  );
+  joints.thighL.rotation.x = -C.jumpTuckAngle * ease;
+  joints.thighR.rotation.x = -C.jumpTuckAngle * ease;
+  joints.shinL.rotation.x = C.jumpKneeBend * ease;
+  joints.shinR.rotation.x = C.jumpKneeBend * ease;
+  joints.upperArmL.rotation.x = C.jumpArmRaise * ease;
+  joints.upperArmR.rotation.x = C.jumpArmRaise * ease;
+  joints.upperArmL.rotation.z = 0.2 * ease;
+  joints.upperArmR.rotation.z = -0.2 * ease;
+  joints.lowerArmL.rotation.x = -0.3 * ease;
+  joints.lowerArmR.rotation.x = -0.3 * ease;
+  joints.rigRoot.rotation.x = -0.08 * ease;
+}
+function applyFall(joints, anim) {
+  const t = clamp(anim.stateTimer / 0.2, 0, 1);
+  const ease = easeOutQuad2(t);
+  joints.rigRoot.scale.set(1, 1, 1);
+  joints.thighL.rotation.x = C.fallSpreadAngle * ease;
+  joints.thighR.rotation.x = -C.fallSpreadAngle * 0.5 * ease;
+  joints.shinL.rotation.x = -0.3 * ease;
+  joints.shinR.rotation.x = -0.4 * ease;
+  joints.upperArmL.rotation.x = C.fallArmRaise * ease;
+  joints.upperArmR.rotation.x = C.fallArmRaise * ease;
+  joints.upperArmL.rotation.z = 0.4 * ease;
+  joints.upperArmR.rotation.z = -0.4 * ease;
+  joints.lowerArmL.rotation.x = -0.2 * ease;
+  joints.lowerArmR.rotation.x = -0.2 * ease;
+  joints.rigRoot.rotation.x = 0.1 * ease;
+}
+function applySlam(joints, anim) {
+  const t = clamp(anim.stateTimer / 0.1, 0, 1);
+  const ease = easeOutQuad2(t);
+  joints.rigRoot.scale.set(
+    1 + (C.slamStretchXZ - 1) * ease,
+    1 + (C.slamStretchY - 1) * ease,
+    1 + (C.slamStretchXZ - 1) * ease
+  );
+  joints.thighL.rotation.x = -C.slamTuckAngle * ease;
+  joints.thighR.rotation.x = -C.slamTuckAngle * ease;
+  joints.shinL.rotation.x = C.jumpKneeBend * ease;
+  joints.shinR.rotation.x = C.jumpKneeBend * ease;
+  joints.upperArmL.rotation.x = -C.slamArmAngle * ease;
+  joints.upperArmR.rotation.x = -C.slamArmAngle * ease;
+  joints.upperArmL.rotation.z = 0.15 * ease;
+  joints.upperArmR.rotation.z = -0.15 * ease;
+  joints.lowerArmL.rotation.x = -0.5 * ease;
+  joints.lowerArmR.rotation.x = -0.5 * ease;
+  joints.rigRoot.rotation.x = 0.2 * ease;
 }
 
 // src/entities/player.ts
@@ -2972,6 +3459,20 @@ var chargeTelegraphGroup = null;
 var chargeFillMesh = null;
 var chargeBorderMesh = null;
 var chargeBorderGeo = null;
+var playerVelY = 0;
+var isPlayerAirborne = false;
+var landingLagTimer = 0;
+var launchCooldownTimer = 0;
+var isSlamming = false;
+var isDunking = false;
+var dunkTarget = null;
+var dunkLandingX = 0;
+var dunkLandingZ = 0;
+var dunkOriginX = 0;
+var dunkOriginZ = 0;
+var dunkDecalGroup = null;
+var dunkDecalFill = null;
+var dunkDecalRing = null;
 var DEFAULT_EMISSIVE = 2271846;
 var DEFAULT_EMISSIVE_INTENSITY = 0.4;
 function restoreDefaultEmissive() {
@@ -3046,8 +3547,104 @@ function updatePlayer(inputState2, dt, gameState2) {
   if (inputState2.dash && gameState2.abilities.dash.cooldownRemaining <= 0) {
     startDash(inputState2, gameState2);
   }
-  if (inputState2.ultimate && gameState2.abilities.ultimate.cooldownRemaining <= 0 && !isCharging) {
+  if ((inputState2.chargeStarted || inputState2.ultimate) && gameState2.abilities.ultimate.cooldownRemaining <= 0 && !isCharging) {
     startCharge(inputState2, gameState2);
+  }
+  if (inputState2.jump && !isPlayerAirborne && !isDashing && landingLagTimer <= 0) {
+    playerVelY = JUMP.initialVelocity;
+    isPlayerAirborne = true;
+    emit({ type: "playerJump", position: { x: playerPos.x, z: playerPos.z } });
+  }
+  if (launchCooldownTimer > 0) {
+    launchCooldownTimer -= dt * 1e3;
+  }
+  if (inputState2.launch && !isPlayerAirborne && !isDashing && launchCooldownTimer <= 0) {
+    const enemies = gameState2.enemies;
+    let closestEnemy = null;
+    let closestDistSq = LAUNCH.range * LAUNCH.range;
+    if (enemies) {
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e.health <= 0 || e.fellInPit) continue;
+        const dx = e.pos.x - playerPos.x;
+        const dz = e.pos.z - playerPos.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq < closestDistSq) {
+          closestDistSq = distSq;
+          closestEnemy = e;
+        }
+      }
+    }
+    if (closestEnemy) {
+      const vel = closestEnemy.vel;
+      if (vel) vel.y = LAUNCH.launchVelocity;
+      closestEnemy.health -= LAUNCH.damage;
+      const dx = closestEnemy.pos.x - playerPos.x;
+      const dz = closestEnemy.pos.z - playerPos.z;
+      playerGroup.rotation.y = Math.atan2(-dx, -dz);
+      playerVelY = LAUNCH.selfJumpVelocity;
+      isPlayerAirborne = true;
+      launchCooldownTimer = LAUNCH.cooldown;
+      emit({
+        type: "enemyLaunched",
+        enemy: closestEnemy,
+        position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z },
+        velocity: LAUNCH.launchVelocity
+      });
+      spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, "LAUNCH!", "#ffaa00");
+      inputState2.launch = false;
+    }
+  }
+  if (inputState2.launch && isPlayerAirborne && !isSlamming && !isDunking) {
+    const enemies = gameState2.enemies;
+    let grabTarget = null;
+    let grabDistSq = DUNK.grabRange * DUNK.grabRange;
+    if (enemies) {
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e.health <= 0 || e.fellInPit) continue;
+        if (e.pos.y <= 0.5) continue;
+        const dx = e.pos.x - playerPos.x;
+        const dz = e.pos.z - playerPos.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq < grabDistSq) {
+          grabDistSq = distSq;
+          grabTarget = e;
+        }
+      }
+    }
+    if (grabTarget) {
+      isDunking = true;
+      dunkTarget = grabTarget;
+      playerVelY = DUNK.slamVelocity;
+      dunkOriginX = (playerPos.x + grabTarget.pos.x) / 2;
+      dunkOriginZ = (playerPos.z + grabTarget.pos.z) / 2;
+      playerPos.x = grabTarget.pos.x;
+      playerPos.z = grabTarget.pos.z;
+      const aimDx = inputState2.aimWorldPos.x - dunkOriginX;
+      const aimDz = inputState2.aimWorldPos.z - dunkOriginZ;
+      const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
+      const clampedDist = Math.min(aimDist, DUNK.targetRadius);
+      dunkLandingX = dunkOriginX + aimDx / aimDist * clampedDist;
+      dunkLandingZ = dunkOriginZ + aimDz / aimDist * clampedDist;
+      const vel = grabTarget.vel;
+      if (vel) vel.y = DUNK.slamVelocity;
+      const faceDx = dunkLandingX - playerPos.x;
+      const faceDz = dunkLandingZ - playerPos.z;
+      if (faceDx !== 0 || faceDz !== 0) {
+        playerGroup.rotation.y = Math.atan2(-faceDx, -faceDz);
+      }
+      createDunkDecal(dunkOriginX, dunkOriginZ);
+      emit({
+        type: "dunkGrab",
+        enemy: grabTarget,
+        position: { x: grabTarget.pos.x, z: grabTarget.pos.z }
+      });
+      spawnDamageNumber(grabTarget.pos.x, grabTarget.pos.z, "GRAB!", "#ff44ff");
+    } else {
+      isSlamming = true;
+      playerVelY = SELF_SLAM.slamVelocity;
+    }
   }
   if (Math.abs(inputState2.moveX) > 0.01 || Math.abs(inputState2.moveZ) > 0.01) {
     const chargeSlow = isCharging ? ABILITIES.ultimate.chargeMoveSpeedMult : 1;
@@ -3060,6 +3657,124 @@ function updatePlayer(inputState2, dt, gameState2) {
   const clampZ = ARENA_HALF_Z - 0.5;
   playerPos.x = Math.max(-clampX, Math.min(clampX, playerPos.x));
   playerPos.z = Math.max(-clampZ, Math.min(clampZ, playerPos.z));
+  if (!isPlayerAirborne) {
+    const groundBelow = getGroundHeight(playerPos.x, playerPos.z);
+    if (playerPos.y > groundBelow + PHYSICS.groundEpsilon) {
+      isPlayerAirborne = true;
+      playerVelY = 0;
+    }
+  }
+  if (isPlayerAirborne) {
+    playerVelY -= JUMP.gravity * dt;
+    playerPos.y += playerVelY * dt;
+    if (isDunking && dunkTarget) {
+      const aimDx = inputState2.aimWorldPos.x - dunkOriginX;
+      const aimDz = inputState2.aimWorldPos.z - dunkOriginZ;
+      const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
+      const clampedDist = Math.min(aimDist, DUNK.targetRadius);
+      dunkLandingX = dunkOriginX + aimDx / aimDist * clampedDist;
+      dunkLandingZ = dunkOriginZ + aimDz / aimDist * clampedDist;
+      const toDx = dunkLandingX - playerPos.x;
+      const toDz = dunkLandingZ - playerPos.z;
+      const toDist = Math.sqrt(toDx * toDx + toDz * toDz);
+      if (toDist > 0.05) {
+        const moveStep = Math.min(DUNK.homing * dt, toDist);
+        playerPos.x += toDx / toDist * moveStep;
+        playerPos.z += toDz / toDist * moveStep;
+      }
+      dunkTarget.pos.x = playerPos.x;
+      dunkTarget.pos.z = playerPos.z;
+      if (dunkTarget.mesh) dunkTarget.mesh.position.copy(dunkTarget.pos);
+      if (toDist > 0.1) {
+        playerGroup.rotation.y = Math.atan2(-toDx, -toDz);
+      }
+      updateDunkDecal(dunkLandingX, dunkLandingZ);
+    }
+    const groundHeight = getGroundHeight(playerPos.x, playerPos.z);
+    if (playerPos.y <= groundHeight) {
+      const fallSpeed = Math.abs(playerVelY);
+      playerPos.y = groundHeight;
+      playerVelY = 0;
+      isPlayerAirborne = false;
+      if (isSlamming) {
+        isSlamming = false;
+        landingLagTimer = SELF_SLAM.landingLag;
+        screenShake(SELF_SLAM.landingShake);
+        const enemies = gameState2.enemies;
+        if (enemies) {
+          for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
+            if (e.health <= 0 || e.fellInPit) continue;
+            const dx = e.pos.x - playerPos.x;
+            const dz = e.pos.z - playerPos.z;
+            const distSq = dx * dx + dz * dz;
+            if (distSq < SELF_SLAM.damageRadius * SELF_SLAM.damageRadius) {
+              e.health -= SELF_SLAM.damage;
+              e.flashTimer = 100;
+              const dist = Math.sqrt(distSq) || 0.1;
+              const vel = e.vel;
+              if (vel) {
+                vel.x += dx / dist * SELF_SLAM.knockback;
+                vel.z += dz / dist * SELF_SLAM.knockback;
+              }
+            }
+          }
+        }
+        emit({ type: "playerSlam", position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+        spawnDamageNumber(playerPos.x, playerPos.z, "SLAM!", "#ff8800");
+      } else if (isDunking && dunkTarget) {
+        isDunking = false;
+        removeDunkDecal();
+        landingLagTimer = DUNK.landingLag;
+        screenShake(DUNK.landingShake);
+        dunkTarget.health -= DUNK.damage;
+        dunkTarget.flashTimer = 150;
+        dunkTarget.pos.y = groundHeight;
+        const tVel = dunkTarget.vel;
+        if (tVel) {
+          tVel.x = 0;
+          tVel.y = 0;
+          tVel.z = 0;
+        }
+        dunkTarget.mesh.position.copy(dunkTarget.pos);
+        const enemies = gameState2.enemies;
+        if (enemies) {
+          for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
+            if (e === dunkTarget) continue;
+            if (e.health <= 0 || e.fellInPit) continue;
+            const dx = e.pos.x - playerPos.x;
+            const dz = e.pos.z - playerPos.z;
+            const distSq = dx * dx + dz * dz;
+            if (distSq < DUNK.aoeRadius * DUNK.aoeRadius) {
+              e.health -= DUNK.aoeDamage;
+              e.flashTimer = 100;
+              const dist = Math.sqrt(distSq) || 0.1;
+              const vel = e.vel;
+              if (vel) {
+                vel.x += dx / dist * DUNK.aoeKnockback;
+                vel.z += dz / dist * DUNK.aoeKnockback;
+              }
+            }
+          }
+        }
+        emit({
+          type: "dunkImpact",
+          enemy: dunkTarget,
+          damage: DUNK.damage,
+          position: { x: playerPos.x, z: playerPos.z }
+        });
+        spawnDamageNumber(playerPos.x, playerPos.z, "DUNK!", "#ff2244");
+        dunkTarget = null;
+      } else {
+        landingLagTimer = JUMP.landingLag;
+        emit({ type: "playerLand", position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+      }
+    }
+  }
+  if (landingLagTimer > 0) {
+    landingLagTimer -= dt * 1e3;
+  }
   playerGroup.position.copy(playerPos);
   aimAtCursor(inputState2);
   updateAnimation(
@@ -3072,7 +3787,12 @@ function updatePlayer(inputState2, dt, gameState2) {
     endLagTimer > 0,
     isDashing ? Math.min(dashTimer / dashDuration, 1) : 0,
     meleeSwinging,
-    meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0
+    meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0,
+    isPlayerAirborne,
+    playerVelY,
+    isSlamming || isDunking,
+    isCharging,
+    isCharging ? Math.min(chargeTimer / ABILITIES.ultimate.chargeTimeMs, 1) : 0
   );
   if (meleeCooldownTimer > 0) {
     meleeCooldownTimer -= dt * 1e3;
@@ -3085,43 +3805,91 @@ function updatePlayer(inputState2, dt, gameState2) {
     }
   }
   if (inputState2.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging) {
-    const enemies = gameState2.enemies;
-    if (enemies) {
-      let bestDist = MELEE.autoTargetRange * MELEE.autoTargetRange;
-      let bestEnemy = null;
-      const aimAngle = playerGroup.rotation.y;
-      for (let i = 0; i < enemies.length; i++) {
-        const e = enemies[i];
-        if (e.health <= 0 || e.fellInPit) continue;
-        const dx = e.pos.x - playerPos.x;
-        const dz = e.pos.z - playerPos.z;
-        const distSq = dx * dx + dz * dz;
-        if (distSq > bestDist) continue;
-        const angleToEnemy = Math.atan2(-dx, -dz);
-        let angleDiff = angleToEnemy - aimAngle;
-        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-        if (Math.abs(angleDiff) <= MELEE.autoTargetArc / 2) {
-          bestDist = distSq;
-          bestEnemy = e;
+    if (isPlayerAirborne) {
+      const enemies = gameState2.enemies;
+      let closestEnemy = null;
+      let closestDistSq = AERIAL_STRIKE.range * AERIAL_STRIKE.range;
+      if (enemies) {
+        for (let i = 0; i < enemies.length; i++) {
+          const e = enemies[i];
+          if (e.health <= 0 || e.fellInPit) continue;
+          const dx = e.pos.x - playerPos.x;
+          const dz = e.pos.z - playerPos.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq < closestDistSq) {
+            closestDistSq = distSq;
+            closestEnemy = e;
+          }
         }
       }
-      if (bestEnemy) {
-        const dx = bestEnemy.pos.x - playerPos.x;
-        const dz = bestEnemy.pos.z - playerPos.z;
+      if (closestEnemy) {
+        closestEnemy.health -= AERIAL_STRIKE.damage;
+        closestEnemy.flashTimer = 120;
+        const vel = closestEnemy.vel;
+        if (vel) vel.y = AERIAL_STRIKE.slamVelocity;
+        const dx = closestEnemy.pos.x - playerPos.x;
+        const dz = closestEnemy.pos.z - playerPos.z;
         playerGroup.rotation.y = Math.atan2(-dx, -dz);
+        screenShake(AERIAL_STRIKE.screenShake);
+        meleeCooldownTimer = AERIAL_STRIKE.cooldown;
+        emit({
+          type: "aerialStrike",
+          enemy: closestEnemy,
+          damage: AERIAL_STRIKE.damage,
+          position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z }
+        });
+        spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, "SPIKE!", "#44ddff");
+      } else {
+        meleeSwinging = true;
+        meleeSwingTimer = 0;
+        meleeCooldownTimer = MELEE.cooldown;
+        meleeHitEnemies.clear();
+        meleeSwingDir = playerGroup.rotation.y;
+        emit({
+          type: "meleeSwing",
+          position: { x: playerPos.x, z: playerPos.z },
+          direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) }
+        });
       }
+    } else {
+      const enemies = gameState2.enemies;
+      if (enemies) {
+        let bestDist = MELEE.autoTargetRange * MELEE.autoTargetRange;
+        let bestEnemy = null;
+        const aimAngle = playerGroup.rotation.y;
+        for (let i = 0; i < enemies.length; i++) {
+          const e = enemies[i];
+          if (e.health <= 0 || e.fellInPit) continue;
+          const dx = e.pos.x - playerPos.x;
+          const dz = e.pos.z - playerPos.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq > bestDist) continue;
+          const angleToEnemy = Math.atan2(-dx, -dz);
+          let angleDiff = angleToEnemy - aimAngle;
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+          if (Math.abs(angleDiff) <= MELEE.autoTargetArc / 2) {
+            bestDist = distSq;
+            bestEnemy = e;
+          }
+        }
+        if (bestEnemy) {
+          const dx = bestEnemy.pos.x - playerPos.x;
+          const dz = bestEnemy.pos.z - playerPos.z;
+          playerGroup.rotation.y = Math.atan2(-dx, -dz);
+        }
+      }
+      meleeSwinging = true;
+      meleeSwingTimer = 0;
+      meleeCooldownTimer = MELEE.cooldown;
+      meleeHitEnemies.clear();
+      meleeSwingDir = playerGroup.rotation.y;
+      emit({
+        type: "meleeSwing",
+        position: { x: playerPos.x, z: playerPos.z },
+        direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) }
+      });
     }
-    meleeSwinging = true;
-    meleeSwingTimer = 0;
-    meleeCooldownTimer = MELEE.cooldown;
-    meleeHitEnemies.clear();
-    meleeSwingDir = playerGroup.rotation.y;
-    emit({
-      type: "meleeSwing",
-      position: { x: playerPos.x, z: playerPos.z },
-      direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) }
-    });
   }
   updateAfterimages(dt);
 }
@@ -3376,6 +4144,70 @@ function removeChargeTelegraph() {
     chargeBorderGeo = null;
   }
 }
+function createDunkDecal(cx, cz) {
+  const scene2 = getScene();
+  const radius = DUNK.targetRadius;
+  dunkDecalGroup = new THREE.Group();
+  dunkDecalGroup.position.set(cx, 0.06, cz);
+  const fillGeo2 = new THREE.CircleGeometry(radius, 32);
+  const fillMat = new THREE.MeshBasicMaterial({
+    color: 16729343,
+    transparent: true,
+    opacity: 0.08,
+    depthWrite: false
+  });
+  dunkDecalFill = new THREE.Mesh(fillGeo2, fillMat);
+  dunkDecalFill.rotation.x = -Math.PI / 2;
+  dunkDecalGroup.add(dunkDecalFill);
+  const ringGeo3 = new THREE.RingGeometry(radius - 0.06, radius, 48);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 16738047,
+    transparent: true,
+    opacity: 0.4,
+    depthWrite: false
+  });
+  dunkDecalRing = new THREE.Mesh(ringGeo3, ringMat);
+  dunkDecalRing.rotation.x = -Math.PI / 2;
+  dunkDecalGroup.add(dunkDecalRing);
+  const dotGeo = new THREE.CircleGeometry(0.12, 12);
+  const dotMat = new THREE.MeshBasicMaterial({
+    color: 16777215,
+    transparent: true,
+    opacity: 0.6,
+    depthWrite: false
+  });
+  const dot = new THREE.Mesh(dotGeo, dotMat);
+  dot.rotation.x = -Math.PI / 2;
+  dot.name = "dunkCrosshair";
+  dunkDecalGroup.add(dot);
+  scene2.add(dunkDecalGroup);
+}
+function updateDunkDecal(aimX, aimZ) {
+  if (!dunkDecalGroup) return;
+  dunkDecalGroup.position.set(dunkOriginX, 0.06, dunkOriginZ);
+  const dot = dunkDecalGroup.getObjectByName("dunkCrosshair");
+  if (dot) {
+    const dx = dunkLandingX - dunkOriginX;
+    const dz = dunkLandingZ - dunkOriginZ;
+    dot.position.set(dx, 0, -dz);
+  }
+  if (dunkDecalRing) {
+    const pulse = 0.3 + 0.15 * Math.sin(Date.now() * 8e-3);
+    dunkDecalRing.material.opacity = pulse;
+  }
+}
+function removeDunkDecal() {
+  if (!dunkDecalGroup) return;
+  const scene2 = getScene();
+  dunkDecalGroup.traverse((child) => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+  });
+  scene2.remove(dunkDecalGroup);
+  dunkDecalGroup = null;
+  dunkDecalFill = null;
+  dunkDecalRing = null;
+}
 function isMeleeSwinging() {
   return meleeSwinging;
 }
@@ -3413,6 +4245,14 @@ function resetPlayer() {
   isCharging = false;
   chargeTimer = 0;
   pushEvent = null;
+  playerVelY = 0;
+  isPlayerAirborne = false;
+  landingLagTimer = 0;
+  launchCooldownTimer = 0;
+  isSlamming = false;
+  isDunking = false;
+  dunkTarget = null;
+  removeDunkDecal();
   removeChargeTelegraph();
   restoreDefaultEmissive();
   resetAnimatorState(animState);
@@ -3440,7 +4280,10 @@ var inputState = {
   ultimateHeld: false,
   interact: false,
   toggleEditor: false,
-  bulletTime: false
+  bulletTime: false,
+  jump: false,
+  launch: false,
+  chargeStarted: false
 };
 var INV_SQRT2 = 1 / Math.SQRT2;
 var ISO_RIGHT_X = INV_SQRT2;
@@ -3458,16 +4301,19 @@ var touchAimX = 0;
 var touchAimY = 0;
 var touchAimActive = false;
 var touchActive = false;
+var _checkMouseHold = () => {
+};
 function initInput() {
   window.addEventListener("keydown", (e) => {
     if (e.repeat) return;
     keys[e.code] = true;
     usingGamepad = false;
     if (e.code === "Space") {
-      inputState.dash = true;
+      inputState.jump = true;
       e.preventDefault();
     }
-    if (e.code === "KeyE") inputState.ultimate = true;
+    if (e.code === "ShiftLeft" || e.code === "ShiftRight") inputState.dash = true;
+    if (e.code === "KeyE") inputState.launch = true;
     if (e.code === "KeyF" || e.code === "Enter") inputState.interact = true;
     if (e.code === "Backquote") inputState.toggleEditor = true;
     if (e.code === "KeyQ") inputState.bulletTime = true;
@@ -3480,12 +4326,27 @@ function initInput() {
     inputState.mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
     usingGamepad = false;
   });
+  let mouseDownTime = 0;
+  let mouseIsDown = false;
+  const HOLD_THRESHOLD = 200;
   window.addEventListener("mousedown", (e) => {
     if (e.button === 0) {
       inputState.attack = true;
+      mouseDownTime = performance.now();
+      mouseIsDown = true;
       usingGamepad = false;
     }
   });
+  window.addEventListener("mouseup", (e) => {
+    if (e.button === 0) {
+      mouseIsDown = false;
+    }
+  });
+  _checkMouseHold = () => {
+    if (mouseIsDown && performance.now() - mouseDownTime > HOLD_THRESHOLD) {
+      inputState.chargeStarted = true;
+    }
+  };
   window.addEventListener("gamepadconnected", (e) => {
     console.log(`[input] Gamepad connected: ${e.gamepad.id}`);
     gamepadIndex = e.gamepad.index;
@@ -3638,7 +4499,8 @@ function updateInput() {
     inputState.moveX /= len;
     inputState.moveZ /= len;
   }
-  inputState.ultimateHeld = !!keys["KeyE"] || _touchUltHeld;
+  _checkMouseHold();
+  inputState.ultimateHeld = !!keys["KeyE"] || _touchUltHeld || inputState.chargeStarted;
   if ((!usingGamepad || !gamepadAimActive) && !touchAimActive && !_abilityAimActive) {
     const worldPos = screenToWorld(inputState.mouseNDC.x, inputState.mouseNDC.y);
     inputState.aimWorldPos.x = worldPos.x;
@@ -3655,6 +4517,9 @@ function consumeInput() {
   inputState.interact = false;
   inputState.toggleEditor = false;
   inputState.bulletTime = false;
+  inputState.jump = false;
+  inputState.launch = false;
+  inputState.chargeStarted = false;
 }
 function getInputState() {
   return inputState;
@@ -3749,6 +4614,12 @@ var ROOMS = [
     pits: [
       { x: 5, z: -8, w: 3, d: 3 }
       // small pit mid-right (teaches force push)
+    ],
+    heightZones: [
+      { x: -6, z: -2, w: 5, d: 4, y: 1.2, label: "raised left" },
+      // low platform, jumpable
+      { x: 3, z: -15, w: 4, d: 3, y: 1.5, label: "raised far-right" }
+      // slightly higher
     ],
     spawnBudget: {
       maxConcurrent: 4,
@@ -3907,40 +4778,6 @@ var SPAWN_CONFIG = {
   // maximum distance ahead of player to spawn enemies (Z units)
 };
 
-// src/config/physics.ts
-var PHYSICS = {
-  // Knockback velocity
-  friction: 25,
-  // deceleration rate (units/s²) — higher = snappier stop
-  minVelocity: 0.1,
-  // below this speed, zero out velocity
-  pushInstantRatio: 0,
-  // fraction of knockback as instant position offset (0 = pure velocity)
-  // Wall slam
-  wallSlamMinSpeed: 3,
-  // minimum impact speed for wall damage
-  wallSlamDamage: 8,
-  // damage per unit of impact speed above threshold
-  wallSlamStun: 400,
-  // ms stun on wall slam
-  wallSlamBounce: 0.4,
-  // velocity reflection coefficient (0 = dead stop, 1 = perfect bounce)
-  wallSlamShake: 3,
-  // screen shake intensity on wall slam
-  // Force push wave occlusion
-  pushWaveBlockRadius: 0.8,
-  // lateral distance for one enemy to block another from push wave
-  // Enemy-enemy collision
-  enemyBounce: 0.4,
-  // enemy-enemy restitution coefficient
-  impactMinSpeed: 2,
-  // minimum relative speed for collision damage
-  impactDamage: 5,
-  // damage per unit of relative speed above threshold
-  impactStun: 300
-  // ms stun when hit by another enemy
-};
-
 // src/engine/meleemath.ts
 function isInMeleeArc(playerX, playerZ, swingAngle, targetX, targetZ, range, arc) {
   const dx = targetX - playerX;
@@ -4085,11 +4922,12 @@ function pointHitsTerrain(px, pz) {
   }
   return false;
 }
-function resolveMovementCollision(x, z, radius) {
+function resolveMovementCollision(x, z, radius, entityY = 0) {
   const bounds = getMoveBounds();
   let rx = x, rz = z;
   let wasDeflected = false;
   for (const box of bounds) {
+    if (box.maxY !== void 0 && entityY >= box.maxY) continue;
     const push = circleVsAABB(rx, rz, radius, box);
     if (push) {
       rx += push.x;
@@ -4099,12 +4937,13 @@ function resolveMovementCollision(x, z, radius) {
   }
   return { x: rx, z: rz, wasDeflected };
 }
-function resolveTerrainCollisionEx(x, z, radius) {
+function resolveTerrainCollisionEx(x, z, radius, entityY = 0) {
   const bounds = getBounds();
   let rx = x, rz = z;
   let hitWall = false;
   let totalNX = 0, totalNZ = 0;
   for (const box of bounds) {
+    if (box.maxY !== void 0 && entityY >= box.maxY) continue;
     const push = circleVsAABB(rx, rz, radius, box);
     if (push) {
       rx += push.x;
@@ -4130,67 +4969,89 @@ function applyVelocities(dt, gameState2) {
     if (enemy.isLeaping) continue;
     const vel = enemy.vel;
     if (!vel) continue;
+    if (vel.y === void 0) vel.y = 0;
     const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-    if (speed < PHYSICS.minVelocity) {
+    const hasXZVelocity = speed >= PHYSICS.minVelocity;
+    if (!hasXZVelocity && vel.y === 0 && enemy.pos.y <= PHYSICS.groundEpsilon) {
       vel.x = 0;
       vel.z = 0;
       continue;
     }
-    const moveDist = speed * dt;
-    const enemyRadius = enemy.config.size.radius;
-    const moveSteps = Math.ceil(moveDist / enemyRadius);
-    const subDt = dt / Math.max(moveSteps, 1);
-    let result = { x: enemy.pos.x, z: enemy.pos.z, hitWall: false, normalX: 0, normalZ: 0 };
-    let fellInPit = false;
-    for (let s = 0; s < moveSteps; s++) {
-      enemy.pos.x += vel.x * subDt;
-      enemy.pos.z += vel.z * subDt;
-      if (pointInPit(enemy.pos.x, enemy.pos.z)) {
-        fellInPit = true;
-        break;
+    if (hasXZVelocity) {
+      const moveDist = speed * dt;
+      const enemyRadius = enemy.config.size.radius;
+      const moveSteps = Math.ceil(moveDist / enemyRadius);
+      const subDt = dt / Math.max(moveSteps, 1);
+      let fellInPit = false;
+      let result = { x: enemy.pos.x, z: enemy.pos.z, hitWall: false, normalX: 0, normalZ: 0 };
+      for (let s = 0; s < moveSteps; s++) {
+        enemy.pos.x += vel.x * subDt;
+        enemy.pos.z += vel.z * subDt;
+        const isGrounded = enemy.pos.y <= PHYSICS.groundEpsilon;
+        if (isGrounded && pointInPit(enemy.pos.x, enemy.pos.z)) {
+          fellInPit = true;
+          break;
+        }
+        result = resolveTerrainCollisionEx(enemy.pos.x, enemy.pos.z, enemyRadius, enemy.pos.y);
+        enemy.pos.x = result.x;
+        enemy.pos.z = result.z;
+        if (result.hitWall) break;
       }
-      result = resolveTerrainCollisionEx(enemy.pos.x, enemy.pos.z, enemyRadius);
-      enemy.pos.x = result.x;
-      enemy.pos.z = result.z;
-      if (result.hitWall) break;
+      if (fellInPit) {
+        spawnPitFallGhost(enemy);
+        emit({ type: "pitFall", position: { x: enemy.pos.x, z: enemy.pos.z }, isPlayer: false });
+        createAoeRing(enemy.pos.x, enemy.pos.z, 2.5, 500, 8930559);
+        enemy.health = 0;
+        enemy.fellInPit = true;
+        enemy.stunTimer = 9999;
+        spawnDamageNumber(enemy.pos.x, enemy.pos.z, "FELL!", "#8844ff");
+        screenShake(4, 200);
+        vel.x = 0;
+        vel.y = 0;
+        vel.z = 0;
+        continue;
+      }
+      if (result.hitWall && speed > PHYSICS.wallSlamMinSpeed) {
+        const slamDamage = Math.round((speed - PHYSICS.wallSlamMinSpeed) * PHYSICS.wallSlamDamage);
+        applyDamageToEnemy(enemy, slamDamage, gameState2);
+        stunEnemy(enemy, PHYSICS.wallSlamStun);
+        emit({ type: "wallSlam", enemy, speed, damage: slamDamage, position: { x: enemy.pos.x, z: enemy.pos.z } });
+        spawnDamageNumber(enemy.pos.x, enemy.pos.z, slamDamage, "#ff8844");
+        screenShake(PHYSICS.wallSlamShake, 120);
+        enemy.flashTimer = 120;
+        if (enemy.bodyMesh) enemy.bodyMesh.material.emissive.setHex(16746564);
+        if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16746564);
+        createAoeRing(enemy.pos.x, enemy.pos.z, 1.5, 300, 16746564);
+        const dot = vel.x * result.normalX + vel.z * result.normalZ;
+        vel.x = (vel.x - 2 * dot * result.normalX) * PHYSICS.wallSlamBounce;
+        vel.z = (vel.z - 2 * dot * result.normalZ) * PHYSICS.wallSlamBounce;
+      }
+    } else {
+      vel.x = 0;
+      vel.z = 0;
+    }
+    if (enemy.pos.y > PHYSICS.groundEpsilon || vel.y > 0) {
+      enemy.pos.y += vel.y * dt;
+      vel.y -= PHYSICS.gravity * dt;
+      vel.y = Math.max(vel.y, -PHYSICS.terminalVelocity);
+    }
+    const groundHeight = getGroundHeight(enemy.pos.x, enemy.pos.z);
+    if (enemy.pos.y < groundHeight) {
+      enemy.pos.y = groundHeight;
+      vel.y = 0;
     }
     enemy.mesh.position.copy(enemy.pos);
-    if (fellInPit) {
-      spawnPitFallGhost(enemy);
-      emit({ type: "pitFall", position: { x: enemy.pos.x, z: enemy.pos.z }, isPlayer: false });
-      createAoeRing(enemy.pos.x, enemy.pos.z, 2.5, 500, 8930559);
-      enemy.health = 0;
-      enemy.fellInPit = true;
-      enemy.stunTimer = 9999;
-      spawnDamageNumber(enemy.pos.x, enemy.pos.z, "FELL!", "#8844ff");
-      screenShake(4, 200);
-      vel.x = 0;
-      vel.z = 0;
-      continue;
-    }
-    if (result.hitWall && speed > PHYSICS.wallSlamMinSpeed) {
-      const slamDamage = Math.round((speed - PHYSICS.wallSlamMinSpeed) * PHYSICS.wallSlamDamage);
-      applyDamageToEnemy(enemy, slamDamage, gameState2);
-      stunEnemy(enemy, PHYSICS.wallSlamStun);
-      emit({ type: "wallSlam", enemy, speed, damage: slamDamage, position: { x: enemy.pos.x, z: enemy.pos.z } });
-      spawnDamageNumber(enemy.pos.x, enemy.pos.z, slamDamage, "#ff8844");
-      screenShake(PHYSICS.wallSlamShake, 120);
-      enemy.flashTimer = 120;
-      if (enemy.bodyMesh) enemy.bodyMesh.material.emissive.setHex(16746564);
-      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16746564);
-      createAoeRing(enemy.pos.x, enemy.pos.z, 1.5, 300, 16746564);
-      const dot = vel.x * result.normalX + vel.z * result.normalZ;
-      vel.x = (vel.x - 2 * dot * result.normalX) * PHYSICS.wallSlamBounce;
-      vel.z = (vel.z - 2 * dot * result.normalZ) * PHYSICS.wallSlamBounce;
-    }
-    const newSpeed = speed - PHYSICS.friction * dt;
-    if (newSpeed <= PHYSICS.minVelocity) {
-      vel.x = 0;
-      vel.z = 0;
-    } else {
-      const scale = newSpeed / speed;
-      vel.x *= scale;
-      vel.z *= scale;
+    const isGroundedNow = enemy.pos.y <= groundHeight + PHYSICS.groundEpsilon;
+    if (isGroundedNow && speed >= PHYSICS.minVelocity) {
+      const newSpeed = speed - PHYSICS.friction * dt;
+      if (newSpeed <= PHYSICS.minVelocity) {
+        vel.x = 0;
+        vel.z = 0;
+      } else {
+        const scale = newSpeed / speed;
+        vel.x *= scale;
+        vel.z *= scale;
+      }
     }
   }
 }
@@ -4393,7 +5254,7 @@ function checkCollisions(gameState2) {
   const playerPos2 = getPlayerPos();
   const playerR = PLAYER.size.radius;
   if (!isPlayerDashing()) {
-    const resolved = resolveMovementCollision(playerPos2.x, playerPos2.z, playerR);
+    const resolved = resolveMovementCollision(playerPos2.x, playerPos2.z, playerR, playerPos2.y);
     playerPos2.x = resolved.x;
     playerPos2.z = resolved.z;
   }
@@ -4406,6 +5267,7 @@ function checkCollisions(gameState2) {
     let rx = enemy.pos.x, rz = enemy.pos.z;
     let wasDeflected = false;
     for (const box of bounds) {
+      if (box.maxY !== void 0 && enemy.pos.y >= box.maxY) continue;
       const push = circleVsAABB(rx, rz, enemy.config.size.radius, box);
       if (push) {
         rx += push.x;
@@ -4663,6 +5525,84 @@ var DOOR_UNLOCK_BURST = {
   gravity: -2,
   // float upward
   shape: "sphere"
+};
+var JUMP_DUST = {
+  count: 4,
+  lifetime: 0.2,
+  speed: 3,
+  spread: Math.PI,
+  size: 0.05,
+  color: 12298888,
+  fadeOut: true,
+  gravity: 2,
+  shape: "sphere"
+};
+var LAND_DUST = {
+  count: 6,
+  lifetime: 0.3,
+  speed: 4,
+  spread: Math.PI,
+  size: 0.06,
+  color: 12298888,
+  fadeOut: true,
+  gravity: 3,
+  shape: "sphere"
+};
+var LAUNCH_BURST = {
+  count: 6,
+  lifetime: 0.3,
+  speed: 7,
+  spread: Math.PI * 0.4,
+  size: 0.06,
+  color: 16755200,
+  fadeOut: true,
+  gravity: -2,
+  // float upward with the launch
+  shape: "box"
+};
+var AERIAL_SPIKE = {
+  count: 8,
+  lifetime: 0.25,
+  speed: 8,
+  spread: Math.PI * 0.6,
+  size: 0.07,
+  color: 4513279,
+  fadeOut: true,
+  gravity: 6,
+  shape: "box"
+};
+var SLAM_IMPACT = {
+  count: 10,
+  lifetime: 0.35,
+  speed: 8,
+  spread: Math.PI,
+  size: 0.07,
+  color: 16746496,
+  fadeOut: true,
+  gravity: 4,
+  shape: "box"
+};
+var DUNK_GRAB_SPARK = {
+  count: 5,
+  lifetime: 0.2,
+  speed: 5,
+  spread: Math.PI * 0.5,
+  size: 0.05,
+  color: 16729343,
+  fadeOut: true,
+  gravity: 0,
+  shape: "sphere"
+};
+var DUNK_IMPACT_BURST = {
+  count: 14,
+  lifetime: 0.4,
+  speed: 10,
+  spread: Math.PI,
+  size: 0.08,
+  color: 16720452,
+  fadeOut: true,
+  gravity: 5,
+  shape: "box"
 };
 var POOL_SIZE2 = 80;
 var pool2 = [];
@@ -5013,6 +5953,60 @@ function wireEventBus() {
       burst({ x: 0, y: 2, z: 0 }, DOOR_UNLOCK_BURST);
     }
   });
+  on("playerJump", (e) => {
+    if (e.type === "playerJump") {
+      burst({ x: e.position.x, y: 0.1, z: e.position.z }, JUMP_DUST);
+    }
+  });
+  on("playerLand", (e) => {
+    if (e.type === "playerLand") {
+      const intensity = Math.min(e.fallSpeed / 10, 2);
+      burst(
+        { x: e.position.x, y: 0.1, z: e.position.z },
+        { ...LAND_DUST, count: Math.round(3 + intensity * 4) }
+      );
+    }
+  });
+  on("enemyLaunched", (e) => {
+    if (e.type === "enemyLaunched") {
+      burst(
+        { x: e.position.x, y: 0.3, z: e.position.z },
+        LAUNCH_BURST
+      );
+    }
+  });
+  on("aerialStrike", (e) => {
+    if (e.type === "aerialStrike") {
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        AERIAL_SPIKE
+      );
+    }
+  });
+  on("playerSlam", (e) => {
+    if (e.type === "playerSlam") {
+      burst(
+        { x: e.position.x, y: 0.1, z: e.position.z },
+        { ...SLAM_IMPACT, count: Math.round(8 + e.fallSpeed / 15 * 4) }
+      );
+    }
+  });
+  on("dunkGrab", (e) => {
+    if (e.type === "dunkGrab") {
+      burst(
+        { x: e.position.x, y: 0.8, z: e.position.z },
+        DUNK_GRAB_SPARK
+      );
+    }
+  });
+  on("dunkImpact", (e) => {
+    if (e.type === "dunkImpact") {
+      burst(
+        { x: e.position.x, y: 0.1, z: e.position.z },
+        DUNK_IMPACT_BURST
+      );
+    }
+  });
 }
 
 // src/engine/telegraph.ts
@@ -5345,6 +6339,7 @@ function loadRoom(index, gameState2) {
   clearParticles();
   removeDoor();
   setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);
+  setHeightZones(room.heightZones || []);
   invalidateCollisionBounds();
   rebuildArenaVisuals();
   setPlayerPosition(room.playerStart.x, room.playerStart.z);
@@ -5975,6 +6970,14 @@ var AUDIO_CONFIG = {
   meleeHitVolume: 0.45,
   wallSlamVolume: 0.5,
   enemyImpactVolume: 0.4,
+  // Vertical combat
+  jumpVolume: 0.25,
+  landVolume: 0.3,
+  launchVolume: 0.4,
+  aerialStrikeVolume: 0.45,
+  slamVolume: 0.5,
+  dunkGrabVolume: 0.35,
+  dunkImpactVolume: 0.55,
   enabled: true
 };
 var ctx2 = null;
@@ -6346,6 +7349,188 @@ function playHeal() {
   osc.start(now);
   osc.stop(now + 0.5);
 }
+function playJump() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.1;
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(600, now);
+  filter.frequency.exponentialRampToValueAtTime(2500, now + duration);
+  filter.Q.value = 2;
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.jumpVolume, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playLand(fallSpeed) {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const intensity = Math.min(fallSpeed / 15, 1.5);
+  const duration = 0.08 + intensity * 0.04;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(60 + intensity * 30, now);
+  osc.frequency.exponentialRampToValueAtTime(25, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.landVolume * intensity, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+}
+function playLaunch() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.15;
+  const osc = ctx2.createOscillator();
+  osc.type = "square";
+  osc.frequency.setValueAtTime(120, now);
+  osc.frequency.exponentialRampToValueAtTime(600, now + duration * 0.7);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.launchVolume * 0.3, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.5);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "highpass";
+  filter.frequency.value = 2e3;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.launchVolume * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.5);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playAerialStrike() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.1;
+  const osc = ctx2.createOscillator();
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(500, now);
+  osc.frequency.exponentialRampToValueAtTime(100, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.aerialStrikeVolume * 0.4, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = 4e3;
+  filter.Q.value = 4;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.aerialStrikeVolume * 0.5, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.6);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playSlam(fallSpeed) {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const intensity = Math.min(fallSpeed / 20, 1.5);
+  const duration = 0.2 + intensity * 0.05;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(50 + intensity * 20, now);
+  osc.frequency.exponentialRampToValueAtTime(20, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.slamVolume * (0.4 + intensity * 0.3), now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.7);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 1500;
+  filter.Q.value = 2;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.slamVolume * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.7);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playDunkGrab() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.1;
+  const osc = ctx2.createOscillator();
+  osc.type = "triangle";
+  osc.frequency.value = 1200;
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.dunkGrabVolume * 0.4, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+}
+function playDunkImpact() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.25;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(40, now);
+  osc.frequency.exponentialRampToValueAtTime(15, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.dunkImpactVolume * 0.6, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 2e3;
+  filter.Q.value = 3;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.dunkImpactVolume * 0.5, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.6);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+  const sub = ctx2.createOscillator();
+  sub.type = "sine";
+  sub.frequency.value = 25;
+  const subGain = ctx2.createGain();
+  subGain.gain.setValueAtTime(AUDIO_CONFIG.dunkImpactVolume * 0.3, now);
+  subGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  sub.connect(subGain);
+  subGain.connect(masterGain);
+  sub.start(now);
+  sub.stop(now + duration);
+}
 function wireEventBus2() {
   on("enemyHit", (e) => {
     if (e.type === "enemyHit") playHit(e.damage / 15);
@@ -6369,6 +7554,17 @@ function wireEventBus2() {
   on("enemyImpact", (e) => {
     if (e.type === "enemyImpact") playEnemyImpact(e.speed / 5);
   });
+  on("playerJump", () => playJump());
+  on("playerLand", (e) => {
+    if (e.type === "playerLand") playLand(e.fallSpeed);
+  });
+  on("enemyLaunched", () => playLaunch());
+  on("aerialStrike", () => playAerialStrike());
+  on("playerSlam", (e) => {
+    if (e.type === "playerSlam") playSlam(e.fallSpeed);
+  });
+  on("dunkGrab", () => playDunkGrab());
+  on("dunkImpact", () => playDunkImpact());
 }
 
 // src/config/boss.ts
@@ -7530,6 +8726,338 @@ var SECTIONS = [
         step: 500,
         unit: "ms",
         tip: "How long before rest room door opens."
+      }
+    ]
+  },
+  // ── Vertical Combat ──
+  {
+    section: "Jump / Gravity",
+    collapsed: true,
+    items: [
+      {
+        label: "Jump Velocity",
+        config: () => JUMP,
+        key: "initialVelocity",
+        min: 5,
+        max: 25,
+        step: 0.5,
+        unit: "u/s",
+        tip: "Upward velocity when jumping."
+      },
+      {
+        label: "Gravity",
+        config: () => JUMP,
+        key: "gravity",
+        min: 10,
+        max: 50,
+        step: 1,
+        unit: "u/s\xB2",
+        tip: "Downward acceleration while airborne."
+      },
+      {
+        label: "Air Control",
+        config: () => JUMP,
+        key: "airControlMult",
+        min: 0.2,
+        max: 1.5,
+        step: 0.1,
+        tip: "XZ movement multiplier while airborne."
+      },
+      {
+        label: "Landing Lag",
+        config: () => JUMP,
+        key: "landingLag",
+        min: 0,
+        max: 200,
+        step: 10,
+        unit: "ms",
+        tip: "Lockout time after landing."
+      },
+      {
+        label: "Coyote Time",
+        config: () => JUMP,
+        key: "coyoteTime",
+        min: 0,
+        max: 200,
+        step: 10,
+        unit: "ms",
+        tip: "Grace period after walking off ledge."
+      }
+    ]
+  },
+  {
+    section: "Launch",
+    collapsed: true,
+    items: [
+      {
+        label: "Range",
+        config: () => LAUNCH,
+        key: "range",
+        min: 1,
+        max: 6,
+        step: 0.5,
+        unit: "u",
+        tip: "Max range to target an enemy for launch."
+      },
+      {
+        label: "Launch Velocity",
+        config: () => LAUNCH,
+        key: "launchVelocity",
+        min: 5,
+        max: 30,
+        step: 1,
+        unit: "u/s",
+        tip: "Upward velocity given to launched enemy."
+      },
+      {
+        label: "Self Jump Vel",
+        config: () => LAUNCH,
+        key: "selfJumpVelocity",
+        min: 5,
+        max: 25,
+        step: 1,
+        unit: "u/s",
+        tip: "Player upward velocity on launch (to follow)."
+      },
+      {
+        label: "Cooldown",
+        config: () => LAUNCH,
+        key: "cooldown",
+        min: 200,
+        max: 1500,
+        step: 50,
+        unit: "ms",
+        tip: "Time between launches."
+      },
+      {
+        label: "Chip Damage",
+        config: () => LAUNCH,
+        key: "damage",
+        min: 0,
+        max: 20,
+        step: 1,
+        tip: "Damage dealt on launch."
+      }
+    ]
+  },
+  {
+    section: "Aerial Strike",
+    collapsed: true,
+    items: [
+      {
+        label: "Damage",
+        config: () => AERIAL_STRIKE,
+        key: "damage",
+        min: 5,
+        max: 50,
+        step: 1,
+        tip: "Damage dealt by aerial strike."
+      },
+      {
+        label: "Range",
+        config: () => AERIAL_STRIKE,
+        key: "range",
+        min: 1,
+        max: 5,
+        step: 0.5,
+        unit: "u",
+        tip: "Max range to target for aerial strike."
+      },
+      {
+        label: "Slam Velocity",
+        config: () => AERIAL_STRIKE,
+        key: "slamVelocity",
+        min: -30,
+        max: -5,
+        step: 1,
+        unit: "u/s",
+        tip: "Downward velocity applied to hit enemy."
+      },
+      {
+        label: "Screen Shake",
+        config: () => AERIAL_STRIKE,
+        key: "screenShake",
+        min: 0,
+        max: 5,
+        step: 0.5,
+        tip: "Camera shake intensity on hit."
+      },
+      {
+        label: "Cooldown",
+        config: () => AERIAL_STRIKE,
+        key: "cooldown",
+        min: 100,
+        max: 800,
+        step: 50,
+        unit: "ms",
+        tip: "Time between aerial strikes."
+      }
+    ]
+  },
+  {
+    section: "Self-Slam",
+    collapsed: true,
+    items: [
+      {
+        label: "Slam Velocity",
+        config: () => SELF_SLAM,
+        key: "slamVelocity",
+        min: -50,
+        max: -10,
+        step: 1,
+        unit: "u/s",
+        tip: "Downward velocity during slam."
+      },
+      {
+        label: "AoE Damage",
+        config: () => SELF_SLAM,
+        key: "damage",
+        min: 0,
+        max: 40,
+        step: 1,
+        tip: "Damage to enemies in landing radius."
+      },
+      {
+        label: "AoE Radius",
+        config: () => SELF_SLAM,
+        key: "damageRadius",
+        min: 1,
+        max: 6,
+        step: 0.5,
+        unit: "u",
+        tip: "Splash damage radius on landing."
+      },
+      {
+        label: "Knockback",
+        config: () => SELF_SLAM,
+        key: "knockback",
+        min: 1,
+        max: 20,
+        step: 1,
+        unit: "u",
+        tip: "Push force on nearby enemies."
+      },
+      {
+        label: "Landing Lag",
+        config: () => SELF_SLAM,
+        key: "landingLag",
+        min: 50,
+        max: 400,
+        step: 25,
+        unit: "ms",
+        tip: "Lockout after slam landing."
+      },
+      {
+        label: "Screen Shake",
+        config: () => SELF_SLAM,
+        key: "landingShake",
+        min: 0,
+        max: 6,
+        step: 0.5,
+        tip: "Camera shake on slam landing."
+      }
+    ]
+  },
+  {
+    section: "Grab & Dunk",
+    collapsed: true,
+    items: [
+      {
+        label: "Grab Range",
+        config: () => DUNK,
+        key: "grabRange",
+        min: 1,
+        max: 6,
+        step: 0.5,
+        unit: "u",
+        tip: "Max range to grab airborne enemy."
+      },
+      {
+        label: "Slam Velocity",
+        config: () => DUNK,
+        key: "slamVelocity",
+        min: -40,
+        max: -10,
+        step: 1,
+        unit: "u/s",
+        tip: "Downward velocity for dunk."
+      },
+      {
+        label: "Damage",
+        config: () => DUNK,
+        key: "damage",
+        min: 10,
+        max: 60,
+        step: 5,
+        tip: "Damage to dunked enemy on landing."
+      },
+      {
+        label: "AoE Radius",
+        config: () => DUNK,
+        key: "aoeRadius",
+        min: 1,
+        max: 6,
+        step: 0.5,
+        unit: "u",
+        tip: "Splash damage radius on dunk landing."
+      },
+      {
+        label: "AoE Damage",
+        config: () => DUNK,
+        key: "aoeDamage",
+        min: 0,
+        max: 30,
+        step: 1,
+        tip: "Splash damage to nearby enemies."
+      },
+      {
+        label: "AoE Knockback",
+        config: () => DUNK,
+        key: "aoeKnockback",
+        min: 1,
+        max: 20,
+        step: 1,
+        unit: "u",
+        tip: "Push force on splash hit enemies."
+      },
+      {
+        label: "Landing Lag",
+        config: () => DUNK,
+        key: "landingLag",
+        min: 50,
+        max: 500,
+        step: 25,
+        unit: "ms",
+        tip: "Lockout after dunk landing."
+      },
+      {
+        label: "Screen Shake",
+        config: () => DUNK,
+        key: "landingShake",
+        min: 0,
+        max: 8,
+        step: 0.5,
+        tip: "Camera shake on dunk landing."
+      },
+      {
+        label: "Target Radius",
+        config: () => DUNK,
+        key: "targetRadius",
+        min: 1,
+        max: 8,
+        step: 0.5,
+        unit: "u",
+        tip: "Landing target circle radius."
+      },
+      {
+        label: "Homing Speed",
+        config: () => DUNK,
+        key: "homing",
+        min: 5,
+        max: 30,
+        step: 1,
+        unit: "u/s",
+        tip: "XZ speed toward landing target."
       }
     ]
   }
@@ -10316,6 +11844,82 @@ function injectStyles2() {
   document.head.appendChild(style);
 }
 
+// src/engine/groundShadows.ts
+var playerShadow = null;
+var enemyShadows = /* @__PURE__ */ new Map();
+var shadowGeo = null;
+var shadowMat = null;
+function getShadowGeo() {
+  if (!shadowGeo) {
+    shadowGeo = new THREE.CircleGeometry(1, 16);
+  }
+  return shadowGeo;
+}
+function getShadowMat() {
+  if (!shadowMat) {
+    shadowMat = new THREE.MeshBasicMaterial({
+      color: 0,
+      transparent: true,
+      opacity: 0.3,
+      depthWrite: false
+    });
+  }
+  return shadowMat;
+}
+function createShadowMesh(radius) {
+  const mesh = new THREE.Mesh(getShadowGeo(), getShadowMat().clone());
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.scale.set(radius * 0.8, radius * 0.8, 1);
+  mesh.renderOrder = -1;
+  return mesh;
+}
+function updateShadowForEntity(shadow, posX, posZ, posY, baseRadius) {
+  const groundHeight = getGroundHeight(posX, posZ);
+  const altitude = posY - groundHeight;
+  shadow.position.x = posX;
+  shadow.position.z = posZ;
+  shadow.position.y = groundHeight + 0.01;
+  const scale = Math.max(0.3, 1 - altitude * 0.1) * baseRadius * 0.8;
+  shadow.scale.set(scale, scale, 1);
+  shadow.material.opacity = Math.max(0.1, 0.3 - altitude * 0.03);
+  shadow.visible = altitude > PHYSICS.groundEpsilon || posY > 0;
+}
+function initGroundShadows() {
+  const scene2 = getScene();
+  playerShadow = createShadowMesh(0.35);
+  scene2.add(playerShadow);
+}
+function updateGroundShadows(gameState2) {
+  const scene2 = getScene();
+  if (playerShadow) {
+    const pp = getPlayerPos();
+    updateShadowForEntity(playerShadow, pp.x, pp.z, pp.y, 0.35);
+  }
+  const activeEnemies = /* @__PURE__ */ new Set();
+  for (const enemy of gameState2.enemies) {
+    if (enemy.health <= 0 && !enemyShadows.has(enemy)) continue;
+    activeEnemies.add(enemy);
+    let shadow = enemyShadows.get(enemy);
+    if (!shadow) {
+      shadow = createShadowMesh(enemy.config.size.radius);
+      scene2.add(shadow);
+      enemyShadows.set(enemy, shadow);
+    }
+    if (enemy.health <= 0 || enemy.fellInPit) {
+      shadow.visible = false;
+      continue;
+    }
+    updateShadowForEntity(shadow, enemy.pos.x, enemy.pos.z, enemy.pos.y, enemy.config.size.radius);
+  }
+  for (const [enemy, shadow] of enemyShadows) {
+    if (!activeEnemies.has(enemy)) {
+      scene2.remove(shadow);
+      shadow.material.dispose();
+      enemyShadows.delete(enemy);
+    }
+  }
+}
+
 // src/engine/game.ts
 var gameState = {
   phase: "waiting",
@@ -10381,6 +11985,7 @@ function gameLoop(timestamp) {
     showGameOver(gameState);
   }
   updateCamera(getPlayerPos(), dt);
+  updateGroundShadows(gameState);
   updateHUD(gameState);
   checkEditorToggle();
   consumeInput();
@@ -10419,6 +12024,7 @@ function init() {
     initAudio();
     initParticles(scene2);
     initBulletTime();
+    initGroundShadows();
     on("meleeHit", () => {
       hitPauseTimer = MELEE.hitPause;
     });

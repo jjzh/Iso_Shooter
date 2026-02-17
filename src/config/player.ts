@@ -50,6 +50,8 @@ export const DUNK = {
   aoeRadius: 3.0,          // splash damage radius on impact
   aoeDamage: 10,           // splash damage to other nearby enemies
   aoeKnockback: 10,        // knockback to nearby enemies
+  targetRadius: 4.0,       // radius of landing target circle (world units)
+  homing: 15,              // XZ homing speed toward target (units/sec)
 };
 
 // Self-slam config — E while airborne, no enemy nearby

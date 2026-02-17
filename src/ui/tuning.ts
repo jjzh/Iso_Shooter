@@ -416,6 +416,10 @@ const SECTIONS: SliderSection[] = [
         unit: 'ms', tip: 'Lockout after dunk landing.' },
       { label: 'Screen Shake',    config: () => DUNK,  key: 'landingShake',  min: 0,   max: 8,   step: 0.5,
         tip: 'Camera shake on dunk landing.' },
+      { label: 'Target Radius',   config: () => DUNK,  key: 'targetRadius',  min: 1,   max: 8,   step: 0.5,
+        unit: 'u', tip: 'Landing target circle radius.' },
+      { label: 'Homing Speed',    config: () => DUNK,  key: 'homing',        min: 5,   max: 30,  step: 1,
+        unit: 'u/s', tip: 'XZ speed toward landing target.' },
     ]
   },
 ];
