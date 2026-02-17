@@ -68,5 +68,5 @@ export const LAUNCH = {
   launchVelocity: 15,     // upward velocity given to enemy
   cooldown: 600,          // ms cooldown between launches
   damage: 5,              // small chip damage on launch
-  selfJumpVelocity: 10,   // player also hops up to follow
+  selfJumpVelocity: 13,   // player hops up to follow (tuned to stay airborne ~1s)
 };

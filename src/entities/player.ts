@@ -7,6 +7,7 @@ import { screenShake, getScene } from '../engine/renderer';
 import { getAbilityDirOverride, clearAbilityDirOverride } from '../engine/input';
 import { getIceEffects } from './mortarProjectile';
 import { emit } from '../engine/events';
+import { spawnDamageNumber } from '../ui/damageNumbers';
 import { createPlayerRig, getGhostGeometries } from './playerRig';
 import type { PlayerRig } from './playerRig';
 import { createAnimatorState, updateAnimation, resetAnimatorState } from './playerAnimator';
@@ -213,6 +214,7 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
         position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z },
         velocity: LAUNCH.launchVelocity,
       });
+      spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, 'LAUNCH!', '#ffaa00');
     }
   }
 
@@ -263,6 +265,7 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
         enemy: grabTarget,
         position: { x: grabTarget.pos.x, z: grabTarget.pos.z },
       });
+      spawnDamageNumber(grabTarget.pos.x, grabTarget.pos.z, 'GRAB!', '#ff44ff');
     } else {
       // No airborne enemy nearby — self-slam
       isSlamming = true;
@@ -339,6 +342,7 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
         }
 
         emit({ type: 'playerSlam', position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+        spawnDamageNumber(playerPos.x, playerPos.z, 'SLAM!', '#ff8800');
       } else if (isDunking && dunkTarget) {
         // Dunk landing — massive damage to grabbed enemy + AoE splash
         isDunking = false;
@@ -382,6 +386,7 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
           damage: DUNK.damage,
           position: { x: playerPos.x, z: playerPos.z },
         });
+        spawnDamageNumber(playerPos.x, playerPos.z, 'DUNK!', '#ff2244');
         dunkTarget = null;
       } else {
         // Normal landing
@@ -473,6 +478,7 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
           damage: AERIAL_STRIKE.damage,
           position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z },
         });
+        spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, 'SPIKE!', '#44ddff');
       } else {
         // No target — still do the swing animation in the air
         meleeSwinging = true;
