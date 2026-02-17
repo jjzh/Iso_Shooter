@@ -184,7 +184,7 @@ export function resolveTerrainCollision(x: number, z: number, radius: number, en
   const bounds = getBounds();
   let rx = x, rz = z;
   for (const box of bounds) {
-    if (box.maxY !== undefined && entityY > box.maxY) continue;
+    if (box.maxY !== undefined && entityY >= box.maxY) continue;
     const push = circleVsAABB(rx, rz, radius, box);
     if (push) {
       rx += push.x;
@@ -207,7 +207,7 @@ export function resolveMovementCollision(x: number, z: number, radius: number, e
   let rx = x, rz = z;
   let wasDeflected = false;
   for (const box of bounds) {
-    if (box.maxY !== undefined && entityY > box.maxY) continue;
+    if (box.maxY !== undefined && entityY >= box.maxY) continue;
     const push = circleVsAABB(rx, rz, radius, box);
     if (push) {
       rx += push.x;
@@ -234,7 +234,7 @@ function resolveTerrainCollisionEx(x: number, z: number, radius: number, entityY
   let totalNX = 0, totalNZ = 0;
 
   for (const box of bounds) {
-    if (box.maxY !== undefined && entityY > box.maxY) continue;
+    if (box.maxY !== undefined && entityY >= box.maxY) continue;
     const push = circleVsAABB(rx, rz, radius, box);
     if (push) {
       rx += push.x;
@@ -661,7 +661,7 @@ export function checkCollisions(gameState: GameState): void {
     let wasDeflected = false;
     for (const box of bounds) {
       // Skip obstacles the enemy is above (airborne or on higher platform)
-      if (box.maxY !== undefined && enemy.pos.y > box.maxY) continue;
+      if (box.maxY !== undefined && enemy.pos.y >= box.maxY) continue;
       const push = circleVsAABB(rx, rz, enemy.config.size.radius, box);
       if (push) {
         rx += push.x;
