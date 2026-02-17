@@ -41,6 +41,19 @@ export const C = {
   dashLegLunge: 0.7,          // radians — front leg forward
   dashLegTrail: -0.5,         // radians — back leg behind
 
+  // Airborne
+  jumpTuckAngle: 0.7,         // radians — thigh tuck during jump rise
+  jumpKneeBend: 0.9,          // radians — knee bend during tuck
+  jumpArmRaise: -0.4,         // radians — arms rise slightly
+  fallSpreadAngle: 0.35,      // radians — legs spread slightly during fall
+  fallArmRaise: -0.6,         // radians — arms rise higher in freefall
+  slamTuckAngle: 1.0,         // radians — tight tuck during slam
+  slamArmAngle: 0.8,          // radians — arms up overhead during slam
+  airSquashY: 1.1,            // stretch on jump rise
+  airSquashXZ: 0.92,          // compress X/Z on jump rise
+  slamStretchY: 0.8,          // compress on slam descent
+  slamStretchXZ: 1.15,        // widen on slam descent
+
   // Transitions (ms)
   idleToRunBlend: 80,
   runToIdleBlend: 120,
@@ -52,7 +65,7 @@ export const C = {
 
 // ─── Animation State ───
 
-export type AnimState = 'idle' | 'run' | 'dash' | 'endLag' | 'swing';
+export type AnimState = 'idle' | 'run' | 'dash' | 'endLag' | 'swing' | 'jump' | 'fall' | 'slam';
 
 export interface AnimatorState {
   currentState: AnimState;
@@ -138,7 +151,10 @@ export function updateAnimation(
   isInEndLag: boolean,
   dashProgress: number,
   isSwinging: boolean = false,
-  swingProgress: number = 0
+  swingProgress: number = 0,
+  isAirborne: boolean = false,
+  velY: number = 0,
+  isSlamming: boolean = false
 ): void {
   anim.time += dt;
 
@@ -160,6 +176,21 @@ export function updateAnimation(
       transitionTo(anim, 'swing', 0); // instant
     }
     anim.dashT = swingProgress; // reuse dashT for swing progress
+  } else if (isAirborne && isSlamming) {
+    // Slam — tight tuck, compact pose
+    if (anim.currentState !== 'slam') {
+      transitionTo(anim, 'slam', 0); // instant
+    }
+  } else if (isAirborne && velY > 0) {
+    // Rising — jump pose
+    if (anim.currentState !== 'jump') {
+      transitionTo(anim, 'jump', 0); // instant
+    }
+  } else if (isAirborne) {
+    // Falling — spread/freefall pose
+    if (anim.currentState !== 'fall') {
+      transitionTo(anim, 'fall', 0); // instant
+    }
   } else if (isMoving) {
     if (anim.currentState !== 'run') {
       const blend = anim.currentState === 'endLag' || anim.currentState === 'swing'
@@ -201,6 +232,9 @@ export function updateAnimation(
     case 'dash':  applyDash(joints, anim); break;
     case 'endLag': applyEndLag(joints, anim); break;
     case 'swing': applySwing(joints, anim); break;
+    case 'jump': applyJump(joints, anim); break;
+    case 'fall': applyFall(joints, anim); break;
+    case 'slam': applySlam(joints, anim); break;
   }
 
   // ─── Upper/Lower Body Separation ───
@@ -489,4 +523,93 @@ function applySwing(joints: PlayerJoints, anim: AnimatorState) {
     joints.thighL.rotation.x = 0.2 * ease;
     joints.thighR.rotation.x = -0.15 * ease;
   }
+}
+
+// ─── Jump Pose (rising) ───
+
+function applyJump(joints: PlayerJoints, anim: AnimatorState) {
+  const t = clamp(anim.stateTimer / 0.15, 0, 1); // blend in over 150ms
+  const ease = easeOutQuad(t);
+
+  // Vertical stretch — body elongates on rise
+  joints.rigRoot.scale.set(
+    1 + (C.airSquashXZ - 1) * ease,
+    1 + (C.airSquashY - 1) * ease,
+    1 + (C.airSquashXZ - 1) * ease
+  );
+
+  // Legs tuck up — knees bend, thighs pull forward
+  joints.thighL.rotation.x = -C.jumpTuckAngle * ease;
+  joints.thighR.rotation.x = -C.jumpTuckAngle * ease;
+  joints.shinL.rotation.x = C.jumpKneeBend * ease;
+  joints.shinR.rotation.x = C.jumpKneeBend * ease;
+
+  // Arms rise slightly for balance
+  joints.upperArmL.rotation.x = C.jumpArmRaise * ease;
+  joints.upperArmR.rotation.x = C.jumpArmRaise * ease;
+  joints.upperArmL.rotation.z = 0.2 * ease;  // slight spread
+  joints.upperArmR.rotation.z = -0.2 * ease;
+  joints.lowerArmL.rotation.x = -0.3 * ease;
+  joints.lowerArmR.rotation.x = -0.3 * ease;
+
+  // Slight backward lean
+  joints.rigRoot.rotation.x = -0.08 * ease;
+}
+
+// ─── Fall Pose (descending) ───
+
+function applyFall(joints: PlayerJoints, anim: AnimatorState) {
+  const t = clamp(anim.stateTimer / 0.2, 0, 1); // blend in over 200ms
+  const ease = easeOutQuad(t);
+
+  // Scale returns to neutral (no squash/stretch in freefall)
+  joints.rigRoot.scale.set(1, 1, 1);
+
+  // Legs extend/spread — preparing to land
+  joints.thighL.rotation.x = C.fallSpreadAngle * ease;
+  joints.thighR.rotation.x = -C.fallSpreadAngle * 0.5 * ease;
+  joints.shinL.rotation.x = -0.3 * ease;
+  joints.shinR.rotation.x = -0.4 * ease;
+
+  // Arms rise higher in freefall — wind resistance feel
+  joints.upperArmL.rotation.x = C.fallArmRaise * ease;
+  joints.upperArmR.rotation.x = C.fallArmRaise * ease;
+  joints.upperArmL.rotation.z = 0.4 * ease;   // wider spread
+  joints.upperArmR.rotation.z = -0.4 * ease;
+  joints.lowerArmL.rotation.x = -0.2 * ease;
+  joints.lowerArmR.rotation.x = -0.2 * ease;
+
+  // Forward lean — bracing for impact
+  joints.rigRoot.rotation.x = 0.1 * ease;
+}
+
+// ─── Slam Pose (fast downward — self-slam or dunk) ───
+
+function applySlam(joints: PlayerJoints, anim: AnimatorState) {
+  const t = clamp(anim.stateTimer / 0.1, 0, 1); // fast blend — 100ms
+  const ease = easeOutQuad(t);
+
+  // Squash — compressed vertically, wide horizontally
+  joints.rigRoot.scale.set(
+    1 + (C.slamStretchXZ - 1) * ease,
+    1 + (C.slamStretchY - 1) * ease,
+    1 + (C.slamStretchXZ - 1) * ease
+  );
+
+  // Tight tuck — cannonball pose
+  joints.thighL.rotation.x = -C.slamTuckAngle * ease;
+  joints.thighR.rotation.x = -C.slamTuckAngle * ease;
+  joints.shinL.rotation.x = C.jumpKneeBend * ease;
+  joints.shinR.rotation.x = C.jumpKneeBend * ease;
+
+  // Arms raised overhead (pulling down with the slam)
+  joints.upperArmL.rotation.x = -C.slamArmAngle * ease;
+  joints.upperArmR.rotation.x = -C.slamArmAngle * ease;
+  joints.upperArmL.rotation.z = 0.15 * ease;
+  joints.upperArmR.rotation.z = -0.15 * ease;
+  joints.lowerArmL.rotation.x = -0.5 * ease;
+  joints.lowerArmR.rotation.x = -0.5 * ease;
+
+  // Strong forward lean
+  joints.rigRoot.rotation.x = 0.2 * ease;
 }

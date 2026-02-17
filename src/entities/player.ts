@@ -420,7 +420,10 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     endLagTimer > 0,
     isDashing ? Math.min(dashTimer / dashDuration, 1) : 0,
     meleeSwinging,
-    meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0
+    meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0,
+    isPlayerAirborne,
+    playerVelY,
+    isSlamming || isDunking
   );
 
   // === MELEE COOLDOWN ===
