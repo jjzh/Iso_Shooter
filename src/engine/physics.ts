@@ -1,4 +1,5 @@
-import { getPlayerPos, isPlayerInvincible, isPlayerDashing, consumePushEvent, isMeleeSwinging, getMeleeSwingDir, getMeleeHitEnemies, getDunkPendingTarget, getIsFloating } from '../entities/player';
+import { getPlayerPos, isPlayerInvincible, isPlayerDashing, consumePushEvent, isMeleeSwinging, getMeleeSwingDir, getMeleeHitEnemies } from '../entities/player';
+import { getLaunchedEntry } from './aerialVerbs';
 import { getPlayerProjectiles, getEnemyProjectiles, releaseProjectile } from '../entities/projectile';
 import { stunEnemy } from '../entities/enemy';
 import { getIceEffects } from '../entities/mortarProjectile';
@@ -349,14 +350,13 @@ export function applyVelocities(dt: number, gameState: GameState): void {
     }
 
     // ─── Y-axis Integration (gravity + ground clamping) ───
-    // Skip gravity for the dunk pending target during float phase —
-    // player.ts handles its Y position directly in that case.
-    const isFloatingTarget = getIsFloating() && enemy === getDunkPendingTarget();
-    if (!isFloatingTarget && (enemy.pos.y > PHYSICS.groundEpsilon || vel.y > 0)) {
+    const launchedEntry = getLaunchedEntry(enemy);
+    const gravMult = launchedEntry?.gravityMult ?? 1;
+    if (enemy.pos.y > PHYSICS.groundEpsilon || vel.y > 0) {
       // Apply Y velocity
       enemy.pos.y += vel.y * dt;
-      // Apply gravity
-      vel.y -= PHYSICS.gravity * dt;
+      // Apply gravity (scaled by launch registry override)
+      vel.y -= PHYSICS.gravity * gravMult * dt;
       vel.y = Math.max(vel.y, -PHYSICS.terminalVelocity);
     }
 

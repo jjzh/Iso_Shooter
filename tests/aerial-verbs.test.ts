@@ -230,3 +230,29 @@ describe('Verb Registration + Dispatch', () => {
     updateAerialVerbs(0.016);
   });
 });
+
+// --------------- Gravity Override Integration ---------------
+
+describe('Gravity Override Integration', () => {
+  beforeEach(() => clearLaunched());
+
+  it('gravityMult 0 means entry has zero gravity', () => {
+    const e = makeEnemy(1);
+    registerLaunch(e);
+    setGravityOverride(e, 0);
+    const entry = getLaunchedEntry(e);
+    expect(entry?.gravityMult).toBe(0);
+  });
+
+  it('gravityMult 0.5 means half gravity', () => {
+    const e = makeEnemy(1);
+    registerLaunch(e);
+    setGravityOverride(e, 0.5);
+    expect(getLaunchedEntry(e)?.gravityMult).toBe(0.5);
+  });
+
+  it('unregistered enemy has no entry (normal gravity)', () => {
+    const e = makeEnemy(1);
+    expect(getLaunchedEntry(e)).toBeUndefined();
+  });
+});
