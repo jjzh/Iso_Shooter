@@ -1,11 +1,15 @@
-import { getPlayerPos, isPlayerInvincible, isPlayerDashing, consumePushEvent } from '../entities/player';
+import { getPlayerPos, isPlayerInvincible, isPlayerDashing, consumePushEvent, isMeleeSwinging, getMeleeSwingDir, getMeleeHitEnemies } from '../entities/player';
+import { getLaunchedEntry } from './aerialVerbs';
 import { getPlayerProjectiles, getEnemyProjectiles, releaseProjectile } from '../entities/projectile';
 import { stunEnemy } from '../entities/enemy';
 import { getIceEffects } from '../entities/mortarProjectile';
 import { triggerHitReaction } from '../entities/enemyRig';
 import { emit } from './events';
 import { screenShake, getScene } from './renderer';
-import { PLAYER } from '../config/player';
+import { PLAYER, MELEE } from '../config/player';
+import { PHYSICS } from '../config/physics';
+import { getGroundHeight } from '../config/terrain';
+import { isInMeleeArc } from './meleemath';
 import { getCollisionBounds, getPitBounds } from '../config/arena';
 import { spawnDamageNumber } from '../ui/damageNumbers';
 import { applyAoeEffect, isInRotatedRect, createAoeRing } from './aoeTelegraph';
@@ -131,12 +135,12 @@ export function clearEffectGhosts(): void {
   effectGhosts.length = 0;
 }
 
-function getBounds(): AABB[] {
+export function getBounds(): AABB[] {
   if (!collisionBounds) collisionBounds = getCollisionBounds();
   return collisionBounds;
 }
 
-function getPits(): AABB[] {
+export function getPits(): AABB[] {
   if (!pitBounds) pitBounds = getPitBounds();
   return pitBounds;
 }
@@ -177,10 +181,11 @@ function pointVsAABB(px: number, pz: number, box: AABB): boolean {
   return px >= box.minX && px <= box.maxX && pz >= box.minZ && pz <= box.maxZ;
 }
 
-export function resolveTerrainCollision(x: number, z: number, radius: number): { x: number; z: number } {
+export function resolveTerrainCollision(x: number, z: number, radius: number, entityY = 0): { x: number; z: number } {
   const bounds = getBounds();
   let rx = x, rz = z;
   for (const box of bounds) {
+    if (box.maxY !== undefined && entityY >= box.maxY) continue;
     const push = circleVsAABB(rx, rz, radius, box);
     if (push) {
       rx += push.x;
@@ -198,11 +203,12 @@ export function pointHitsTerrain(px: number, pz: number): boolean {
   return false;
 }
 
-export function resolveMovementCollision(x: number, z: number, radius: number): { x: number; z: number; wasDeflected: boolean } {
+export function resolveMovementCollision(x: number, z: number, radius: number, entityY = 0): { x: number; z: number; wasDeflected: boolean } {
   const bounds = getMoveBounds();
   let rx = x, rz = z;
   let wasDeflected = false;
   for (const box of bounds) {
+    if (box.maxY !== undefined && entityY >= box.maxY) continue;
     const push = circleVsAABB(rx, rz, radius, box);
     if (push) {
       rx += push.x;
@@ -211,6 +217,285 @@ export function resolveMovementCollision(x: number, z: number, radius: number): 
     }
   }
   return { x: rx, z: rz, wasDeflected };
+}
+
+// Enhanced terrain collision that returns wall normal info (for wall slam detection)
+interface CollisionResult {
+  x: number;
+  z: number;
+  hitWall: boolean;
+  normalX: number;
+  normalZ: number;
+}
+
+function resolveTerrainCollisionEx(x: number, z: number, radius: number, entityY = 0): CollisionResult {
+  const bounds = getBounds();
+  let rx = x, rz = z;
+  let hitWall = false;
+  let totalNX = 0, totalNZ = 0;
+
+  for (const box of bounds) {
+    if (box.maxY !== undefined && entityY >= box.maxY) continue;
+    const push = circleVsAABB(rx, rz, radius, box);
+    if (push) {
+      rx += push.x;
+      rz += push.z;
+      hitWall = true;
+      // Accumulate push direction as wall normal
+      const len = Math.sqrt(push.x * push.x + push.z * push.z);
+      if (len > 0.001) {
+        totalNX += push.x / len;
+        totalNZ += push.z / len;
+      }
+    }
+  }
+
+  // Normalize accumulated normal
+  const nLen = Math.sqrt(totalNX * totalNX + totalNZ * totalNZ);
+  if (nLen > 0.001) {
+    totalNX /= nLen;
+    totalNZ /= nLen;
+  }
+
+  return { x: rx, z: rz, hitWall, normalX: totalNX, normalZ: totalNZ };
+}
+
+// ─── Velocity Integration + Wall Slam ───
+
+export function applyVelocities(dt: number, gameState: GameState): void {
+  for (const enemy of gameState.enemies) {
+    if (enemy.health <= 0) continue;
+    if ((enemy as any).isLeaping) continue;
+    if ((enemy as any).isCarrierPayload) continue;
+
+    const vel = (enemy as any).vel;
+    if (!vel) continue;
+
+    // Ensure vel.y exists (backwards compat with old enemy data)
+    if (vel.y === undefined) vel.y = 0;
+
+    const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    const hasXZVelocity = speed >= PHYSICS.minVelocity;
+
+    if (!hasXZVelocity && vel.y === 0 && enemy.pos.y <= PHYSICS.groundEpsilon) {
+      vel.x = 0;
+      vel.z = 0;
+      continue;
+    }
+
+    // ─── XZ Movement (stepped to prevent wall tunneling) ───
+    if (hasXZVelocity) {
+      const moveDist = speed * dt;
+      const enemyRadius = enemy.config.size.radius;
+      const moveSteps = Math.ceil(moveDist / enemyRadius);
+      const subDt = dt / Math.max(moveSteps, 1);
+
+      let fellInPit = false;
+      let result: CollisionResult = { x: enemy.pos.x, z: enemy.pos.z, hitWall: false, normalX: 0, normalZ: 0 };
+
+      for (let s = 0; s < moveSteps; s++) {
+        enemy.pos.x += vel.x * subDt;
+        enemy.pos.z += vel.z * subDt;
+
+        // Check for pit fall (only if grounded — airborne enemies fly over pits)
+        const isGrounded = enemy.pos.y <= PHYSICS.groundEpsilon;
+        if (isGrounded && pointInPit(enemy.pos.x, enemy.pos.z)) {
+          fellInPit = true;
+          break;
+        }
+
+        result = resolveTerrainCollisionEx(enemy.pos.x, enemy.pos.z, enemyRadius, enemy.pos.y);
+        enemy.pos.x = result.x;
+        enemy.pos.z = result.z;
+        if (result.hitWall) break;
+      }
+
+      if (fellInPit) {
+        spawnPitFallGhost(enemy);
+        emit({ type: 'pitFall', position: { x: enemy.pos.x, z: enemy.pos.z }, isPlayer: false });
+        createAoeRing(enemy.pos.x, enemy.pos.z, 2.5, 500, 0x8844ff);
+        enemy.health = 0;
+        (enemy as any).fellInPit = true;
+        enemy.stunTimer = 9999;
+        spawnDamageNumber(enemy.pos.x, enemy.pos.z, 'FELL!', '#8844ff');
+        screenShake(4, 200);
+        vel.x = 0;
+        vel.y = 0;
+        vel.z = 0;
+        continue;
+      }
+
+      // Wall slam detection
+      if (result.hitWall && speed > PHYSICS.wallSlamMinSpeed) {
+        const slamDamage = Math.round((speed - PHYSICS.wallSlamMinSpeed) * PHYSICS.wallSlamDamage);
+        applyDamageToEnemy(enemy, slamDamage, gameState);
+        stunEnemy(enemy, PHYSICS.wallSlamStun);
+
+        emit({ type: 'wallSlam', enemy, speed, damage: slamDamage, position: { x: enemy.pos.x, z: enemy.pos.z } });
+        spawnDamageNumber(enemy.pos.x, enemy.pos.z, slamDamage, '#ff8844');
+        screenShake(PHYSICS.wallSlamShake, 120);
+
+        enemy.flashTimer = 120;
+        if ((enemy as any).bodyMesh) (enemy as any).bodyMesh.material.emissive.setHex(0xff8844);
+        if ((enemy as any).headMesh) (enemy as any).headMesh.material.emissive.setHex(0xff8844);
+
+        createAoeRing(enemy.pos.x, enemy.pos.z, 1.5, 300, 0xff8844);
+
+        const dot = vel.x * result.normalX + vel.z * result.normalZ;
+        vel.x = (vel.x - 2 * dot * result.normalX) * PHYSICS.wallSlamBounce;
+        vel.z = (vel.z - 2 * dot * result.normalZ) * PHYSICS.wallSlamBounce;
+      }
+    } else {
+      vel.x = 0;
+      vel.z = 0;
+    }
+
+    // ─── Y-axis Integration (gravity + ground clamping) ───
+    const launchedEntry = getLaunchedEntry(enemy);
+    const gravMult = launchedEntry?.gravityMult ?? 1;
+    if (enemy.pos.y > PHYSICS.groundEpsilon || vel.y > 0) {
+      // Apply Y velocity
+      enemy.pos.y += vel.y * dt;
+      // Apply gravity (scaled by launch registry override)
+      vel.y -= PHYSICS.gravity * gravMult * dt;
+      vel.y = Math.max(vel.y, -PHYSICS.terminalVelocity);
+    }
+
+    // Ground clamping
+    const groundHeight = getGroundHeight(enemy.pos.x, enemy.pos.z);
+    if (enemy.pos.y < groundHeight) {
+      enemy.pos.y = groundHeight;
+      vel.y = 0;
+    }
+
+    // Sync mesh position (includes Y now)
+    (enemy as any).mesh.position.copy(enemy.pos);
+
+    // Apply XZ friction only when grounded (airborne = no XZ friction)
+    const isGroundedNow = enemy.pos.y <= groundHeight + PHYSICS.groundEpsilon;
+    if (isGroundedNow && speed >= PHYSICS.minVelocity) {
+      const newSpeed = speed - PHYSICS.friction * dt;
+      if (newSpeed <= PHYSICS.minVelocity) {
+        vel.x = 0;
+        vel.z = 0;
+      } else {
+        const scale = newSpeed / speed;
+        vel.x *= scale;
+        vel.z *= scale;
+      }
+    }
+  }
+}
+
+// ─── Enemy-Enemy Collision + Momentum Transfer ───
+
+export function resolveEnemyCollisions(gameState: GameState): void {
+  const enemies = gameState.enemies;
+  const len = enemies.length;
+
+  for (let i = 0; i < len; i++) {
+    const a = enemies[i];
+    if (a.health <= 0) continue;
+    if ((a as any).isLeaping) continue;
+    if ((a as any).isCarrierPayload) continue;
+
+    for (let j = i + 1; j < len; j++) {
+      const b = enemies[j];
+      if (b.health <= 0) continue;
+      if ((b as any).isLeaping) continue;
+
+      const dx = b.pos.x - a.pos.x;
+      const dz = b.pos.z - a.pos.z;
+      const distSq = dx * dx + dz * dz;
+      const radA = a.config.size.radius;
+      const radB = b.config.size.radius;
+      const minDist = radA + radB;
+
+      if (distSq >= minDist * minDist) continue;
+
+      const dist = Math.sqrt(distSq);
+      if (dist < 0.01) continue; // degenerate overlap
+
+      const overlap = minDist - dist;
+      const nx = dx / dist;
+      const nz = dz / dist;
+
+      // Mass-weighted separation
+      const massA = a.config.mass ?? 1.0;
+      const massB = b.config.mass ?? 1.0;
+      const totalMass = massA + massB;
+      const ratioA = massB / totalMass; // lighter = moves more
+      const ratioB = massA / totalMass;
+
+      // Push apart
+      a.pos.x -= nx * overlap * ratioA;
+      a.pos.z -= nz * overlap * ratioA;
+      b.pos.x += nx * overlap * ratioB;
+      b.pos.z += nz * overlap * ratioB;
+
+      // Momentum transfer (only if at least one has velocity)
+      const velA = (a as any).vel;
+      const velB = (b as any).vel;
+      if (!velA || !velB) continue;
+
+      const relVelX = velA.x - velB.x;
+      const relVelZ = velA.z - velB.z;
+      const relVelDotN = relVelX * nx + relVelZ * nz;
+
+      if (relVelDotN <= 0) continue; // moving apart, skip
+
+      // 2D elastic collision with restitution
+      const e = PHYSICS.enemyBounce;
+      const impulse = (1 + e) * relVelDotN / totalMass;
+
+      velA.x -= impulse * massB * nx;
+      velA.z -= impulse * massB * nz;
+      velB.x += impulse * massA * nx;
+      velB.z += impulse * massA * nz;
+
+      // Impact damage (if relative speed above threshold)
+      const relSpeed = Math.sqrt(relVelX * relVelX + relVelZ * relVelZ);
+      if (relSpeed > PHYSICS.impactMinSpeed) {
+        const dmg = Math.round((relSpeed - PHYSICS.impactMinSpeed) * PHYSICS.impactDamage);
+        const midX = (a.pos.x + b.pos.x) / 2;
+        const midZ = (a.pos.z + b.pos.z) / 2;
+
+        // Lighter enemy takes more damage
+        const dmgA = Math.round(dmg * ratioA);
+        const dmgB = Math.round(dmg * ratioB);
+
+        if (dmgA > 0) {
+          applyDamageToEnemy(a, dmgA, gameState);
+          a.flashTimer = 100;
+          if ((a as any).bodyMesh) (a as any).bodyMesh.material.emissive.setHex(0xffaa44);
+          if ((a as any).headMesh) (a as any).headMesh.material.emissive.setHex(0xffaa44);
+        }
+        if (dmgB > 0) {
+          applyDamageToEnemy(b, dmgB, gameState);
+          b.flashTimer = 100;
+          if ((b as any).bodyMesh) (b as any).bodyMesh.material.emissive.setHex(0xffaa44);
+          if ((b as any).headMesh) (b as any).headMesh.material.emissive.setHex(0xffaa44);
+        }
+
+        stunEnemy(a, PHYSICS.impactStun);
+        stunEnemy(b, PHYSICS.impactStun);
+
+        spawnDamageNumber(midX, midZ, dmg, '#ffaa44');
+        screenShake(2, 80);
+
+        emit({
+          type: 'enemyImpact',
+          enemyA: a, enemyB: b,
+          speed: relSpeed, damage: dmg,
+          position: { x: midX, z: midZ }
+        });
+      }
+
+      // Sync mesh positions
+      (a as any).mesh.position.copy(a.pos);
+      (b as any).mesh.position.copy(b.pos);
+    }
+  }
 }
 
 export function pointInPit(px: number, pz: number): boolean {
@@ -316,22 +601,82 @@ function onShieldBreak(enemy: Enemy, gameState: GameState): void {
   screenShake(4, 200);
 }
 
+function checkMeleeHits(gameState: GameState): void {
+  if (!isMeleeSwinging()) return;
+
+  const playerPos = getPlayerPos();
+  const swingDir = getMeleeSwingDir();
+  const hitEnemies = getMeleeHitEnemies();
+
+  for (const enemy of gameState.enemies) {
+    if (enemy.health <= 0) continue;
+    if ((enemy as any).fellInPit) continue;
+    if (hitEnemies.has(enemy)) continue; // already hit this swing
+
+    if (!isInMeleeArc(playerPos.x, playerPos.z, swingDir, enemy.pos.x, enemy.pos.z, MELEE.range, MELEE.arc)) {
+      continue;
+    }
+
+    // Hit!
+    hitEnemies.add(enemy);
+
+    const wasShielded = (enemy as any).shieldActive;
+    applyDamageToEnemy(enemy, MELEE.damage, gameState);
+
+    // No melee knockback — force push handles displacement.
+    // Hit stun, flash, and screen shake remain for feedback.
+
+    // Feedback
+    emit({ type: 'enemyHit', enemy, damage: MELEE.damage, position: { x: enemy.pos.x, z: enemy.pos.z }, wasShielded });
+    emit({ type: 'meleeHit', enemy, damage: MELEE.damage, position: { x: enemy.pos.x, z: enemy.pos.z } });
+
+    const dmgColor = wasShielded ? '#88eeff' : '#ff8844';
+    spawnDamageNumber(enemy.pos.x, enemy.pos.z, MELEE.damage, dmgColor);
+
+    enemy.flashTimer = 100;
+    (enemy as any).bodyMesh.material.emissive.setHex(0xffffff);
+    if ((enemy as any).headMesh) (enemy as any).headMesh.material.emissive.setHex(0xffffff);
+
+    screenShake(MELEE.screenShake, 80);
+  }
+
+}
+
 export function checkCollisions(gameState: GameState): void {
   const playerPos = getPlayerPos();
   const playerR = PLAYER.size.radius;
 
   if (!isPlayerDashing()) {
-    const resolved = resolveMovementCollision(playerPos.x, playerPos.z, playerR);
+    const resolved = resolveMovementCollision(playerPos.x, playerPos.z, playerR, playerPos.y);
     playerPos.x = resolved.x;
     playerPos.z = resolved.z;
   }
 
   for (const enemy of gameState.enemies) {
     if ((enemy as any).isLeaping) continue;
-    const resolved = resolveMovementCollision(enemy.pos.x, enemy.pos.z, enemy.config.size.radius);
-    enemy.pos.x = resolved.x;
-    enemy.pos.z = resolved.z;
-    (enemy as any).wasDeflected = resolved.wasDeflected;
+    if ((enemy as any).fellInPit) continue; // Don't push dead-in-pit enemies back out
+
+    // Enemies with active velocity skip pit collision — they're allowed to be
+    // knocked into pits. The pit fall is detected in applyVelocities().
+    // Enemies walking under AI control still collide with pits as a safety net.
+    const vel = (enemy as any).vel;
+    const hasVelocity = vel && (vel.x * vel.x + vel.z * vel.z) > PHYSICS.minVelocity * PHYSICS.minVelocity;
+    const bounds = hasVelocity ? getBounds() : getMoveBounds();
+    let rx = enemy.pos.x, rz = enemy.pos.z;
+    let wasDeflected = false;
+    for (const box of bounds) {
+      // Skip obstacles the enemy is above (airborne or on higher platform)
+      if (box.maxY !== undefined && enemy.pos.y >= box.maxY) continue;
+      const push = circleVsAABB(rx, rz, enemy.config.size.radius, box);
+      if (push) {
+        rx += push.x;
+        rz += push.z;
+        wasDeflected = true;
+      }
+    }
+    enemy.pos.x = rx;
+    enemy.pos.z = rz;
+    (enemy as any).wasDeflected = wasDeflected;
     (enemy as any).mesh.position.copy(enemy.pos);
   }
 
@@ -407,6 +752,7 @@ export function checkCollisions(gameState: GameState): void {
     const now = performance.now();
     for (const enemy of gameState.enemies) {
       if (enemy.behavior === 'kite') continue;
+      if (enemy.config.melee) continue; // melee enemies use state machine, not contact damage
       if (enemy.stunTimer > 0) continue;
 
       const dx = enemy.pos.x - playerPos.x;
@@ -435,45 +781,80 @@ export function checkCollisions(gameState: GameState): void {
     }
   }
 
+  // Melee hit detection
+  checkMeleeHits(gameState);
+
   const pushEvt = consumePushEvent();
   if (pushEvt) {
     const dirX = pushEvt.dirX;
     const dirZ = pushEvt.dirZ;
+    // Perpendicular direction (lateral axis in push-local space)
+    const perpX = -dirZ;
+    const perpZ = dirX;
+    // Player position = rectangle center minus half-length along push direction
+    const halfLen = pushEvt.length / 2;
+    const playerX = pushEvt.x - dirX * halfLen;
+    const playerZ = pushEvt.z - dirZ * halfLen;
+
+    // 1. Collect all enemies in push rectangle with push-local coordinates
+    const candidates: { enemy: any; forward: number; lateral: number }[] = [];
     for (const enemy of gameState.enemies) {
       if (enemy.health <= 0) continue;
       if ((enemy as any).isLeaping) continue;
       const enemyRadius = enemy.config.size.radius;
       if (isInRotatedRect(enemy.pos.x, enemy.pos.z, pushEvt.x, pushEvt.z,
                            pushEvt.width, pushEvt.length, pushEvt.rotation, enemyRadius)) {
-        const oldX = enemy.pos.x;
-        const oldZ = enemy.pos.z;
-
-        const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-        const kbMult = 1 - ((enemy as any).knockbackResist ?? enemy.config.knockbackResist ?? 0);
-        const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
-        enemy.pos.x += dirX * kbDist;
-        enemy.pos.z += dirZ * kbDist;
-        (enemy as any).mesh.position.copy(enemy.pos);
-
-        spawnPushGhosts(enemy, oldX, oldZ, enemy.pos.x, enemy.pos.z);
-        emit({ type: 'enemyPushed', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
-
-        enemy.flashTimer = 100;
-        (enemy as any).bodyMesh.material.emissive.setHex(0x44ffaa);
-        if ((enemy as any).headMesh) (enemy as any).headMesh.material.emissive.setHex(0x44ffaa);
-
-        spawnDamageNumber(enemy.pos.x, enemy.pos.z, 'PUSH', '#44ffaa');
+        const dx = enemy.pos.x - playerX;
+        const dz = enemy.pos.z - playerZ;
+        const forward = dx * dirX + dz * dirZ;  // distance along push axis
+        const lateral = dx * perpX + dz * perpZ; // offset perpendicular to push
+        candidates.push({ enemy, forward, lateral });
       }
     }
-  }
 
-  if (pushEvt) {
-    for (const enemy of gameState.enemies) {
-      if ((enemy as any).isLeaping) continue;
-      const resolved = resolveTerrainCollision(enemy.pos.x, enemy.pos.z, enemy.config.size.radius);
-      enemy.pos.x = resolved.x;
-      enemy.pos.z = resolved.z;
-      (enemy as any).mesh.position.copy(enemy.pos);
+    // 2. Sort by forward distance (nearest to player first)
+    candidates.sort((a, b) => a.forward - b.forward);
+
+    // 3. Apply knockback with wave occlusion
+    // Track pushed enemies' lateral positions for blocking checks
+    const pushedLaterals: number[] = [];
+    const blockRadius = PHYSICS.pushWaveBlockRadius;
+
+    for (const { enemy, lateral } of candidates) {
+      // Check if this enemy is blocked by any already-pushed enemy
+      let blocked = false;
+      for (const pushedLat of pushedLaterals) {
+        if (Math.abs(lateral - pushedLat) < blockRadius) {
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) continue; // Wave absorbed — this enemy gets no direct push
+
+      // Not blocked — apply knockback as velocity
+      // All knockback goes through the velocity system so it naturally interacts
+      // with walls (slam), enemies (collision), and pits. No teleport.
+      const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
+      const kbMult = 1 - ((enemy as any).knockbackResist ?? enemy.config.knockbackResist ?? 0);
+      const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
+
+      // v0 = sqrt(2 * friction * distance) — velocity that decays to zero over exactly kbDist
+      if (kbDist > 0) {
+        const v0 = Math.sqrt(2 * PHYSICS.friction * kbDist);
+        (enemy as any).vel.x = dirX * v0;
+        (enemy as any).vel.z = dirZ * v0;
+      }
+      emit({ type: 'enemyPushed', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+
+      enemy.flashTimer = 100;
+      (enemy as any).bodyMesh.material.emissive.setHex(0x44ffaa);
+      if ((enemy as any).headMesh) (enemy as any).headMesh.material.emissive.setHex(0x44ffaa);
+
+      spawnDamageNumber(enemy.pos.x, enemy.pos.z, 'PUSH', '#44ffaa');
+
+      // Record this enemy's lateral position for blocking checks
+      pushedLaterals.push(lateral);
     }
   }
+
 }

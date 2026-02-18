@@ -41,6 +41,19 @@ export const C = {
   dashLegLunge: 0.7,          // radians — front leg forward
   dashLegTrail: -0.5,         // radians — back leg behind
 
+  // Airborne
+  jumpTuckAngle: 0.7,         // radians — thigh tuck during jump rise
+  jumpKneeBend: 0.9,          // radians — knee bend during tuck
+  jumpArmRaise: -0.4,         // radians — arms rise slightly
+  fallSpreadAngle: 0.35,      // radians — legs spread slightly during fall
+  fallArmRaise: -0.6,         // radians — arms rise higher in freefall
+  slamTuckAngle: 1.0,         // radians — tight tuck during slam
+  slamArmAngle: 0.8,          // radians — arms up overhead during slam
+  airSquashY: 1.1,            // stretch on jump rise
+  airSquashXZ: 0.92,          // compress X/Z on jump rise
+  slamStretchY: 0.8,          // compress on slam descent
+  slamStretchXZ: 1.15,        // widen on slam descent
+
   // Transitions (ms)
   idleToRunBlend: 80,
   runToIdleBlend: 120,
@@ -52,7 +65,7 @@ export const C = {
 
 // ─── Animation State ───
 
-export type AnimState = 'idle' | 'run' | 'dash' | 'endLag';
+export type AnimState = 'idle' | 'run' | 'dash' | 'endLag' | 'swing' | 'jump' | 'fall' | 'slam' | 'charge' | 'chargeRelease';
 
 export interface AnimatorState {
   currentState: AnimState;
@@ -67,6 +80,9 @@ export interface AnimatorState {
   dashDir: number;             // direction of dash (for squash orientation)
   dashT: number;               // 0–1 progress through dash
   time: number;                // accumulated time for idle oscillations
+  punchSide: number;           // 0 = right (cross), 1 = left (jab) — alternates
+  chargeT: number;             // 0–1 charge progress (mirrors gameState)
+  chargeReleaseTimer: number;  // counts up during release animation
 }
 
 export function createAnimatorState(): AnimatorState {
@@ -83,6 +99,9 @@ export function createAnimatorState(): AnimatorState {
     dashDir: 0,
     dashT: 0,
     time: 0,
+    punchSide: 0,
+    chargeT: 0,
+    chargeReleaseTimer: 0,
   };
 }
 
@@ -136,7 +155,14 @@ export function updateAnimation(
   aimAngle: number,
   isDashing: boolean,
   isInEndLag: boolean,
-  dashProgress: number
+  dashProgress: number,
+  isSwinging: boolean = false,
+  swingProgress: number = 0,
+  isAirborne: boolean = false,
+  velY: number = 0,
+  isSlamming: boolean = false,
+  isCharging: boolean = false,
+  chargeT: number = 0
 ): void {
   anim.time += dt;
 
@@ -153,14 +179,57 @@ export function updateAnimation(
     if (anim.currentState !== 'endLag') {
       transitionTo(anim, 'endLag', 0); // instant
     }
+  } else if (isCharging) {
+    if (anim.currentState !== 'charge') {
+      transitionTo(anim, 'charge', 0); // instant
+    }
+    anim.chargeT = chargeT;
+  } else if (anim.currentState === 'charge' && !isCharging) {
+    // Just released charge — play release animation
+    transitionTo(anim, 'chargeRelease', 0);
+    anim.chargeReleaseTimer = 0;
+  } else if (anim.currentState === 'chargeRelease') {
+    // Release animation plays out over ~250ms then returns to normal
+    anim.chargeReleaseTimer += dt;
+    if (anim.chargeReleaseTimer >= 0.25) {
+      // Done — let normal state resolution handle it
+      if (isMoving) {
+        transitionTo(anim, 'run', C.endLagToNormalBlend / 1000);
+      } else {
+        transitionTo(anim, 'idle', C.endLagToNormalBlend / 1000);
+      }
+    }
+  } else if (isSwinging) {
+    if (anim.currentState !== 'swing') {
+      transitionTo(anim, 'swing', 0); // instant
+      anim.punchSide = 1 - anim.punchSide; // alternate left/right on each new swing
+    }
+    anim.dashT = swingProgress; // reuse dashT for swing progress
+  } else if (isAirborne && isSlamming) {
+    // Slam — tight tuck, compact pose
+    if (anim.currentState !== 'slam') {
+      transitionTo(anim, 'slam', 0); // instant
+    }
+  } else if (isAirborne && velY > 0) {
+    // Rising — jump pose
+    if (anim.currentState !== 'jump') {
+      transitionTo(anim, 'jump', 0); // instant
+    }
+  } else if (isAirborne) {
+    // Falling — spread/freefall pose
+    if (anim.currentState !== 'fall') {
+      transitionTo(anim, 'fall', 0); // instant
+    }
   } else if (isMoving) {
     if (anim.currentState !== 'run') {
-      const blend = anim.currentState === 'endLag' ? C.endLagToNormalBlend : C.idleToRunBlend;
+      const blend = anim.currentState === 'endLag' || anim.currentState === 'swing'
+        ? C.endLagToNormalBlend : C.idleToRunBlend;
       transitionTo(anim, 'run', blend / 1000);
     }
   } else {
     if (anim.currentState !== 'idle') {
-      const blend = anim.currentState === 'endLag' ? C.endLagToNormalBlend : C.runToIdleBlend;
+      const blend = anim.currentState === 'endLag' || anim.currentState === 'swing'
+        ? C.endLagToNormalBlend : C.runToIdleBlend;
       transitionTo(anim, 'idle', blend / 1000);
     }
   }
@@ -191,6 +260,12 @@ export function updateAnimation(
     case 'run':   applyRun(joints, anim, dt, inputState); break;
     case 'dash':  applyDash(joints, anim); break;
     case 'endLag': applyEndLag(joints, anim); break;
+    case 'swing': applySwing(joints, anim); break;
+    case 'charge': applyCharge(joints, anim); break;
+    case 'chargeRelease': applyChargeRelease(joints, anim); break;
+    case 'jump': applyJump(joints, anim); break;
+    case 'fall': applyFall(joints, anim); break;
+    case 'slam': applySlam(joints, anim); break;
   }
 
   // ─── Upper/Lower Body Separation ───
@@ -427,4 +502,324 @@ function applyEndLag(joints: PlayerJoints, anim: AnimatorState) {
   // Arms settle forward
   joints.upperArmL.rotation.x = -0.2 * (1 - ease);
   joints.upperArmR.rotation.x = -0.2 * (1 - ease);
+}
+
+// ─── Melee Punch Pose (alternating jab/cross) ───
+// Full-body punch: torso twist, aggressive forward lean, lead foot steps forward,
+// rear foot pushes off, hip drops into the punch for weight transfer.
+
+function applySwing(joints: PlayerJoints, anim: AnimatorState) {
+  const t = clamp(anim.dashT, 0, 1); // dashT reused for swing progress
+  const isLeft = anim.punchSide === 1;
+
+  // Punching arm & guarding arm references
+  const punchUpper = isLeft ? joints.upperArmL : joints.upperArmR;
+  const punchLower = isLeft ? joints.lowerArmL : joints.lowerArmR;
+  const guardUpper = isLeft ? joints.upperArmR : joints.upperArmL;
+  const guardLower = isLeft ? joints.lowerArmR : joints.lowerArmL;
+  const torsoTwistSign = isLeft ? 1 : -1;
+
+  // Lead/rear leg references (lead foot = same side as punch)
+  const leadThigh = isLeft ? joints.thighL : joints.thighR;
+  const leadShin  = isLeft ? joints.shinL  : joints.shinR;
+  const rearThigh = isLeft ? joints.thighR : joints.thighL;
+  const rearShin  = isLeft ? joints.shinR  : joints.shinL;
+
+  // Two sub-phases: wind-up (0-0.25), punch + retract (0.25-1.0)
+  if (t < 0.25) {
+    // WIND-UP — coil body, load rear leg, pull shoulder back
+    const subT = t / 0.25;
+    const ease = easeOutQuad(subT);
+
+    // Punching arm pulls back
+    punchUpper.rotation.x = 0.35 * ease;     // shoulder pulls back further
+    punchLower.rotation.x = -0.9 * ease;     // elbow bends tight
+
+    // Guard arm comes up in front
+    guardUpper.rotation.x = -0.35 * ease;    // forward guard position
+    guardLower.rotation.x = -0.75 * ease;    // bent at elbow
+
+    // Torso coils away from punch — loading up rotation
+    joints.torso.rotation.y = -0.25 * torsoTwistSign * ease;
+
+    // Body loads — slight crouch + lean back into rear hip
+    joints.rigRoot.rotation.x = 0.04 * ease;
+    joints.hip.position.y = 0.5 - 0.02 * ease;  // slight squat to load
+
+    // Weight shifts to rear leg — rear knee bends, lead leg light
+    rearThigh.rotation.x = -0.12 * ease;     // rear leg bends slightly back/under
+    rearShin.rotation.x = -0.2 * ease;       // rear knee loads
+    leadThigh.rotation.x = 0.08 * ease;      // lead leg lifts slightly (weight off)
+    leadShin.rotation.x = -0.05 * ease;
+
+    // Hips coil with torso (but less — lag gives whip feel)
+    joints.hip.rotation.z = -0.03 * torsoTwistSign * ease;
+
+  } else {
+    // PUNCH — arm extends, torso uncoils, lead foot drives forward, weight transfers
+    const subT = (t - 0.25) / 0.75;
+    const ease = easeOutQuad(subT);
+
+    // Punching arm drives forward — full extension
+    punchUpper.rotation.x = 0.35 + (-1.3 - 0.35) * ease;   // -1.3: fully extended forward
+    punchLower.rotation.x = -0.9 + (0.9 - 0.12) * ease;    // nearly straight (slight residual bend)
+
+    // Guard arm stays up protecting
+    guardUpper.rotation.x = -0.35;
+    guardLower.rotation.x = -0.75;
+
+    // Torso uncoils through the punch — big rotation sells the weight
+    joints.torso.rotation.y = (-0.25 + (0.4 + 0.25) * ease) * torsoTwistSign;
+
+    // Forward lean — peaks mid-punch then partially settles
+    // More aggressive lean than before: the whole body drives forward
+    const leanCurve = subT < 0.35
+      ? easeOutQuad(subT / 0.35)
+      : 1 - 0.4 * easeOutQuad((subT - 0.35) / 0.65);  // settles to 60% of peak
+    joints.rigRoot.rotation.x = 0.04 + 0.16 * leanCurve;
+
+    // Hip drops slightly into punch (weight commitment)
+    const hipDrop = subT < 0.3
+      ? easeOutQuad(subT / 0.3)
+      : 1 - 0.5 * easeOutQuad((subT - 0.3) / 0.7);
+    joints.hip.position.y = 0.5 - 0.02 - 0.025 * hipDrop;
+
+    // Hip tilts into the punch (subtle weight shift)
+    joints.hip.rotation.z = (-0.03 + 0.08 * ease) * torsoTwistSign;
+
+    // ─── Lead foot steps forward (same side as punching arm) ───
+    // Big step forward — thigh drives ahead, shin extends
+    const stepCurve = subT < 0.4
+      ? easeOutQuad(subT / 0.4)                          // step drives in
+      : 1 - 0.3 * easeOutQuad((subT - 0.4) / 0.6);      // settles to 70% (foot stays planted)
+    leadThigh.rotation.x = 0.08 + 0.35 * stepCurve;      // thigh swings forward
+    leadShin.rotation.x = -0.05 - 0.25 * stepCurve;      // knee extends on step
+
+    // ─── Rear foot pushes off (drives the punch) ───
+    // Rear leg extends back — pushing body forward
+    const pushCurve = subT < 0.5
+      ? easeOutQuad(subT / 0.5)
+      : 1 - 0.2 * easeOutQuad((subT - 0.5) / 0.5);
+    rearThigh.rotation.x = -0.12 - 0.2 * pushCurve;      // rear thigh extends back
+    rearShin.rotation.x = -0.2 - 0.15 * pushCurve;       // rear knee straightens (push-off)
+  }
+}
+
+// ─── Force Push Charge Pose (looping gather) ───
+// Hands pull behind/beside body, body coils, stance widens.
+// chargeT (0-1) drives increasing intensity — more pull, more crouch, more glow.
+
+function applyCharge(joints: PlayerJoints, anim: AnimatorState) {
+  const chargeT = clamp(anim.chargeT, 0, 1);
+
+  // Blend in over first 150ms of charge state
+  const blendIn = clamp(anim.stateTimer / 0.15, 0, 1);
+  const ease = easeOutQuad(blendIn);
+
+  // Looping sway — body oscillates subtly while charging (alive/tense feel)
+  const loopRate = 3.5; // Hz — fast tense breathing
+  const sway = Math.sin(anim.time * loopRate * Math.PI * 2);
+  const swaySmall = Math.sin(anim.time * loopRate * 0.7 * Math.PI * 2);
+
+  // ─── Stance: wide, crouched, stable ───
+  const crouch = 0.04 + 0.04 * chargeT; // deeper crouch at higher charge
+  joints.hip.position.y = 0.5 - crouch * ease;
+
+  // Wide stance — feet spread apart
+  joints.thighL.rotation.x = 0.15 * ease;
+  joints.thighR.rotation.x = -0.15 * ease;
+  joints.thighL.rotation.z = 0.08 * ease;   // legs splay outward
+  joints.thighR.rotation.z = -0.08 * ease;
+  joints.shinL.rotation.x = -0.2 * ease;     // knees bent
+  joints.shinR.rotation.x = -0.2 * ease;
+
+  // ─── Arms: pull behind body, gathering energy ───
+  // As charge increases, arms pull further back and elbows flare wider
+  const armPull = 0.5 + 0.6 * chargeT;   // how far back (radians)
+  const elbowFlare = 0.2 + 0.3 * chargeT; // elbow spread
+
+  // Both arms pull back symmetrically
+  joints.upperArmL.rotation.x = armPull * ease;     // pull back
+  joints.upperArmR.rotation.x = armPull * ease;
+  joints.upperArmL.rotation.z = elbowFlare * ease;  // flare outward
+  joints.upperArmR.rotation.z = -elbowFlare * ease;
+
+  // Forearms bend inward — hands near lower back/hips
+  joints.lowerArmL.rotation.x = (-0.6 - 0.3 * chargeT) * ease;
+  joints.lowerArmR.rotation.x = (-0.6 - 0.3 * chargeT) * ease;
+
+  // ─── Torso: slight backward lean that increases with charge ───
+  const leanBack = -0.06 - 0.08 * chargeT;
+  joints.rigRoot.rotation.x = leanBack * ease;
+
+  // Torso puffs up slightly — gathering breath/energy
+  const puff = 1 + 0.05 * chargeT * ease;
+  joints.torso.rotation.x = -0.04 * chargeT * ease; // chest opens up
+
+  // ─── Looping sway — tense energy ───
+  // Small oscillation on all joints — can't hold still, power building
+  const swayAmp = 0.02 + 0.03 * chargeT; // sway gets bigger as charge builds
+  joints.torso.rotation.y = sway * swayAmp * ease;
+  joints.hip.rotation.z = swaySmall * 0.015 * ease;
+
+  // Arms pulse inward/outward with the sway — "gathering" feel
+  const armPulse = sway * 0.06 * chargeT * ease;
+  joints.upperArmL.rotation.x += armPulse;
+  joints.upperArmR.rotation.x += armPulse;
+
+  // Head dips forward slightly — focused intensity
+  joints.head.rotation.x = 0.08 * chargeT * ease;
+}
+
+// ─── Force Push Release Pose (double-palm push) ───
+// Both arms slam forward together, body drives forward then settles.
+
+function applyChargeRelease(joints: PlayerJoints, anim: AnimatorState) {
+  const t = clamp(anim.chargeReleaseTimer / 0.25, 0, 1); // 0-1 over 250ms
+
+  if (t < 0.35) {
+    // PUSH PHASE — arms drive forward explosively, body commits
+    const subT = t / 0.35;
+    const ease = easeOutQuad(subT);
+
+    // Both arms extend fully forward — double palm push
+    joints.upperArmL.rotation.x = (0.5 + (-1.4 - 0.5) * ease);   // from pulled-back to fully forward
+    joints.upperArmR.rotation.x = (0.5 + (-1.4 - 0.5) * ease);
+    joints.lowerArmL.rotation.x = (-0.6 + (0.6 - 0.1) * ease);   // forearms straighten
+    joints.lowerArmR.rotation.x = (-0.6 + (0.6 - 0.1) * ease);
+
+    // Arms close together — palms converge for directed push
+    joints.upperArmL.rotation.z = (0.3 + (-0.3 - 0.3) * ease);   // from flared to narrow
+    joints.upperArmR.rotation.z = (-0.3 + (0.3 + 0.3) * ease);
+
+    // Aggressive forward lean — whole body drives into the push
+    joints.rigRoot.rotation.x = (-0.1 + (0.22 + 0.1) * ease);
+
+    // Hip drives forward and drops (commitment)
+    joints.hip.position.y = 0.5 - 0.06 * ease;
+
+    // Lead foot stomps forward (left leg leads push)
+    joints.thighL.rotation.x = 0.15 + 0.35 * ease;    // forward lunge
+    joints.shinL.rotation.x = -0.2 - 0.2 * ease;      // knee extends
+    joints.thighR.rotation.x = -0.15 - 0.15 * ease;   // rear foot pushes back
+    joints.shinR.rotation.x = -0.2 - 0.1 * ease;
+
+    // Torso faces forward (no twist — symmetric push)
+    joints.torso.rotation.x = 0.06 * ease; // chest slightly down, driving forward
+
+  } else {
+    // SETTLE PHASE — arms settle, body recovers
+    const subT = (t - 0.35) / 0.65;
+    const ease = easeOutQuad(subT);
+
+    // Arms settle from extended to relaxed
+    const armRetract = 1 - ease;
+    joints.upperArmL.rotation.x = -1.4 * armRetract;
+    joints.upperArmR.rotation.x = -1.4 * armRetract;
+    joints.lowerArmL.rotation.x = -0.1 * armRetract;
+    joints.lowerArmR.rotation.x = -0.1 * armRetract;
+    joints.upperArmL.rotation.z = 0;
+    joints.upperArmR.rotation.z = 0;
+
+    // Lean settles back to neutral
+    joints.rigRoot.rotation.x = 0.22 * armRetract;
+    joints.hip.position.y = 0.5 - 0.06 * armRetract;
+
+    // Legs settle
+    joints.thighL.rotation.x = 0.5 * armRetract;
+    joints.shinL.rotation.x = -0.4 * armRetract;
+    joints.thighR.rotation.x = -0.3 * armRetract;
+    joints.shinR.rotation.x = -0.3 * armRetract;
+
+    joints.torso.rotation.x = 0.06 * armRetract;
+  }
+}
+
+// ─── Jump Pose (rising) ───
+
+function applyJump(joints: PlayerJoints, anim: AnimatorState) {
+  const t = clamp(anim.stateTimer / 0.15, 0, 1); // blend in over 150ms
+  const ease = easeOutQuad(t);
+
+  // Vertical stretch — body elongates on rise
+  joints.rigRoot.scale.set(
+    1 + (C.airSquashXZ - 1) * ease,
+    1 + (C.airSquashY - 1) * ease,
+    1 + (C.airSquashXZ - 1) * ease
+  );
+
+  // Legs tuck up — knees bend, thighs pull forward
+  joints.thighL.rotation.x = -C.jumpTuckAngle * ease;
+  joints.thighR.rotation.x = -C.jumpTuckAngle * ease;
+  joints.shinL.rotation.x = C.jumpKneeBend * ease;
+  joints.shinR.rotation.x = C.jumpKneeBend * ease;
+
+  // Arms rise slightly for balance
+  joints.upperArmL.rotation.x = C.jumpArmRaise * ease;
+  joints.upperArmR.rotation.x = C.jumpArmRaise * ease;
+  joints.upperArmL.rotation.z = 0.2 * ease;  // slight spread
+  joints.upperArmR.rotation.z = -0.2 * ease;
+  joints.lowerArmL.rotation.x = -0.3 * ease;
+  joints.lowerArmR.rotation.x = -0.3 * ease;
+
+  // Slight backward lean
+  joints.rigRoot.rotation.x = -0.08 * ease;
+}
+
+// ─── Fall Pose (descending) ───
+
+function applyFall(joints: PlayerJoints, anim: AnimatorState) {
+  const t = clamp(anim.stateTimer / 0.2, 0, 1); // blend in over 200ms
+  const ease = easeOutQuad(t);
+
+  // Scale returns to neutral (no squash/stretch in freefall)
+  joints.rigRoot.scale.set(1, 1, 1);
+
+  // Legs extend/spread — preparing to land
+  joints.thighL.rotation.x = C.fallSpreadAngle * ease;
+  joints.thighR.rotation.x = -C.fallSpreadAngle * 0.5 * ease;
+  joints.shinL.rotation.x = -0.3 * ease;
+  joints.shinR.rotation.x = -0.4 * ease;
+
+  // Arms rise higher in freefall — wind resistance feel
+  joints.upperArmL.rotation.x = C.fallArmRaise * ease;
+  joints.upperArmR.rotation.x = C.fallArmRaise * ease;
+  joints.upperArmL.rotation.z = 0.4 * ease;   // wider spread
+  joints.upperArmR.rotation.z = -0.4 * ease;
+  joints.lowerArmL.rotation.x = -0.2 * ease;
+  joints.lowerArmR.rotation.x = -0.2 * ease;
+
+  // Forward lean — bracing for impact
+  joints.rigRoot.rotation.x = 0.1 * ease;
+}
+
+// ─── Slam Pose (fast downward — self-slam or dunk) ───
+
+function applySlam(joints: PlayerJoints, anim: AnimatorState) {
+  const t = clamp(anim.stateTimer / 0.1, 0, 1); // fast blend — 100ms
+  const ease = easeOutQuad(t);
+
+  // Squash — compressed vertically, wide horizontally
+  joints.rigRoot.scale.set(
+    1 + (C.slamStretchXZ - 1) * ease,
+    1 + (C.slamStretchY - 1) * ease,
+    1 + (C.slamStretchXZ - 1) * ease
+  );
+
+  // Tight tuck — cannonball pose
+  joints.thighL.rotation.x = -C.slamTuckAngle * ease;
+  joints.thighR.rotation.x = -C.slamTuckAngle * ease;
+  joints.shinL.rotation.x = C.jumpKneeBend * ease;
+  joints.shinR.rotation.x = C.jumpKneeBend * ease;
+
+  // Arms raised overhead (pulling down with the slam)
+  joints.upperArmL.rotation.x = -C.slamArmAngle * ease;
+  joints.upperArmR.rotation.x = -C.slamArmAngle * ease;
+  joints.upperArmL.rotation.z = 0.15 * ease;
+  joints.upperArmR.rotation.z = -0.15 * ease;
+  joints.lowerArmL.rotation.x = -0.5 * ease;
+  joints.lowerArmR.rotation.x = -0.5 * ease;
+
+  // Strong forward lean
+  joints.rigRoot.rotation.x = 0.2 * ease;
 }

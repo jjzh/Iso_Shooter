@@ -1,14 +1,16 @@
-import { OBSTACLES, PITS, ARENA_HALF, WALL_THICKNESS, WALL_HEIGHT } from '../config/arena';
+import { OBSTACLES, PITS, ARENA_HALF_X, ARENA_HALF_Z, WALL_THICKNESS, WALL_HEIGHT } from '../config/arena';
+import { HEIGHT_ZONES } from '../config/terrain';
 
 let scene: any, camera: any, renderer: any;
-const baseFrustum = 12;
-let currentFrustum = 12;
+const baseFrustum = 9.6;
+let currentFrustum = 9.6;
 const cameraOffset = new THREE.Vector3(20, 20, 20);
 
 // Tracked arena meshes for dynamic rebuild
 let obstacleMeshes: any[] = [];
 let wallMeshes: any[] = [];
 let pitMeshes: any[] = [];
+let platformMeshes: any[] = [];
 
 // Screen shake state
 let shakeRemaining = 0;
@@ -54,16 +56,17 @@ export function initRenderer() {
   rimLight.position.set(-10, 5, -10);
   scene.add(rimLight);
 
-  // Ground
+  // Ground — sized generously so it covers any room shape
+  const groundSize = 120;
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(60, 60),
+    new THREE.PlaneGeometry(groundSize, groundSize),
     new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.9, metalness: 0.1 })
   );
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
   // Grid overlay
-  const grid = new THREE.GridHelper(60, 30, 0x2a4a4a, 0x1a2a3a);
+  const grid = new THREE.GridHelper(groundSize, 60, 0x2a4a4a, 0x1a2a3a);
   grid.position.y = 0.01;
   scene.add(grid);
 
@@ -72,6 +75,9 @@ export function initRenderer() {
 
   // Arena pits
   createPits();
+
+  // Terrain platforms (height zones)
+  createPlatforms();
 
   // Resize handler — also handle mobile orientation changes
   window.addEventListener('resize', onResize);
@@ -125,23 +131,23 @@ function createObstacles() {
     roughness: 0.8
   });
 
-  // North/South walls
+  // North/South walls (span arena width)
   for (const zSign of [-1, 1]) {
     const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(ARENA_HALF * 2 + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS),
+      new THREE.BoxGeometry(ARENA_HALF_X * 2 + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS),
       wallMat
     );
-    wall.position.set(0, WALL_HEIGHT / 2, zSign * ARENA_HALF);
+    wall.position.set(0, WALL_HEIGHT / 2, zSign * ARENA_HALF_Z);
     scene.add(wall);
     wallMeshes.push(wall);
   }
-  // East/West walls
+  // East/West walls (span arena depth)
   for (const xSign of [-1, 1]) {
     const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, ARENA_HALF * 2 + WALL_THICKNESS),
+      new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, ARENA_HALF_Z * 2 + WALL_THICKNESS),
       wallMat
     );
-    wall.position.set(xSign * ARENA_HALF, WALL_HEIGHT / 2, 0);
+    wall.position.set(xSign * ARENA_HALF_X, WALL_HEIGHT / 2, 0);
     scene.add(wall);
     wallMeshes.push(wall);
   }
@@ -216,10 +222,166 @@ function createPits() {
   }
 }
 
-// Rebuild all arena visuals (obstacles + pits) — called by level editor
+function clearPlatformMeshes() {
+  for (const m of platformMeshes) {
+    scene.remove(m);
+    if (m.geometry) m.geometry.dispose();
+  }
+  platformMeshes = [];
+}
+
+function createPlatforms() {
+  clearPlatformMeshes();
+
+  if (HEIGHT_ZONES.length === 0) return;
+
+  // Top surface material — lighter than ground, subtle glow
+  const topMat = new THREE.MeshStandardMaterial({
+    color: 0x2a3a5a,
+    emissive: 0x224466,
+    emissiveIntensity: 0.25,
+    roughness: 0.6,
+    metalness: 0.15,
+  });
+
+  // Cliff face material — darker, rockier
+  const cliffMat = new THREE.MeshStandardMaterial({
+    color: 0x1a2240,
+    emissive: 0x112244,
+    emissiveIntensity: 0.15,
+    roughness: 0.85,
+    metalness: 0.1,
+  });
+
+  // Edge highlight material — bright line at platform top edge
+  const edgeMat = new THREE.MeshBasicMaterial({
+    color: 0x66bbee,
+    transparent: true,
+    opacity: 0.8,
+  });
+
+  // Vertical edge material — highlights the cliff face edges (visible from isometric angle)
+  const vertEdgeMat = new THREE.MeshBasicMaterial({
+    color: 0x4499cc,
+    transparent: true,
+    opacity: 0.5,
+  });
+
+  for (const zone of HEIGHT_ZONES) {
+    const { x, z, w, d, y } = zone;
+
+    // Top surface — flat box sitting at the platform height
+    const topThickness = 0.08;
+    const top = new THREE.Mesh(
+      new THREE.BoxGeometry(w, topThickness, d),
+      topMat
+    );
+    top.position.set(x, y - topThickness / 2, z);
+    scene.add(top);
+    platformMeshes.push(top);
+
+    // Cliff faces — four thin walls from ground to platform height
+    const cliffThickness = 0.06;
+
+    // North face (+Z)
+    const northCliff = new THREE.Mesh(
+      new THREE.BoxGeometry(w, y, cliffThickness),
+      cliffMat
+    );
+    northCliff.position.set(x, y / 2, z + d / 2);
+    scene.add(northCliff);
+    platformMeshes.push(northCliff);
+
+    // South face (-Z)
+    const southCliff = new THREE.Mesh(
+      new THREE.BoxGeometry(w, y, cliffThickness),
+      cliffMat
+    );
+    southCliff.position.set(x, y / 2, z - d / 2);
+    scene.add(southCliff);
+    platformMeshes.push(southCliff);
+
+    // East face (+X)
+    const eastCliff = new THREE.Mesh(
+      new THREE.BoxGeometry(cliffThickness, y, d),
+      cliffMat
+    );
+    eastCliff.position.set(x + w / 2, y / 2, z);
+    scene.add(eastCliff);
+    platformMeshes.push(eastCliff);
+
+    // West face (-X)
+    const westCliff = new THREE.Mesh(
+      new THREE.BoxGeometry(cliffThickness, y, d),
+      cliffMat
+    );
+    westCliff.position.set(x - w / 2, y / 2, z);
+    scene.add(westCliff);
+    platformMeshes.push(westCliff);
+
+    // Edge highlight — bright strip around top perimeter
+    const edgeHeight = 0.06;
+    const edgeW = 0.1;
+
+    // North edge (top)
+    const ne = new THREE.Mesh(new THREE.BoxGeometry(w + edgeW, edgeHeight, edgeW), edgeMat);
+    ne.position.set(x, y + 0.01, z + d / 2);
+    scene.add(ne);
+    platformMeshes.push(ne);
+
+    // South edge (top)
+    const se = new THREE.Mesh(new THREE.BoxGeometry(w + edgeW, edgeHeight, edgeW), edgeMat);
+    se.position.set(x, y + 0.01, z - d / 2);
+    scene.add(se);
+    platformMeshes.push(se);
+
+    // East edge (top)
+    const ee = new THREE.Mesh(new THREE.BoxGeometry(edgeW, edgeHeight, d), edgeMat);
+    ee.position.set(x + w / 2, y + 0.01, z);
+    scene.add(ee);
+    platformMeshes.push(ee);
+
+    // West edge (top)
+    const we = new THREE.Mesh(new THREE.BoxGeometry(edgeW, edgeHeight, d), edgeMat);
+    we.position.set(x - w / 2, y + 0.01, z);
+    scene.add(we);
+    platformMeshes.push(we);
+
+    // Vertical edge highlights — bright strips running down each corner
+    // Makes the cliff edges readable from isometric camera angle
+    const vertW = 0.08;
+
+    // North-East vertical
+    const neVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    neVert.position.set(x + w / 2, y / 2, z + d / 2);
+    scene.add(neVert);
+    platformMeshes.push(neVert);
+
+    // North-West vertical
+    const nwVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    nwVert.position.set(x - w / 2, y / 2, z + d / 2);
+    scene.add(nwVert);
+    platformMeshes.push(nwVert);
+
+    // South-East vertical
+    const seVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    seVert.position.set(x + w / 2, y / 2, z - d / 2);
+    scene.add(seVert);
+    platformMeshes.push(seVert);
+
+    // South-West vertical
+    const swVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    swVert.position.set(x - w / 2, y / 2, z - d / 2);
+    scene.add(swVert);
+    platformMeshes.push(swVert);
+  }
+}
+
+// Rebuild all arena visuals (obstacles + pits + platforms) — called by level editor
 export function rebuildArenaVisuals() {
   createObstacles();
   createPits();
+  createPlatforms();
 }
 
 function getViewportSize() {

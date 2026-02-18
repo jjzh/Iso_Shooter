@@ -1,12 +1,15 @@
-import { ENEMY_TYPES } from '../config/enemies';
+import { ENEMY_TYPES, MOB_GLOBAL } from '../config/enemies';
 import { getCollisionBounds, getPitBounds } from '../config/arena';
-import { applyAoeRectEffect, isInRotatedRect, applyAoeEffect } from '../engine/aoeTelegraph';
+import { getGroundHeight } from '../config/terrain';
+import { applyAoeEffect } from '../engine/aoeTelegraph';
 import { getPlayerPos, isPlayerInvincible } from './player';
 import { screenShake } from '../engine/renderer';
 import { spawnDamageNumber } from '../ui/damageNumbers';
 import { fireMortarProjectile, getIceEffects } from './mortarProjectile';
+import { fireProjectile } from './projectile';
 import { buildEnemyModel, createHitReaction, triggerHitReaction, updateHitReaction } from './enemyRig';
 import { emit } from '../engine/events';
+import { hasTag, TAG } from '../engine/tags';
 
 let sceneRef: any;
 
@@ -90,6 +93,8 @@ export function spawnEnemy(typeName: string, position: any, gameState: any) {
     mortarTarget: { x: 0, z: 0 }, // aimed landing position
     mortarArcLine: null as any,       // THREE.Line for aim arc preview
     mortarGroundCircle: null as any,  // THREE.Mesh for persistent ground circle
+    // Physics velocity (knockback system)
+    vel: { x: 0, y: 0, z: 0 },      // knockback velocity — integrated by applyVelocities()
     // Pit / edge-slide
     wasDeflected: false,       // true when movement was deflected by collision (edge-sliding)
     fellInPit: false,          // true when killed by falling into a pit
@@ -104,6 +109,10 @@ export function spawnEnemy(typeName: string, position: any, gameState: any) {
     leapTargetZ: 0,
     leapArcHeight: 0,
     leapCooldown: 0,           // ms until next leap allowed
+    // Melee attack state machine (for enemies with config.melee)
+    meleePhase: 'idle' as 'idle' | 'telegraph' | 'attacking' | 'recovery',
+    meleeTimer: 0,
+    meleeHasHit: false,       // prevent double-hit per attack cycle
     // Hit reaction (squash/bounce)
     hitReaction: createHitReaction(),
     allMaterials: model.allMaterials,
@@ -271,19 +280,23 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
   for (let i = gameState.enemies.length - 1; i >= 0; i--) {
     const enemy = gameState.enemies[i];
 
+    // Skip enemies that are carrier payloads (being spiked as projectiles)
+    if (enemy.isCarrierPayload) continue;
+
     // Pit leap update — runs independently of stun (can't stun mid-air)
     if (enemy.isLeaping) {
       updateLeap(enemy, dt);
       // Skip normal behavior/movement but still check death below
-    } else if (enemy.stunTimer > 0) {
+    } else if (enemy.stunTimer > 0 || hasTag(enemy, TAG.STUNNED)) {
       // Stun check — stunned enemies cannot move or attack
-      enemy.stunTimer -= dt * 1000;
+      // Sources: stunTimer (legacy timed stun), State.Stunned tag (aerial verb grab, effects)
+      if (enemy.stunTimer > 0) enemy.stunTimer -= dt * 1000;
     } else {
       // Behavior dispatch (only when not stunned)
       switch (enemy.behavior) {
-        case 'rush': behaviorRush(enemy, playerPos, dt); break;
+        case 'rush': behaviorRush(enemy, playerPos, dt, gameState); break;
         case 'kite': behaviorKite(enemy, playerPos, dt, gameState); break;
-        case 'tank': behaviorTank(enemy, playerPos, dt); break;
+        case 'tank': behaviorTank(enemy, playerPos, dt, gameState); break;
         case 'mortar': behaviorMortar(enemy, playerPos, dt, gameState); break;
       }
     }
@@ -291,12 +304,53 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
     // Arena clamp
     enemy.pos.x = Math.max(-19, Math.min(19, enemy.pos.x));
     enemy.pos.z = Math.max(-19, Math.min(19, enemy.pos.z));
+
+    // Ledge fall — if grounded enemy walks off platform edge, start falling
+    if (!enemy.isLeaping) {
+      const groundBelow = getGroundHeight(enemy.pos.x, enemy.pos.z);
+      if (enemy.pos.y > groundBelow + 0.05) {
+        // Ground dropped out — gravity will pull them down in applyVelocities
+        const vel = (enemy as any).vel;
+        if (vel && vel.y === 0) vel.y = 0; // ensure Y vel exists, gravity handles the rest
+      }
+    }
+
     if (enemy.isLeaping) {
       // Sync clamped XZ but preserve arc Y set by updateLeap
       enemy.mesh.position.x = enemy.pos.x;
       enemy.mesh.position.z = enemy.pos.z;
     } else {
       enemy.mesh.position.copy(enemy.pos);
+    }
+
+    // Airborne visual — tumble rotation when launched/falling
+    const groundBelowEnemy = getGroundHeight(enemy.pos.x, enemy.pos.z);
+    const enemyAirborne = enemy.pos.y > groundBelowEnemy + 0.15 && !enemy.isLeaping;
+    if (enemyAirborne) {
+      // Accumulate tumble rotation — fast spin that looks like they were popped up
+      if (!enemy._tumbleAngle) enemy._tumbleAngle = 0;
+      enemy._tumbleAngle += dt * 12; // ~2 full rotations per second
+      enemy.mesh.rotation.x = Math.sin(enemy._tumbleAngle) * 0.4;
+      enemy.mesh.rotation.z = Math.cos(enemy._tumbleAngle * 0.7) * 0.3;
+      // Squash/stretch based on vertical velocity
+      const vy = enemy.vel ? enemy.vel.y : 0;
+      if (vy > 2) {
+        // Rising — stretch vertically
+        enemy.mesh.scale.set(0.9, 1.15, 0.9);
+      } else if (vy < -2) {
+        // Falling — compress vertically
+        enemy.mesh.scale.set(1.1, 0.85, 1.1);
+      } else {
+        enemy.mesh.scale.set(1, 1, 1);
+      }
+    } else {
+      // On ground — reset tumble
+      if (enemy._tumbleAngle) {
+        enemy._tumbleAngle = 0;
+        enemy.mesh.rotation.x = 0;
+        enemy.mesh.rotation.z = 0;
+        enemy.mesh.scale.set(1, 1, 1);
+      }
     }
 
     // Flash timer (hit feedback)
@@ -438,20 +492,150 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
   }
 }
 
-function behaviorRush(enemy: any, playerPos: any, dt: number) {
+// ─── Enemy Melee State Machine ───
+// Shared telegraph → attack → recovery flow for enemies with config.melee
+
+function startEnemyMelee(enemy: any) {
+  const meleeCfg = enemy.config.melee;
+  if (!meleeCfg) return;
+  const telegraphDur = meleeCfg.telegraphDuration * MOB_GLOBAL.telegraphMult;
+  enemy.meleePhase = 'telegraph';
+  enemy.meleeTimer = telegraphDur;
+  enemy.meleeHasHit = false;
+  // Flash emissive to signal telegraph
+  enemy.flashTimer = telegraphDur;
+  enemy.bodyMesh.material.emissive.setHex(0xffaa00);
+  if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(0xffaa00);
+
+  // Emit telegraph event for ground arc decal
+  emit({
+    type: 'enemyMeleeTelegraph',
+    position: { x: enemy.pos.x, z: enemy.pos.z },
+    facingAngle: enemy.mesh.rotation.y,
+    hitArc: meleeCfg.hitArc,
+    hitRange: meleeCfg.hitRange,
+    duration: telegraphDur + meleeCfg.attackDuration,  // visible through telegraph + attack
+  });
+}
+
+function updateEnemyMelee(enemy: any, dt: number, playerPos: any, gameState: any) {
+  const meleeCfg = enemy.config.melee;
+  if (!meleeCfg || enemy.meleePhase === 'idle') return;
+
+  enemy.meleeTimer -= dt * 1000;
+
+  if (enemy.meleePhase === 'telegraph') {
+    // Pulsing emissive during telegraph
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.015);
+    const r = Math.floor(0xff * pulse);
+    const g = Math.floor(0xaa * pulse);
+    enemy.bodyMesh.material.emissive.setRGB(r / 255, g / 255, 0);
+    if (enemy.headMesh) enemy.headMesh.material.emissive.setRGB(r / 255, g / 255, 0);
+
+    if (enemy.meleeTimer <= 0) {
+      // Transition to attacking
+      enemy.meleePhase = 'attacking';
+      enemy.meleeTimer = meleeCfg.attackDuration;
+
+      // Lunge toward player if configured
+      if (meleeCfg.lungeDistance) {
+        _toPlayer.subVectors(playerPos, enemy.pos);
+        _toPlayer.y = 0;
+        const dist = _toPlayer.length();
+        if (dist > 0.1) {
+          _toPlayer.normalize();
+          enemy.pos.x += _toPlayer.x * meleeCfg.lungeDistance;
+          enemy.pos.z += _toPlayer.z * meleeCfg.lungeDistance;
+        }
+      }
+
+      // Bright flash on attack
+      enemy.bodyMesh.material.emissive.setHex(0xff4400);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(0xff4400);
+    }
+  } else if (enemy.meleePhase === 'attacking') {
+    // Check if player is in hit arc/range (once per attack)
+    if (!enemy.meleeHasHit) {
+      const dx = playerPos.x - enemy.pos.x;
+      const dz = playerPos.z - enemy.pos.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+
+      if (dist < meleeCfg.hitRange && !isPlayerInvincible()) {
+        // Check arc
+        const angleToPlayer = Math.atan2(-dx, -dz);
+        const facingAngle = enemy.mesh.rotation.y;
+        let angleDiff = angleToPlayer - facingAngle;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+        if (Math.abs(angleDiff) <= meleeCfg.hitArc / 2) {
+          // Hit the player!
+          const dmg = meleeCfg.damage * MOB_GLOBAL.damageMult;
+          gameState.playerHealth -= dmg;
+          enemy.meleeHasHit = true;
+          screenShake(3, 120);
+          emit({ type: 'playerHit', damage: dmg, position: { x: playerPos.x, z: playerPos.z } });
+          spawnDamageNumber(playerPos.x, playerPos.z, Math.round(dmg), '#ff4466');
+
+          if (gameState.playerHealth <= 0) {
+            gameState.playerHealth = 0;
+            gameState.phase = 'gameOver';
+          }
+        }
+      }
+    }
+
+    if (enemy.meleeTimer <= 0) {
+      // Transition to recovery
+      enemy.meleePhase = 'recovery';
+      enemy.meleeTimer = meleeCfg.recoveryDuration * MOB_GLOBAL.recoveryMult;
+      // Dim emissive during recovery — punish window
+      enemy.bodyMesh.material.emissive.setHex(0x222222);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(0x222222);
+    }
+  } else if (enemy.meleePhase === 'recovery') {
+    if (enemy.meleeTimer <= 0) {
+      // Back to idle
+      enemy.meleePhase = 'idle';
+      enemy.lastAttackTime = performance.now();
+      // Restore normal emissive
+      enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
+    }
+  }
+}
+
+function behaviorRush(enemy: any, playerPos: any, dt: number, gameState: any) {
   // Skip normal movement during leap (handled by updateLeap)
   if (enemy.isLeaping) return;
+
+  // If in melee attack cycle, update that and skip movement
+  if (enemy.meleePhase !== 'idle') {
+    updateEnemyMelee(enemy, dt, playerPos, gameState);
+    return;
+  }
 
   _toPlayer.subVectors(playerPos, enemy.pos);
   _toPlayer.y = 0;
   const dist = _toPlayer.length();
 
   const stopDist = (enemy.config.rush && enemy.config.rush.stopDistance) || 0.5;
+
+  // Check if close enough to start a melee attack
+  const meleeCfg = enemy.config.melee;
+  if (meleeCfg && dist <= meleeCfg.hitRange) {
+    const now = performance.now();
+    if (now - enemy.lastAttackTime > enemy.config.attackRate) {
+      startEnemyMelee(enemy);
+      return;
+    }
+  }
+
   if (dist > stopDist) {
     _toPlayer.normalize();
     const slideBoost = enemy.wasDeflected ? 1.175 : 1.0;
     const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-    const speed = enemy.config.speed * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
+    const speed = enemy.config.speed * MOB_GLOBAL.speedMult * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
     enemy.pos.x += _toPlayer.x * speed * dt;
     enemy.pos.z += _toPlayer.z * speed * dt;
   }
@@ -570,7 +754,7 @@ function behaviorKite(enemy: any, playerPos: any, dt: number, gameState: any) {
   if (!isTelegraphing) {
     const slideBoost = enemy.wasDeflected ? 1.175 : 1.0;
     const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-    const speed = enemy.config.speed * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
+    const speed = enemy.config.speed * MOB_GLOBAL.speedMult * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
     if (dist < preferredRange - (kite.retreatBuffer || 1)) {
       // Too close — retreat (pit-aware)
       _toPlayer.normalize();
@@ -603,78 +787,49 @@ function behaviorKite(enemy: any, playerPos: any, dt: number, gameState: any) {
     if (dist < enemy.config.attackRange && now - enemy.lastAttackTime > enemy.config.attackRate) {
       // Lock aim and begin telegraph
       enemy.sniperPhase = 'telegraphing';
-      enemy.sniperTimer = sniper.telegraphDuration || 800;
+      enemy.sniperTimer = (sniper.telegraphDuration || 800) * MOB_GLOBAL.telegraphMult;
 
-      // Calculate aim direction and rect center
+      // Calculate aim direction
       const aimAngle = Math.atan2(playerPos.x - enemy.pos.x, playerPos.z - enemy.pos.z);
       enemy.sniperAimAngle = aimAngle;
-      const maxShotLength = sniper.shotLength || 14;
-
-      // Raycast to clip shot at terrain — stops at first obstacle
-      const dirX = Math.sin(aimAngle);
-      const dirZ = Math.cos(aimAngle);
-      const terrainDist = raycastTerrainDist(enemy.pos.x, enemy.pos.z, dirX, dirZ, maxShotLength);
-      const shotLength = Math.min(maxShotLength, terrainDist);
-
-      // Center the rect: starts at archer, extends shotLength forward
-      enemy.sniperAimCenter.x = enemy.pos.x + dirX * (shotLength / 2);
-      enemy.sniperAimCenter.z = enemy.pos.z + dirZ * (shotLength / 2);
 
       // Flash emissive to signal telegraph start
-      enemy.flashTimer = sniper.telegraphDuration || 800;
+      enemy.flashTimer = enemy.sniperTimer;
       enemy.bodyMesh.material.emissive.setHex(sniper.color || 0xaa44ff);
       if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(sniper.color || 0xaa44ff);
-
-      // Spawn the telegraph + schedule damage via AoE rect system
-      const shotWidth = sniper.shotWidth || 1.2;
-      const dmg = sniper.damage || 15;
-      const color = sniper.color || 0xaa44ff;
-      const lingerMs = sniper.lingerDuration || 200;
-
-      applyAoeRectEffect({
-        x: enemy.sniperAimCenter.x,
-        z: enemy.sniperAimCenter.z,
-        width: shotWidth,
-        height: shotLength,
-        rotation: aimAngle,
-        telegraphDurationMs: sniper.telegraphDuration || 800,
-        lingerDurationMs: lingerMs,
-        color: color,
-        damage: dmg,
-        enemyDamageFn: (e: any) => {
-          // Friendly fire — damages other enemies
-          e.health -= dmg;
-          // Apply slow debuff
-          const slowDur = sniper.slowDuration || 1000;
-          const slowMul = sniper.slowMult || 0.5;
-          slowEnemy(e, slowDur, slowMul);
-          spawnDamageNumber(e.pos.x, e.pos.z, 'SLOWED', '#cc88ff');
-        },
-        playerDamageFn: (cx: number, cz: number, w: number, h: number, rot: number) => {
-          // Check if player is in the rect at fire time
-          if (isPlayerInvincible()) return;
-          const pp = getPlayerPos();
-          if (isInRotatedRect(pp.x, pp.z, cx, cz, w, h, rot)) {
-            gameState.playerHealth -= dmg;
-            screenShake(3, 100);
-            spawnDamageNumber(pp.x, pp.z, dmg, '#ff4466');
-            if (gameState.playerHealth <= 0) {
-              gameState.playerHealth = 0;
-              gameState.phase = 'gameOver';
-            }
-          }
-        },
-        gameState,
-        excludeEnemy: enemy,
-      });
     }
   } else if (enemy.sniperPhase === 'telegraphing') {
     // Count down telegraph timer
     enemy.sniperTimer -= dt * 1000;
+
+    // Pulsing emissive during telegraph
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.012);
+    const c = sniper.color || 0xaa44ff;
+    const r = ((c >> 16) & 0xff) / 255;
+    const g = ((c >> 8) & 0xff) / 255;
+    const b = (c & 0xff) / 255;
+    enemy.bodyMesh.material.emissive.setRGB(r * pulse, g * pulse, b * pulse);
+    if (enemy.headMesh) enemy.headMesh.material.emissive.setRGB(r * pulse, g * pulse, b * pulse);
+
     if (enemy.sniperTimer <= 0) {
-      // Shot fires (handled by scheduled callback in aoeTelegraph)
+      // Fire a real projectile in the locked aim direction
       enemy.sniperPhase = 'idle';
       enemy.lastAttackTime = now;
+
+      const dirX = Math.sin(enemy.sniperAimAngle);
+      const dirZ = Math.cos(enemy.sniperAimAngle);
+      const origin = { x: enemy.pos.x, y: 0.5, z: enemy.pos.z };
+      const direction = { x: dirX, y: 0, z: dirZ };
+      const projConfig = {
+        speed: 12,
+        damage: (sniper.damage || 15) * MOB_GLOBAL.damageMult,
+        color: sniper.color || 0xaa44ff,
+      };
+      fireProjectile(origin, direction, projConfig, true);
+
+      // Restore emissive
+      enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
     }
   }
 }
@@ -694,7 +849,7 @@ function behaviorMortar(enemy: any, playerPos: any, dt: number, gameState: any) 
   if (!isAiming) {
     const slideBoost = enemy.wasDeflected ? 1.175 : 1.0;
     const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-    const speed = enemy.config.speed * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
+    const speed = enemy.config.speed * MOB_GLOBAL.speedMult * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
     if (dist < preferredRange - (kite.retreatBuffer || 1.5)) {
       _toPlayer.normalize();
       const retreat = pitAwareDir(enemy.pos.x, enemy.pos.z, -_toPlayer.x, -_toPlayer.z, 2.5);
@@ -1088,20 +1243,28 @@ function onDeathExplosion(enemy: any, gameState: any) {
   }
 }
 
-function behaviorTank(enemy: any, playerPos: any, dt: number) {
+function behaviorTank(enemy: any, playerPos: any, dt: number, gameState: any) {
   const tank = enemy.config.tank || {};
   _toPlayer.subVectors(playerPos, enemy.pos);
   _toPlayer.y = 0;
   const dist = _toPlayer.length();
 
+  // If in melee attack cycle, update that and skip movement
+  if (enemy.meleePhase !== 'idle') {
+    updateEnemyMelee(enemy, dt, playerPos, gameState);
+    return;
+  }
+
   const slowFactor = enemy.slowTimer > 0 ? enemy.slowMult : 1;
   const slideBoost = enemy.wasDeflected ? 1.175 : 1.0;
   const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
+  const baseSpeed = enemy.config.speed * MOB_GLOBAL.speedMult;
+
   if (enemy.isCharging) {
     // Charge forward at multiplied speed
     const speedMult = tank.chargeSpeedMult || 3;
-    enemy.pos.x += enemy.chargeDir.x * enemy.config.speed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
-    enemy.pos.z += enemy.chargeDir.z * enemy.config.speed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
+    enemy.pos.x += enemy.chargeDir.x * baseSpeed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
+    enemy.pos.z += enemy.chargeDir.z * baseSpeed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
     enemy.chargeTimer -= dt * 1000;
 
     if (enemy.chargeTimer <= 0) {
@@ -1111,11 +1274,21 @@ function behaviorTank(enemy: any, playerPos: any, dt: number) {
       enemy.chargeCooldown = cdMin + Math.random() * (cdMax - cdMin);
     }
   } else {
+    // Check if close enough for melee swing (when charge is on cooldown or too close)
+    const meleeCfg = enemy.config.melee;
+    if (meleeCfg && dist <= meleeCfg.hitRange) {
+      const now = performance.now();
+      if (now - enemy.lastAttackTime > enemy.config.attackRate) {
+        startEnemyMelee(enemy);
+        return;
+      }
+    }
+
     // Normal slow movement toward player
     if (dist > 1) {
       _toPlayer.normalize();
-      enemy.pos.x += _toPlayer.x * enemy.config.speed * slowFactor * slideBoost * iceEffects.speedMult * dt;
-      enemy.pos.z += _toPlayer.z * enemy.config.speed * slowFactor * slideBoost * iceEffects.speedMult * dt;
+      enemy.pos.x += _toPlayer.x * baseSpeed * slowFactor * slideBoost * iceEffects.speedMult * dt;
+      enemy.pos.z += _toPlayer.z * baseSpeed * slowFactor * slideBoost * iceEffects.speedMult * dt;
     }
 
     // Charge cooldown
@@ -1157,6 +1330,12 @@ export function stunEnemy(enemy: any, durationMs: number) {
   enemy.stunTimer = durationMs;
   // Cancel any active charge
   enemy.isCharging = false;
+  // Cancel melee attack
+  if (enemy.meleePhase !== 'idle') {
+    enemy.meleePhase = 'idle';
+    enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
+    if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
+  }
   // Cancel sniper telegraph (shot will still fire visually but enemy resets state)
   if (enemy.sniperPhase === 'telegraphing') {
     enemy.sniperPhase = 'idle';

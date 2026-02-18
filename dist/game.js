@@ -2,7 +2,27 @@
 const THREE = window.THREE;
 const nipplejs = window.nipplejs;
 
+// src/config/terrain.ts
+var HEIGHT_ZONES = [];
+function setHeightZones(zones) {
+  HEIGHT_ZONES.length = 0;
+  zones.forEach((z) => HEIGHT_ZONES.push(z));
+}
+function getGroundHeight(x, z) {
+  let maxY = 0;
+  for (const zone of HEIGHT_ZONES) {
+    const halfW = zone.w / 2;
+    const halfD = zone.d / 2;
+    if (x >= zone.x - halfW && x <= zone.x + halfW && z >= zone.z - halfD && z <= zone.z + halfD) {
+      if (zone.y > maxY) maxY = zone.y;
+    }
+  }
+  return maxY;
+}
+
 // src/config/arena.ts
+var ARENA_HALF_X = 20;
+var ARENA_HALF_Z = 20;
 var ARENA_HALF = 20;
 var OBSTACLES = [
   { x: 5, z: 9, w: 2, h: 1.5, d: 3 },
@@ -23,6 +43,15 @@ var PITS = [
   { x: -0.5, z: -7, w: 8.5, d: 2.5 },
   { x: 8, z: 0, w: 3, d: 9 }
 ];
+function setArenaConfig(obstacles, pits, arenaHalfX, arenaHalfZ) {
+  OBSTACLES.length = 0;
+  obstacles.forEach((o) => OBSTACLES.push(o));
+  PITS.length = 0;
+  pits.forEach((p) => PITS.push(p));
+  ARENA_HALF_X = arenaHalfX;
+  ARENA_HALF_Z = arenaHalfZ ?? arenaHalfX;
+  ARENA_HALF = ARENA_HALF_X;
+}
 function getPitBounds() {
   return PITS.map((p) => ({
     minX: p.x - p.w / 2,
@@ -38,15 +67,28 @@ function getCollisionBounds() {
       minX: o.x - o.w / 2,
       maxX: o.x + o.w / 2,
       minZ: o.z - o.d / 2,
-      maxZ: o.z + o.d / 2
+      maxZ: o.z + o.d / 2,
+      maxY: o.h
+      // entities above this height can pass over
     });
   }
-  const h = ARENA_HALF;
+  for (const zone of HEIGHT_ZONES) {
+    bounds.push({
+      minX: zone.x - zone.w / 2,
+      maxX: zone.x + zone.w / 2,
+      minZ: zone.z - zone.d / 2,
+      maxZ: zone.z + zone.d / 2,
+      maxY: zone.y
+      // entities above platform height can walk on top
+    });
+  }
+  const hx = ARENA_HALF_X;
+  const hz = ARENA_HALF_Z;
   const t = WALL_THICKNESS;
-  bounds.push({ minX: -h - t / 2, maxX: h + t / 2, minZ: h - t / 2, maxZ: h + t / 2 });
-  bounds.push({ minX: -h - t / 2, maxX: h + t / 2, minZ: -h - t / 2, maxZ: -h + t / 2 });
-  bounds.push({ minX: h - t / 2, maxX: h + t / 2, minZ: -h - t / 2, maxZ: h + t / 2 });
-  bounds.push({ minX: -h - t / 2, maxX: -h + t / 2, minZ: -h - t / 2, maxZ: h + t / 2 });
+  bounds.push({ minX: -hx - t / 2, maxX: hx + t / 2, minZ: hz - t / 2, maxZ: hz + t / 2 });
+  bounds.push({ minX: -hx - t / 2, maxX: hx + t / 2, minZ: -hz - t / 2, maxZ: -hz + t / 2 });
+  bounds.push({ minX: hx - t / 2, maxX: hx + t / 2, minZ: -hz - t / 2, maxZ: hz + t / 2 });
+  bounds.push({ minX: -hx - t / 2, maxX: -hx + t / 2, minZ: -hz - t / 2, maxZ: hz + t / 2 });
   return bounds;
 }
 
@@ -54,12 +96,13 @@ function getCollisionBounds() {
 var scene;
 var camera;
 var renderer;
-var baseFrustum = 12;
-var currentFrustum = 12;
+var baseFrustum = 9.6;
+var currentFrustum = 9.6;
 var cameraOffset = new THREE.Vector3(20, 20, 20);
 var obstacleMeshes = [];
 var wallMeshes = [];
 var pitMeshes = [];
+var platformMeshes = [];
 var shakeRemaining = 0;
 var shakeIntensity = 0;
 var _camTarget = new THREE.Vector3();
@@ -95,17 +138,19 @@ function initRenderer() {
   const rimLight = new THREE.DirectionalLight(4491519, 0.3);
   rimLight.position.set(-10, 5, -10);
   scene.add(rimLight);
+  const groundSize = 120;
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(60, 60),
+    new THREE.PlaneGeometry(groundSize, groundSize),
     new THREE.MeshStandardMaterial({ color: 1710638, roughness: 0.9, metalness: 0.1 })
   );
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
-  const grid = new THREE.GridHelper(60, 30, 2771530, 1714746);
+  const grid = new THREE.GridHelper(groundSize, 60, 2771530, 1714746);
   grid.position.y = 0.01;
   scene.add(grid);
   createObstacles();
   createPits();
+  createPlatforms();
   window.addEventListener("resize", onResize);
   window.addEventListener("orientationchange", () => {
     setTimeout(onResize, 150);
@@ -150,19 +195,19 @@ function createObstacles() {
   });
   for (const zSign of [-1, 1]) {
     const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(ARENA_HALF * 2 + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS),
+      new THREE.BoxGeometry(ARENA_HALF_X * 2 + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS),
       wallMat
     );
-    wall.position.set(0, WALL_HEIGHT / 2, zSign * ARENA_HALF);
+    wall.position.set(0, WALL_HEIGHT / 2, zSign * ARENA_HALF_Z);
     scene.add(wall);
     wallMeshes.push(wall);
   }
   for (const xSign of [-1, 1]) {
     const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, ARENA_HALF * 2 + WALL_THICKNESS),
+      new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, ARENA_HALF_Z * 2 + WALL_THICKNESS),
       wallMat
     );
-    wall.position.set(xSign * ARENA_HALF, WALL_HEIGHT / 2, 0);
+    wall.position.set(xSign * ARENA_HALF_X, WALL_HEIGHT / 2, 0);
     scene.add(wall);
     wallMeshes.push(wall);
   }
@@ -222,9 +267,120 @@ function createPits() {
     pitMeshes.push(wEdge);
   }
 }
+function clearPlatformMeshes() {
+  for (const m of platformMeshes) {
+    scene.remove(m);
+    if (m.geometry) m.geometry.dispose();
+  }
+  platformMeshes = [];
+}
+function createPlatforms() {
+  clearPlatformMeshes();
+  if (HEIGHT_ZONES.length === 0) return;
+  const topMat = new THREE.MeshStandardMaterial({
+    color: 2767450,
+    emissive: 2245734,
+    emissiveIntensity: 0.25,
+    roughness: 0.6,
+    metalness: 0.15
+  });
+  const cliffMat = new THREE.MeshStandardMaterial({
+    color: 1712704,
+    emissive: 1122884,
+    emissiveIntensity: 0.15,
+    roughness: 0.85,
+    metalness: 0.1
+  });
+  const edgeMat = new THREE.MeshBasicMaterial({
+    color: 6732782,
+    transparent: true,
+    opacity: 0.8
+  });
+  const vertEdgeMat = new THREE.MeshBasicMaterial({
+    color: 4495820,
+    transparent: true,
+    opacity: 0.5
+  });
+  for (const zone of HEIGHT_ZONES) {
+    const { x, z, w, d, y } = zone;
+    const topThickness = 0.08;
+    const top = new THREE.Mesh(
+      new THREE.BoxGeometry(w, topThickness, d),
+      topMat
+    );
+    top.position.set(x, y - topThickness / 2, z);
+    scene.add(top);
+    platformMeshes.push(top);
+    const cliffThickness = 0.06;
+    const northCliff = new THREE.Mesh(
+      new THREE.BoxGeometry(w, y, cliffThickness),
+      cliffMat
+    );
+    northCliff.position.set(x, y / 2, z + d / 2);
+    scene.add(northCliff);
+    platformMeshes.push(northCliff);
+    const southCliff = new THREE.Mesh(
+      new THREE.BoxGeometry(w, y, cliffThickness),
+      cliffMat
+    );
+    southCliff.position.set(x, y / 2, z - d / 2);
+    scene.add(southCliff);
+    platformMeshes.push(southCliff);
+    const eastCliff = new THREE.Mesh(
+      new THREE.BoxGeometry(cliffThickness, y, d),
+      cliffMat
+    );
+    eastCliff.position.set(x + w / 2, y / 2, z);
+    scene.add(eastCliff);
+    platformMeshes.push(eastCliff);
+    const westCliff = new THREE.Mesh(
+      new THREE.BoxGeometry(cliffThickness, y, d),
+      cliffMat
+    );
+    westCliff.position.set(x - w / 2, y / 2, z);
+    scene.add(westCliff);
+    platformMeshes.push(westCliff);
+    const edgeHeight = 0.06;
+    const edgeW = 0.1;
+    const ne = new THREE.Mesh(new THREE.BoxGeometry(w + edgeW, edgeHeight, edgeW), edgeMat);
+    ne.position.set(x, y + 0.01, z + d / 2);
+    scene.add(ne);
+    platformMeshes.push(ne);
+    const se = new THREE.Mesh(new THREE.BoxGeometry(w + edgeW, edgeHeight, edgeW), edgeMat);
+    se.position.set(x, y + 0.01, z - d / 2);
+    scene.add(se);
+    platformMeshes.push(se);
+    const ee = new THREE.Mesh(new THREE.BoxGeometry(edgeW, edgeHeight, d), edgeMat);
+    ee.position.set(x + w / 2, y + 0.01, z);
+    scene.add(ee);
+    platformMeshes.push(ee);
+    const we = new THREE.Mesh(new THREE.BoxGeometry(edgeW, edgeHeight, d), edgeMat);
+    we.position.set(x - w / 2, y + 0.01, z);
+    scene.add(we);
+    platformMeshes.push(we);
+    const vertW = 0.08;
+    const neVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    neVert.position.set(x + w / 2, y / 2, z + d / 2);
+    scene.add(neVert);
+    platformMeshes.push(neVert);
+    const nwVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    nwVert.position.set(x - w / 2, y / 2, z + d / 2);
+    scene.add(nwVert);
+    platformMeshes.push(nwVert);
+    const seVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    seVert.position.set(x + w / 2, y / 2, z - d / 2);
+    scene.add(seVert);
+    platformMeshes.push(seVert);
+    const swVert = new THREE.Mesh(new THREE.BoxGeometry(vertW, y, vertW), vertEdgeMat);
+    swVert.position.set(x - w / 2, y / 2, z - d / 2);
+    scene.add(swVert);
+    platformMeshes.push(swVert);
+  }
+}
 function rebuildArenaVisuals() {
   createObstacles();
   createPits();
+  createPlatforms();
 }
 function getViewportSize() {
   if (window.visualViewport) {
@@ -300,174 +456,393 @@ var PLAYER = {
   projectile: { speed: 16, damage: 10, color: 4521864, size: 0.2 },
   size: { radius: 0.35, height: 1.2 }
 };
-
-// src/config/abilities.ts
-var ABILITIES = {
-  dash: {
-    name: "Shadow Dash",
-    key: "Space",
-    cooldown: 3e3,
-    duration: 200,
-    distance: 5,
-    curve: "easeOut",
-    invincible: true,
-    iFrameStart: 0,
-    iFrameEnd: 200,
-    directionSource: "movement",
-    afterimageCount: 3,
-    afterimageFadeDuration: 300,
-    ghostColor: 4521898,
-    trailColor: 4521864,
-    screenShakeOnStart: 1.5,
-    canShootDuring: false,
-    canAbilityCancel: false,
-    endLag: 50,
-    description: "Dash forward, briefly invincible"
-  },
-  ultimate: {
-    name: "Force Push",
-    key: "E",
-    cooldown: 5e3,
-    chargeTimeMs: 1500,
-    minLength: 3,
-    maxLength: 12,
-    width: 3,
-    minKnockback: 1.5,
-    maxKnockback: 5,
-    color: 4521898,
-    telegraphOpacity: 0.3,
-    chargeMoveSpeedMult: 0.4,
-    description: "Charge a directional push \u2014 hold to extend range"
-  }
+var JUMP = {
+  initialVelocity: 12,
+  // upward velocity on jump
+  gravity: 25,
+  // player gravity (may differ from enemy gravity)
+  airControlMult: 1,
+  // XZ speed multiplier while airborne
+  landingLag: 50,
+  // ms of end-lag on landing
+  coyoteTime: 80
+  // ms of grace period after walking off ledge
+};
+var MELEE = {
+  damage: 10,
+  range: 2.2,
+  // how far the swing reaches from player center
+  arc: 2.4,
+  // radians (~137°) — generous cone
+  cooldown: 380,
+  // ms between swings
+  knockback: 1.5,
+  // units pushed on hit
+  autoTargetRange: 3,
+  // radius to search for snap-targeting
+  autoTargetArc: 2.8,
+  // radians (~160°) — wide search for auto-target
+  screenShake: 1.5,
+  // shake intensity on hit
+  hitPause: 40
+  // ms of freeze-frame on hit (juice)
+};
+var AERIAL_STRIKE = {
+  damage: 20,
+  // bonus damage (more than ground melee)
+  range: 2.5,
+  // XZ range to find target
+  slamVelocity: -18,
+  // downward velocity applied to enemy (negative = down)
+  screenShake: 2.5,
+  // bigger shake than ground melee
+  hitPause: 60,
+  // longer freeze-frame for impact
+  cooldown: 300
+  // ms between aerial strikes (shorter than ground melee)
+};
+var DUNK = {
+  slamVelocity: -25,
+  // downward velocity for both player + enemy
+  damage: 35,
+  // big damage on impact (the payoff)
+  landingShake: 4,
+  // massive screen shake
+  landingLag: 200,
+  // ms of end-lag
+  aoeRadius: 1.5,
+  // splash damage radius on impact
+  aoeDamage: 10,
+  // splash damage to other nearby enemies
+  aoeKnockback: 10,
+  // knockback to nearby enemies
+  targetRadius: 6,
+  // radius of landing target circle (world units)
+  homing: 60,
+  // XZ homing speed toward target (units/sec) — high to compensate for arc ease-in
+  grabPause: 60,
+  // ms freeze-frame on grab (punctuates the moment)
+  grabShake: 1.5,
+  // screen shake on grab (smaller than landing shake)
+  carryOffsetY: -0.4,
+  // enemy offset below player during slam fall
+  carryOffsetZ: 0.35,
+  // enemy offset forward (toward landing) during slam fall
+  // Float phase — zero-gravity hang time when player & enemy converge mid-air
+  floatDuration: 600,
+  // ms of zero-gravity float (aim window before dunk)
+  floatConvergeDist: 3.5,
+  // Y distance threshold to trigger float (enemy descends within this of player)
+  floatEnemyOffsetY: 0.6,
+  // enemy hovers this far above player during float
+  floatDriftSpeed: 3,
+  // XZ drift speed toward each other during float (units/sec)
+  // Arc rise — upward boost after grab before slam descent
+  arcRiseVelocity: 8,
+  // upward velocity at grab start (creates wind-up arc)
+  arcXzFraction: 0.3
+  // fraction of XZ distance to landing covered during rise phase
+};
+var SELF_SLAM = {
+  slamVelocity: -30,
+  // fast downward velocity
+  landingShake: 3,
+  // screen shake on impact
+  landingLag: 150,
+  // ms of end-lag (longer than normal landing)
+  damageRadius: 2.5,
+  // AoE damage radius on impact
+  damage: 15,
+  // AoE damage to nearby grounded enemies
+  knockback: 8
+  // knockback force on nearby enemies
+};
+var LAUNCH = {
+  range: 3,
+  // max range to find a target
+  enemyVelMult: 1.3,
+  // enemy launch velocity = JUMP.initialVelocity × this (goes higher than player)
+  playerVelMult: 1.15,
+  // player hop velocity = JUMP.initialVelocity × this (slightly higher to stay airborne for catch)
+  cooldown: 600,
+  // ms cooldown between launches
+  damage: 5,
+  // small chip damage on launch
+  arcFraction: 0.7,
+  // fraction of XZ distance covered by arc velocity at launch
+  // Rock pillar visual
+  pillarDuration: 500,
+  // total animation time ms
+  pillarRiseTime: 150,
+  // ms to emerge from ground
+  pillarHoldTime: 100,
+  // ms at peak before sinking
+  pillarHeight: 1.2,
+  // rise height above ground
+  pillarRadius: 0.3,
+  // cylinder radius
+  pillarColor: 8943462,
+  // stone gray-brown
+  // Launch telegraph
+  windupDuration: 120,
+  // ms delay between E press and launch execution
+  indicatorColor: 16755200,
+  // ring + emissive color (matches "LAUNCH!" text)
+  indicatorRingRadius: 0.6,
+  // outer radius of ground ring
+  indicatorOpacity: 0.4
+  // base ring opacity (passive mode)
+};
+var FLOAT_SELECTOR = {
+  holdThreshold: 180,
+  // ms to differentiate tap (spike) vs hold (dunk)
+  chargeVisualDelay: 50,
+  // ms before charge ring starts filling
+  floatDriftRate: 6
+  // exponential decay rate for XZ drift during float
+};
+var SPIKE = {
+  damage: 15,
+  // hit damage to spiked enemy on strike
+  projectileSpeed: 25,
+  // enemy flight speed (units/sec)
+  projectileAngle: 35,
+  // degrees below horizontal toward aim point
+  throughDamage: 20,
+  // damage to enemies hit along flight path
+  throughKnockback: 8,
+  // knockback to path-hit enemies
+  impactDamage: 15,
+  // AoE damage on ground impact
+  impactRadius: 2,
+  // AoE radius on ground impact
+  impactKnockback: 10,
+  // knockback on ground impact
+  windupDuration: 80,
+  // ms windup before strike
+  hangDuration: 150,
+  // ms hang after strike (follow-through)
+  fastFallGravityMult: 2.5,
+  // enhanced gravity during post-spike fall
+  screenShake: 3,
+  // shake on spike strike
+  impactShake: 2.5
+  // shake on enemy ground impact
 };
 
-// src/engine/pools.ts
-var ObjectPool = class {
-  constructor(createFn, initialSize = 50) {
-    this.pool = [];
-    this.active = [];
-    this.createFn = createFn;
-    for (let i = 0; i < initialSize; i++) {
-      const obj = createFn();
-      obj.mesh.visible = false;
-      this.pool.push(obj);
+// src/engine/tags.ts
+var tagSets = /* @__PURE__ */ new Map();
+function ensureSet(owner) {
+  let set = tagSets.get(owner);
+  if (!set) {
+    set = /* @__PURE__ */ new Set();
+    tagSets.set(owner, set);
+  }
+  return set;
+}
+function addTag(owner, tag) {
+  ensureSet(owner).add(tag);
+}
+function removeTag(owner, tag) {
+  const set = tagSets.get(owner);
+  if (set) set.delete(tag);
+}
+function hasTag(owner, tag) {
+  const set = tagSets.get(owner);
+  if (!set) return false;
+  if (set.has(tag)) return true;
+  const prefix = tag + ".";
+  for (const t of set) {
+    if (t.startsWith(prefix)) return true;
+  }
+  return false;
+}
+function removeTagsMatching(owner, prefix) {
+  const set = tagSets.get(owner);
+  if (!set) return;
+  const dotPrefix = prefix + ".";
+  for (const tag of [...set]) {
+    if (tag === prefix || tag.startsWith(dotPrefix)) {
+      set.delete(tag);
     }
   }
-  acquire() {
-    let obj = this.pool.pop();
-    if (!obj) {
-      obj = this.createFn();
-    }
-    obj.mesh.visible = true;
-    this.active.push(obj);
-    return obj;
-  }
-  release(obj) {
-    obj.mesh.visible = false;
-    const idx = this.active.indexOf(obj);
-    if (idx !== -1) {
-      const last = this.active.length - 1;
-      if (idx !== last) this.active[idx] = this.active[last];
-      this.active.length = last;
-    }
-    this.pool.push(obj);
-  }
-  releaseAll() {
-    for (let i = this.active.length - 1; i >= 0; i--) {
-      const obj = this.active[i];
-      obj.mesh.visible = false;
-      this.pool.push(obj);
-    }
-    this.active.length = 0;
-  }
-  getActive() {
-    return this.active;
-  }
+}
+function clearTags(owner) {
+  tagSets.delete(owner);
+}
+function clearAllTags() {
+  tagSets.clear();
+}
+var PLAYER_OWNER = /* @__PURE__ */ Symbol("player");
+function addPlayerTag(tag) {
+  addTag(PLAYER_OWNER, tag);
+}
+function playerHasTag(tag) {
+  return hasTag(PLAYER_OWNER, tag);
+}
+function removePlayerTagsMatching(prefix) {
+  removeTagsMatching(PLAYER_OWNER, prefix);
+}
+function clearPlayerTags() {
+  clearTags(PLAYER_OWNER);
+}
+var TAG = {
+  // Aerial verb states (added/removed by aerial verb framework)
+  AERIAL: "State.Aerial",
+  AERIAL_RISING: "State.Aerial.Rising",
+  AERIAL_FLOAT: "State.Aerial.Float",
+  AERIAL_DUNK: "State.Aerial.Dunk",
+  AERIAL_SPIKE: "State.Aerial.Spike",
+  // General player states (future — wire these as needed)
+  AIRBORNE: "State.Airborne",
+  // Shared states (applicable to any entity)
+  STUNNED: "State.Stunned"
 };
 
-// src/entities/projectile.ts
-var playerPool;
-var enemyPool;
-var sceneRef;
-var basePlayerProjSize;
-function initProjectilePool(scene2) {
-  sceneRef = scene2;
-  basePlayerProjSize = PLAYER.projectile.size;
-  const playerProjGeo = new THREE.SphereGeometry(basePlayerProjSize, 6, 4);
-  const playerProjMat = new THREE.MeshStandardMaterial({
-    color: PLAYER.projectile.color,
-    emissive: PLAYER.projectile.color,
-    emissiveIntensity: 0.8
+// src/engine/aerialVerbs.ts
+var launched = [];
+function registerLaunch(enemy) {
+  if (launched.some((e) => e.enemy === enemy)) return;
+  launched.push({
+    enemy,
+    launchTime: performance.now(),
+    claimedBy: null,
+    gravityMult: 1
   });
-  playerPool = new ObjectPool(() => {
-    const mesh = new THREE.Mesh(playerProjGeo, playerProjMat.clone());
-    scene2.add(mesh);
-    return { mesh, dir: new THREE.Vector3(), speed: 0, damage: 0, life: 0, isEnemy: false };
-  }, 80);
-  const enemyProjGeo = new THREE.SphereGeometry(0.1, 6, 4);
-  enemyPool = new ObjectPool(() => {
-    const mesh = new THREE.Mesh(
-      enemyProjGeo,
-      new THREE.MeshStandardMaterial({
-        color: 16729190,
-        emissive: 16720452,
-        emissiveIntensity: 0.8
-      })
-    );
-    scene2.add(mesh);
-    return { mesh, dir: new THREE.Vector3(), speed: 0, damage: 0, life: 0, isEnemy: true };
-  }, 40);
 }
-function fireProjectile(origin, direction, config, isEnemy) {
-  if (isEnemy === void 0) isEnemy = false;
-  const pool3 = isEnemy ? enemyPool : playerPool;
-  const p = pool3.acquire();
-  p.mesh.position.set(origin.x, 0.8, origin.z);
-  p.dir.copy(direction).normalize();
-  p.speed = config.speed;
-  p.damage = config.damage;
-  p.life = 0;
-  if (!isEnemy && basePlayerProjSize) {
-    const s = PLAYER.projectile.size / basePlayerProjSize;
-    p.mesh.scale.set(s, s, s);
-  }
-  if (isEnemy && config.color) {
-    p.mesh.material.color.setHex(config.color);
-    p.mesh.material.emissive.setHex(config.color);
-  }
-  return p;
+function claimLaunched(enemy, verbName) {
+  const entry = launched.find((e) => e.enemy === enemy);
+  if (!entry || entry.claimedBy !== null) return false;
+  entry.claimedBy = verbName;
+  return true;
 }
-function updateProjectiles(dt) {
-  const maxLife = 2;
-  for (const pool3 of [playerPool, enemyPool]) {
-    const active2 = pool3.getActive();
-    for (let i = active2.length - 1; i >= 0; i--) {
-      const p = active2[i];
-      p.mesh.position.x += p.dir.x * p.speed * dt;
-      p.mesh.position.z += p.dir.z * p.speed * dt;
-      p.life += dt;
-      if (p.life > maxLife) {
-        pool3.release(p);
-      }
+function releaseLaunched(enemy) {
+  const idx = launched.findIndex((e) => e.enemy === enemy);
+  if (idx !== -1) launched.splice(idx, 1);
+}
+function getLaunchedEntry(enemy) {
+  return launched.find((e) => e.enemy === enemy);
+}
+function setGravityOverride(enemy, mult) {
+  const entry = launched.find((e) => e.enemy === enemy);
+  if (entry) entry.gravityMult = mult;
+}
+function clearLaunched() {
+  launched.length = 0;
+}
+var verbs = /* @__PURE__ */ new Map();
+var activeVerb = null;
+var activeEnemy = null;
+function registerVerb(verb) {
+  verbs.set(verb.name, verb);
+}
+function activateVerb(verbName, enemy) {
+  const verb = verbs.get(verbName);
+  if (!verb) return;
+  const entry = launched.find((e) => e.enemy === enemy);
+  if (!entry) return;
+  activeVerb = verb;
+  activeEnemy = enemy;
+  addPlayerTag(TAG.AERIAL);
+  if (verb.tag) addPlayerTag(verb.tag);
+  addTag(enemy, TAG.STUNNED);
+  verb.onClaim(entry);
+}
+function transferClaim(enemy, toVerbName) {
+  const verb = verbs.get(toVerbName);
+  if (!verb) return;
+  const entry = launched.find((e) => e.enemy === enemy);
+  if (!entry) return;
+  if (activeVerb && activeVerb.tag) {
+    removePlayerTagsMatching(activeVerb.tag);
+  }
+  entry.claimedBy = toVerbName;
+  activeVerb = verb;
+  activeEnemy = enemy;
+  if (verb.tag) addPlayerTag(verb.tag);
+  verb.onClaim(entry);
+}
+function cleanupVerbTags(enemy) {
+  removePlayerTagsMatching(TAG.AERIAL);
+  if (enemy) removeTag(enemy, TAG.STUNNED);
+}
+function updateAerialVerbs(dt, playerPos2, inputState2) {
+  if (!activeVerb || !activeEnemy) return;
+  const entry = launched.find((e) => e.enemy === activeEnemy);
+  if (!entry || activeEnemy.health <= 0 || activeEnemy.fellInPit) {
+    const enemyRef = activeEnemy;
+    activeVerb.onCancel(entry ?? { enemy: activeEnemy, launchTime: 0, claimedBy: null, gravityMult: 1 });
+    if (entry) releaseLaunched(activeEnemy);
+    activeVerb = null;
+    activeEnemy = null;
+    cleanupVerbTags(enemyRef);
+    return;
+  }
+  const verbBeforeUpdate = activeVerb;
+  const result = verbBeforeUpdate.update(dt, entry, playerPos2, inputState2);
+  const transferred = activeVerb !== verbBeforeUpdate;
+  if (result === "complete") {
+    if (transferred) {
+      verbBeforeUpdate.onComplete(entry);
+    } else {
+      const enemyRef = activeEnemy;
+      activeVerb.onComplete(entry);
+      releaseLaunched(activeEnemy);
+      activeVerb = null;
+      activeEnemy = null;
+      cleanupVerbTags(enemyRef);
+    }
+  } else if (result === "cancel") {
+    if (transferred) {
+      verbBeforeUpdate.onCancel(entry);
+    } else {
+      const enemyRef = activeEnemy;
+      activeVerb.onCancel(entry);
+      releaseLaunched(activeEnemy);
+      activeVerb = null;
+      activeEnemy = null;
+      cleanupVerbTags(enemyRef);
     }
   }
 }
-function getPlayerProjectiles() {
-  return playerPool ? playerPool.getActive() : [];
-}
-function getEnemyProjectiles() {
-  return enemyPool ? enemyPool.getActive() : [];
-}
-function releaseProjectile(p) {
-  if (p.isEnemy) {
-    enemyPool.release(p);
-  } else {
-    playerPool.release(p);
+function initAerialVerbs(verbsToRegister) {
+  if (verbsToRegister) {
+    for (const verb of verbsToRegister) {
+      registerVerb(verb);
+    }
   }
 }
-function releaseAllProjectiles() {
-  if (playerPool) playerPool.releaseAll();
-  if (enemyPool) enemyPool.releaseAll();
+function resetAerialVerbs() {
+  cancelActiveVerb();
+  clearLaunched();
+}
+function cancelActiveVerb() {
+  if (!activeVerb || !activeEnemy) return;
+  const enemyRef = activeEnemy;
+  const entry = launched.find((e) => e.enemy === activeEnemy);
+  activeVerb.onCancel(entry ?? { enemy: activeEnemy, launchTime: 0, claimedBy: null, gravityMult: 1 });
+  if (entry) releaseLaunched(activeEnemy);
+  activeVerb = null;
+  activeEnemy = null;
+  cleanupVerbTags(enemyRef);
+}
+
+// src/engine/events.ts
+var listeners = /* @__PURE__ */ new Map();
+function emit(event) {
+  const set = listeners.get(event.type);
+  if (!set) return;
+  for (const fn of set) {
+    fn(event);
+  }
+}
+function on(type, callback) {
+  let set = listeners.get(type);
+  if (!set) {
+    set = /* @__PURE__ */ new Set();
+    listeners.set(type, set);
+  }
+  set.add(callback);
 }
 
 // src/ui/damageNumbers.ts
@@ -559,17 +934,943 @@ function clearDamageNumbers() {
   if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
+// src/verbs/dunk.ts
+var phase = "none";
+var target = null;
+var floatTimer = 0;
+var landingX = 0;
+var landingZ = 0;
+var originX = 0;
+var originZ = 0;
+var slamStartY = 0;
+var slamStartX = 0;
+var slamStartZ = 0;
+var playerVelYOverride = null;
+var landingLagMs = 0;
+var _gameState = null;
+var decalGroup = null;
+var decalFill = null;
+var decalRing = null;
+var decalAge = 0;
+var DECAL_EXPAND_MS = 250;
+var TRAIL_MAX = 20;
+var trailLine = null;
+var trailPoints = [];
+var trailLife = 0;
+function updateDecal(aimX2, aimZ2, dt) {
+  if (!decalGroup) return;
+  if (decalAge < DECAL_EXPAND_MS) {
+    decalAge += dt * 1e3;
+    const t = Math.min(decalAge / DECAL_EXPAND_MS, 1);
+    const eased = 1 - (1 - t) * (1 - t);
+    decalGroup.scale.set(eased, eased, eased);
+  } else if (decalGroup.scale.x < 1) {
+    decalGroup.scale.set(1, 1, 1);
+  }
+  decalGroup.position.set(originX, 0.06, originZ);
+  const dot = decalGroup.getObjectByName("dunkCrosshair");
+  if (dot) {
+    const dx = landingX - originX;
+    const dz = landingZ - originZ;
+    dot.position.set(dx, 0, dz);
+  }
+  if (decalRing) {
+    const pulse = 0.3 + 0.15 * Math.sin(Date.now() * 8e-3);
+    decalRing.material.opacity = pulse;
+  }
+}
+function removeDecal() {
+  if (!decalGroup) return;
+  const scene2 = getScene();
+  decalGroup.traverse((child) => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+  });
+  scene2.remove(decalGroup);
+  decalGroup = null;
+  decalFill = null;
+  decalRing = null;
+}
+function createTrail() {
+  removeTrail();
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(TRAIL_MAX * 3);
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setDrawRange(0, 0);
+  const mat = new THREE.LineBasicMaterial({
+    color: 16738047,
+    transparent: true,
+    opacity: 0.7,
+    linewidth: 1
+  });
+  trailLine = new THREE.Line(geo, mat);
+  trailLine.frustumCulled = false;
+  getScene().add(trailLine);
+  trailLife = 0;
+}
+function updateTrailGeometry() {
+  if (!trailLine) return;
+  const posAttr = trailLine.geometry.getAttribute("position");
+  const arr = posAttr.array;
+  for (let i = 0; i < trailPoints.length; i++) {
+    const p = trailPoints[i];
+    arr[i * 3] = p.x;
+    arr[i * 3 + 1] = p.y;
+    arr[i * 3 + 2] = p.z;
+  }
+  posAttr.needsUpdate = true;
+  trailLine.geometry.setDrawRange(0, trailPoints.length);
+}
+function startTrailFade() {
+  trailLife = 300;
+}
+function removeTrail() {
+  if (!trailLine) return;
+  const scene2 = getScene();
+  scene2.remove(trailLine);
+  if (trailLine.geometry) trailLine.geometry.dispose();
+  if (trailLine.material) trailLine.material.dispose();
+  trailLine = null;
+  trailPoints = [];
+  trailLife = 0;
+}
+function updateTargeting(playerPos2, inputState2) {
+  originX = playerPos2.x;
+  originZ = playerPos2.z;
+  const aimDx = inputState2.aimWorldPos.x - originX;
+  const aimDz = inputState2.aimWorldPos.z - originZ;
+  const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
+  const clampedDist = Math.min(aimDist, DUNK.targetRadius);
+  landingX = originX + aimDx / aimDist * clampedDist;
+  landingZ = originZ + aimDz / aimDist * clampedDist;
+}
+var dunkVerb = {
+  name: "dunk",
+  tag: TAG.AERIAL_DUNK,
+  interruptible: false,
+  canClaim(entry, playerPos2, _inputState) {
+    return true;
+  },
+  onClaim(entry) {
+    phase = "grab";
+    target = entry.enemy;
+    floatTimer = 0;
+    playerVelYOverride = null;
+    landingLagMs = 0;
+  },
+  update(dt, entry, playerPos2, inputState2) {
+    const enemy = entry.enemy;
+    _gameState = inputState2._gameState;
+    if (phase === "grab") {
+      originX = playerPos2.x;
+      originZ = playerPos2.z;
+      const aimDx = inputState2.aimWorldPos.x - originX;
+      const aimDz = inputState2.aimWorldPos.z - originZ;
+      const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
+      const clampedDist = Math.min(aimDist, DUNK.targetRadius);
+      landingX = originX + aimDx / aimDist * clampedDist;
+      landingZ = originZ + aimDz / aimDist * clampedDist;
+      transitionToGrab(enemy, playerPos2);
+      return "active";
+    }
+    if (phase === "wind") {
+      return updateWind(dt, enemy, playerPos2, inputState2);
+    }
+    if (phase === "slam") {
+      return updateSlam(dt, enemy, playerPos2, inputState2);
+    }
+    return "cancel";
+  },
+  onCancel(entry) {
+    removeDecal();
+    removeTrail();
+    setGravityOverride(entry.enemy, 1);
+    phase = "none";
+    target = null;
+    playerVelYOverride = null;
+    landingLagMs = 0;
+  },
+  onComplete(entry) {
+    const enemy = entry.enemy;
+    const groundHeight = getGroundHeight(enemy.pos.x, enemy.pos.z);
+    enemy.health -= DUNK.damage;
+    enemy.flashTimer = 150;
+    enemy.pos.y = groundHeight;
+    const tVel = enemy.vel;
+    if (tVel) {
+      tVel.x = 0;
+      tVel.y = 0;
+      tVel.z = 0;
+    }
+    if (enemy.mesh) enemy.mesh.position.copy(enemy.pos);
+    if (_gameState && _gameState.enemies) {
+      const enemies = _gameState.enemies;
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e === enemy) continue;
+        if (e.health <= 0 || e.fellInPit) continue;
+        const dx = e.pos.x - enemy.pos.x;
+        const dz = e.pos.z - enemy.pos.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq < DUNK.aoeRadius * DUNK.aoeRadius) {
+          e.health -= DUNK.aoeDamage;
+          e.flashTimer = 100;
+          const dist = Math.sqrt(distSq) || 0.1;
+          const vel = e.vel;
+          if (vel) {
+            vel.x += dx / dist * DUNK.aoeKnockback;
+            vel.z += dz / dist * DUNK.aoeKnockback;
+          }
+        }
+      }
+    }
+    screenShake(DUNK.landingShake);
+    emit({
+      type: "dunkImpact",
+      enemy,
+      damage: DUNK.damage,
+      position: { x: enemy.pos.x, z: enemy.pos.z }
+    });
+    spawnDamageNumber(enemy.pos.x, enemy.pos.z, `DUNK! ${DUNK.damage}`, "#ff2244");
+    removeDecal();
+    startTrailFade();
+    landingLagMs = DUNK.landingLag;
+    phase = "none";
+    target = null;
+    playerVelYOverride = null;
+  }
+};
+function transitionToGrab(enemy, playerPos2) {
+  phase = "wind";
+  target = enemy;
+  const ptVel = enemy.vel;
+  enemy.pos.x = playerPos2.x;
+  enemy.pos.z = playerPos2.z;
+  enemy.pos.y = playerPos2.y + DUNK.carryOffsetY;
+  playerVelYOverride = DUNK.arcRiseVelocity;
+  if (ptVel) ptVel.y = DUNK.arcRiseVelocity;
+  const faceDx = landingX - playerPos2.x;
+  const faceDz = landingZ - playerPos2.z;
+  slamStartY = playerPos2.y;
+  slamStartX = playerPos2.x;
+  slamStartZ = playerPos2.z;
+  trailPoints = [{ x: playerPos2.x, y: playerPos2.y, z: playerPos2.z }];
+  createTrail();
+  screenShake(DUNK.grabShake);
+  emit({
+    type: "dunkGrab",
+    enemy,
+    position: { x: playerPos2.x, z: playerPos2.z }
+  });
+  spawnDamageNumber(playerPos2.x, playerPos2.z, "GRAB!", "#ff44ff");
+}
+function updateWind(dt, enemy, playerPos2, inputState2) {
+  updateTargeting(playerPos2, inputState2);
+  updateDecal(landingX, landingZ, dt);
+  playerVelYOverride -= JUMP.gravity * dt;
+  const ptVel = enemy.vel;
+  if (ptVel) ptVel.y = playerVelYOverride;
+  const toDx = landingX - playerPos2.x;
+  const toDz = landingZ - playerPos2.z;
+  const toDist = Math.sqrt(toDx * toDx + toDz * toDz);
+  if (toDist > 0.05) {
+    const riseTime = DUNK.arcRiseVelocity / JUMP.gravity;
+    const windSpeed = toDist * DUNK.arcXzFraction / riseTime;
+    const moveStep = Math.min(windSpeed * dt, toDist);
+    playerPos2.x += toDx / toDist * moveStep;
+    playerPos2.z += toDz / toDist * moveStep;
+  }
+  enemy.pos.x = playerPos2.x;
+  enemy.pos.z = playerPos2.z;
+  enemy.pos.y = playerPos2.y + DUNK.carryOffsetY;
+  if (enemy.mesh) {
+    const faceDx = landingX - playerPos2.x;
+    const faceDz = landingZ - playerPos2.z;
+    const faceDist = Math.sqrt(faceDx * faceDx + faceDz * faceDz) || 0.01;
+    const fwdX = faceDx / faceDist * DUNK.carryOffsetZ;
+    const fwdZ = faceDz / faceDist * DUNK.carryOffsetZ;
+    enemy.mesh.position.set(enemy.pos.x + fwdX, enemy.pos.y, enemy.pos.z + fwdZ);
+  }
+  trailPoints.push({ x: playerPos2.x, y: playerPos2.y, z: playerPos2.z });
+  if (trailPoints.length > TRAIL_MAX) trailPoints.shift();
+  updateTrailGeometry();
+  if (playerVelYOverride <= 0) {
+    playerVelYOverride = DUNK.slamVelocity;
+    if (ptVel) ptVel.y = DUNK.slamVelocity;
+    slamStartY = playerPos2.y;
+    slamStartX = playerPos2.x;
+    slamStartZ = playerPos2.z;
+    phase = "slam";
+  }
+  return "active";
+}
+function updateSlam(dt, enemy, playerPos2, inputState2) {
+  updateTargeting(playerPos2, inputState2);
+  updateDecal(landingX, landingZ, dt);
+  const groundY = getGroundHeight(playerPos2.x, playerPos2.z);
+  const totalDrop = Math.max(slamStartY - groundY, 0.1);
+  const dropped = Math.max(slamStartY - playerPos2.y, 0);
+  const progress = Math.min(dropped / totalDrop, 1);
+  const arcMult = 0.3 + 0.7 * progress;
+  const toDx = landingX - playerPos2.x;
+  const toDz = landingZ - playerPos2.z;
+  const toDist = Math.sqrt(toDx * toDx + toDz * toDz);
+  if (toDist > 0.05) {
+    const moveStep = Math.min(DUNK.homing * arcMult * dt, toDist);
+    playerPos2.x += toDx / toDist * moveStep;
+    playerPos2.z += toDz / toDist * moveStep;
+  }
+  trailPoints.push({ x: playerPos2.x, y: playerPos2.y, z: playerPos2.z });
+  if (trailPoints.length > TRAIL_MAX) trailPoints.shift();
+  updateTrailGeometry();
+  enemy.pos.x = playerPos2.x;
+  enemy.pos.z = playerPos2.z;
+  enemy.pos.y = playerPos2.y + DUNK.carryOffsetY;
+  if (enemy.mesh) {
+    const faceDx = landingX - playerPos2.x;
+    const faceDz = landingZ - playerPos2.z;
+    const faceDist = Math.sqrt(faceDx * faceDx + faceDz * faceDz) || 0.01;
+    const fwdX = faceDx / faceDist * DUNK.carryOffsetZ;
+    const fwdZ = faceDz / faceDist * DUNK.carryOffsetZ;
+    enemy.mesh.position.set(
+      enemy.pos.x + fwdX,
+      enemy.pos.y,
+      enemy.pos.z + fwdZ
+    );
+  }
+  const groundHeight = getGroundHeight(playerPos2.x, playerPos2.z);
+  if (playerPos2.y <= groundHeight) {
+    playerPos2.y = groundHeight;
+    return "complete";
+  }
+  return "active";
+}
+function getDunkPhase() {
+  return phase;
+}
+function getDunkPlayerVelY() {
+  return playerVelYOverride;
+}
+function getDunkLandingLag() {
+  const lag = landingLagMs;
+  landingLagMs = 0;
+  return lag;
+}
+function updateDunkVisuals(dt) {
+  if (trailLine && trailLife > 0) {
+    trailLife -= dt * 1e3;
+    const opacity = Math.max(0, trailLife / 300) * 0.7;
+    trailLine.material.opacity = opacity;
+    if (trailLife <= 0) {
+      removeTrail();
+    }
+  }
+}
+function resetDunk() {
+  phase = "none";
+  target = null;
+  floatTimer = 0;
+  playerVelYOverride = null;
+  landingLagMs = 0;
+  landingX = 0;
+  landingZ = 0;
+  originX = 0;
+  originZ = 0;
+  slamStartY = 0;
+  slamStartX = 0;
+  slamStartZ = 0;
+  _gameState = null;
+  removeDecal();
+  removeTrail();
+}
+
+// src/verbs/floatSelector.ts
+var phase2 = "none";
+var target2 = null;
+var floatTimer2 = 0;
+var lmbPressed = false;
+var lmbHoldTimer = 0;
+var resolved = false;
+var playerVelYOverride2 = null;
+var prevPlayerX = 0;
+var prevPlayerZ = 0;
+var landingX2 = 0;
+var landingZ2 = 0;
+var decalGroup2 = null;
+var decalFill2 = null;
+var decalRing2 = null;
+var decalAge2 = 0;
+var DECAL_EXPAND_MS2 = 250;
+var chargeRing = null;
+var chargeRingMat = null;
+function createDecal(cx, cz) {
+  const scene2 = getScene();
+  const radius = DUNK.targetRadius;
+  decalGroup2 = new THREE.Group();
+  decalGroup2.position.set(cx, 0.06, cz);
+  const fillGeo2 = new THREE.CircleGeometry(radius, 32);
+  const fillMat = new THREE.MeshBasicMaterial({
+    color: 16755268,
+    transparent: true,
+    opacity: 0.05,
+    depthWrite: false
+  });
+  decalFill2 = new THREE.Mesh(fillGeo2, fillMat);
+  decalFill2.rotation.x = -Math.PI / 2;
+  decalGroup2.add(decalFill2);
+  const ringGeo4 = new THREE.RingGeometry(radius - 0.06, radius, 48);
+  const ringMat2 = new THREE.MeshBasicMaterial({
+    color: 16755268,
+    transparent: true,
+    opacity: 0.3,
+    depthWrite: false
+  });
+  decalRing2 = new THREE.Mesh(ringGeo4, ringMat2);
+  decalRing2.rotation.x = -Math.PI / 2;
+  decalGroup2.add(decalRing2);
+  decalGroup2.scale.set(0, 0, 0);
+  decalAge2 = 0;
+  scene2.add(decalGroup2);
+}
+function updateDecal2(playerX, playerZ, dt) {
+  if (!decalGroup2) return;
+  if (decalAge2 < DECAL_EXPAND_MS2) {
+    decalAge2 += dt * 1e3;
+    const t = Math.min(decalAge2 / DECAL_EXPAND_MS2, 1);
+    const eased = 1 - (1 - t) * (1 - t);
+    decalGroup2.scale.set(eased, eased, eased);
+  } else if (decalGroup2.scale.x < 1) {
+    decalGroup2.scale.set(1, 1, 1);
+  }
+  decalGroup2.position.set(playerX, 0.06, playerZ);
+  if (decalRing2) {
+    const pulse = 0.2 + 0.1 * Math.sin(Date.now() * 8e-3);
+    decalRing2.material.opacity = pulse;
+  }
+}
+function removeDecal2() {
+  if (!decalGroup2) return;
+  const scene2 = getScene();
+  decalGroup2.traverse((child) => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+  });
+  scene2.remove(decalGroup2);
+  decalGroup2 = null;
+  decalFill2 = null;
+  decalRing2 = null;
+}
+function createChargeRing(playerPos2) {
+  removeChargeRing();
+  const scene2 = getScene();
+  const geo = new THREE.RingGeometry(0.5, 0.55, 32);
+  chargeRingMat = new THREE.MeshBasicMaterial({
+    color: 16746496,
+    transparent: true,
+    opacity: 0.6,
+    depthWrite: false
+  });
+  chargeRing = new THREE.Mesh(geo, chargeRingMat);
+  chargeRing.rotation.x = -Math.PI / 2;
+  chargeRing.position.set(playerPos2.x, playerPos2.y + 0.1, playerPos2.z);
+  scene2.add(chargeRing);
+}
+function updateChargeRing(playerPos2, fillT) {
+  if (!chargeRing || !chargeRingMat) return;
+  chargeRing.position.set(playerPos2.x, playerPos2.y + 0.1, playerPos2.z);
+  const r = 255;
+  const g = Math.round(136 * (1 - fillT));
+  const b = 0;
+  chargeRingMat.color.setHex(r << 16 | g << 8 | b);
+  chargeRingMat.opacity = 0.4 + 0.4 * fillT;
+}
+function removeChargeRing() {
+  if (!chargeRing) return;
+  const scene2 = getScene();
+  if (chargeRing.geometry) chargeRing.geometry.dispose();
+  if (chargeRing.material) chargeRing.material.dispose();
+  scene2.remove(chargeRing);
+  chargeRing = null;
+  chargeRingMat = null;
+}
+function updateTargeting2(playerPos2, inputState2) {
+  const aimDx = inputState2.aimWorldPos.x - playerPos2.x;
+  const aimDz = inputState2.aimWorldPos.z - playerPos2.z;
+  const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
+  const clampedDist = Math.min(aimDist, DUNK.targetRadius);
+  landingX2 = playerPos2.x + aimDx / aimDist * clampedDist;
+  landingZ2 = playerPos2.z + aimDz / aimDist * clampedDist;
+}
+var floatSelectorVerb = {
+  name: "floatSelector",
+  tag: TAG.AERIAL_FLOAT,
+  interruptible: true,
+  canClaim(_entry, _playerPos, _inputState) {
+    return true;
+  },
+  onClaim(entry) {
+    phase2 = "rising";
+    target2 = entry.enemy;
+    floatTimer2 = 0;
+    lmbPressed = false;
+    lmbHoldTimer = 0;
+    resolved = false;
+    playerVelYOverride2 = null;
+    prevPlayerX = NaN;
+    if (!decalGroup2) {
+      createDecal(0, 0);
+    }
+  },
+  update(dt, entry, playerPos2, inputState2) {
+    const enemy = entry.enemy;
+    if (phase2 === "rising") {
+      return updateRising(dt, enemy, playerPos2, inputState2);
+    } else if (phase2 === "float") {
+      return updateFloat(dt, enemy, playerPos2, inputState2);
+    }
+    return "cancel";
+  },
+  onCancel(entry) {
+    removeDecal2();
+    removeChargeRing();
+    setGravityOverride(entry.enemy, 1);
+    phase2 = "none";
+    target2 = null;
+    playerVelYOverride2 = null;
+    lmbPressed = false;
+    lmbHoldTimer = 0;
+    resolved = false;
+  },
+  onComplete(entry) {
+    removeDecal2();
+    removeChargeRing();
+    phase2 = "none";
+    target2 = null;
+    playerVelYOverride2 = null;
+    lmbPressed = false;
+    lmbHoldTimer = 0;
+    resolved = false;
+  }
+};
+function updateRising(dt, enemy, playerPos2, inputState2) {
+  const vel = enemy.vel;
+  const isRising = vel && vel.y > 0;
+  if (isNaN(prevPlayerX)) {
+    prevPlayerX = playerPos2.x;
+    prevPlayerZ = playerPos2.z;
+  } else {
+    const deltaX = playerPos2.x - prevPlayerX;
+    const deltaZ = playerPos2.z - prevPlayerZ;
+    enemy.pos.x += deltaX;
+    enemy.pos.z += deltaZ;
+    if (enemy.mesh) {
+      enemy.mesh.position.x = enemy.pos.x;
+      enemy.mesh.position.z = enemy.pos.z;
+    }
+    prevPlayerX = playerPos2.x;
+    prevPlayerZ = playerPos2.z;
+  }
+  updateTargeting2(playerPos2, inputState2);
+  updateDecal2(playerPos2.x, playerPos2.z, dt);
+  if (enemy.health <= 0 || enemy.fellInPit || enemy.pos.y <= 0.3 && !isRising) {
+    return "cancel";
+  }
+  if (vel && vel.y <= 0) {
+    const dy = enemy.pos.y - playerPos2.y;
+    if (dy >= 0 && dy <= DUNK.floatConvergeDist) {
+      phase2 = "float";
+      floatTimer2 = DUNK.floatDuration;
+      playerVelYOverride2 = 0;
+      setGravityOverride(enemy, 0);
+      screenShake(DUNK.grabShake * 0.5);
+      spawnDamageNumber(playerPos2.x, playerPos2.z, "CATCH!", "#ff88ff");
+      return "active";
+    }
+  }
+  return "active";
+}
+function updateFloat(dt, enemy, playerPos2, inputState2) {
+  floatTimer2 -= dt * 1e3;
+  const vel = enemy.vel;
+  playerVelYOverride2 = 0;
+  if (vel) vel.y = 0;
+  const targetEnemyY = playerPos2.y + DUNK.floatEnemyOffsetY;
+  enemy.pos.y += (targetEnemyY - enemy.pos.y) * Math.min(1, dt * 10);
+  const driftDx = playerPos2.x - enemy.pos.x;
+  const driftDz = playerPos2.z - enemy.pos.z;
+  const lerpFactor = 1 - Math.exp(-FLOAT_SELECTOR.floatDriftRate * dt);
+  enemy.pos.x += driftDx * lerpFactor;
+  enemy.pos.z += driftDz * lerpFactor;
+  if (enemy.mesh) enemy.mesh.position.copy(enemy.pos);
+  updateTargeting2(playerPos2, inputState2);
+  updateDecal2(playerPos2.x, playerPos2.z, dt);
+  if (!lmbPressed && (inputState2.attack || inputState2.attackHeld)) {
+    lmbPressed = true;
+    lmbHoldTimer = 0;
+    createChargeRing(playerPos2);
+  }
+  if (lmbPressed) {
+    if (inputState2.attackHeld) {
+      lmbHoldTimer += dt * 1e3;
+      const fillT = Math.min(lmbHoldTimer / FLOAT_SELECTOR.holdThreshold, 1);
+      updateChargeRing(playerPos2, fillT);
+      if (lmbHoldTimer >= FLOAT_SELECTOR.holdThreshold) {
+        transferClaim(enemy, "dunk");
+        resolved = true;
+        return "complete";
+      }
+    } else {
+      transferClaim(enemy, "spike");
+      resolved = true;
+      return "complete";
+    }
+  }
+  if (floatTimer2 <= 0) {
+    return "cancel";
+  }
+  return "active";
+}
+function getFloatSelectorPlayerVelY() {
+  return playerVelYOverride2;
+}
+function resetFloatSelector() {
+  phase2 = "none";
+  target2 = null;
+  floatTimer2 = 0;
+  lmbPressed = false;
+  lmbHoldTimer = 0;
+  resolved = false;
+  playerVelYOverride2 = null;
+  landingX2 = 0;
+  landingZ2 = 0;
+  removeDecal2();
+  removeChargeRing();
+}
+
+// src/engine/entityCarrier.ts
+var GRAVITY = 25;
+var THROUGH_HIT_RADIUS = 1.5;
+var carriers = [];
+function createCarrier(payload, direction, config) {
+  const len = Math.sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z) || 1;
+  const nx = direction.x / len;
+  const ny = direction.y / len;
+  const nz = direction.z / len;
+  const hitSet = /* @__PURE__ */ new Set();
+  hitSet.add(payload);
+  payload.isCarrierPayload = true;
+  carriers.push({
+    payload,
+    vel: {
+      x: nx * config.speed,
+      y: ny * config.speed,
+      z: nz * config.speed
+    },
+    config,
+    hitSet
+  });
+}
+function updateCarriers(dt, gameState2) {
+  for (let i = carriers.length - 1; i >= 0; i--) {
+    const carrier = carriers[i];
+    const { payload, vel, config, hitSet } = carrier;
+    vel.y -= GRAVITY * config.gravityMult * dt;
+    payload.pos.x += vel.x * dt;
+    payload.pos.y += vel.y * dt;
+    payload.pos.z += vel.z * dt;
+    if (payload.mesh && payload.mesh.position) {
+      payload.mesh.position.set(payload.pos.x, payload.pos.y, payload.pos.z);
+    }
+    if (gameState2.enemies) {
+      for (let j = 0; j < gameState2.enemies.length; j++) {
+        const enemy = gameState2.enemies[j];
+        if (hitSet.has(enemy)) continue;
+        if (enemy.health <= 0) continue;
+        if (enemy.fellInPit) continue;
+        const dx = enemy.pos.x - payload.pos.x;
+        const dy = enemy.pos.y - payload.pos.y;
+        const dz = enemy.pos.z - payload.pos.z;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist < THROUGH_HIT_RADIUS) {
+          enemy.health -= config.throughDamage;
+          enemy.flashTimer = 100;
+          const xzDist = Math.sqrt(dx * dx + dz * dz) || 0.1;
+          enemy.vel.x += dx / xzDist * config.throughKnockback;
+          enemy.vel.z += dz / xzDist * config.throughKnockback;
+          hitSet.add(enemy);
+          emit({
+            type: "spikeThrough",
+            enemy,
+            damage: config.throughDamage,
+            position: { x: enemy.pos.x, z: enemy.pos.z }
+          });
+          spawnDamageNumber(enemy.pos.x, enemy.pos.z, config.throughDamage, "#ff8844");
+        }
+      }
+    }
+    const groundY = getGroundHeight(payload.pos.x, payload.pos.z);
+    if (payload.pos.y <= groundY) {
+      payload.pos.y = groundY;
+      if (gameState2.enemies) {
+        for (let j = 0; j < gameState2.enemies.length; j++) {
+          const enemy = gameState2.enemies[j];
+          if (enemy === payload) continue;
+          if (enemy.health <= 0) continue;
+          if (enemy.fellInPit) continue;
+          const dx = enemy.pos.x - payload.pos.x;
+          const dz = enemy.pos.z - payload.pos.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq < config.impactRadius * config.impactRadius) {
+            enemy.health -= config.impactDamage;
+            enemy.flashTimer = 100;
+            const dist = Math.sqrt(distSq) || 0.1;
+            enemy.vel.x += dx / dist * config.impactKnockback;
+            enemy.vel.z += dz / dist * config.impactKnockback;
+          }
+        }
+      }
+      payload.vel.x = 0;
+      payload.vel.y = 0;
+      payload.vel.z = 0;
+      payload.isCarrierPayload = false;
+      if (payload.mesh && payload.mesh.position) {
+        payload.mesh.position.set(payload.pos.x, payload.pos.y, payload.pos.z);
+      }
+      screenShake(config.impactShake);
+      emit({
+        type: "spikeImpact",
+        position: { x: payload.pos.x, z: payload.pos.z },
+        damage: config.impactDamage,
+        radius: config.impactRadius
+      });
+      spawnDamageNumber(payload.pos.x, payload.pos.z, "IMPACT!", "#ff4444");
+      carriers.splice(i, 1);
+    }
+  }
+}
+function clearCarriers() {
+  for (const c of carriers) {
+    c.payload.isCarrierPayload = false;
+  }
+  carriers.length = 0;
+}
+
+// src/verbs/spike.ts
+var phase3 = "none";
+var target3 = null;
+var phaseTimer = 0;
+var aimX = 0;
+var aimZ = 0;
+var playerVelYOverride3 = null;
+var fastFallActive = false;
+var spikeVerb = {
+  name: "spike",
+  tag: TAG.AERIAL_SPIKE,
+  interruptible: false,
+  canClaim(_entry, _playerPos, _inputState) {
+    return true;
+  },
+  onClaim(entry) {
+    phase3 = "windup";
+    target3 = entry.enemy;
+    phaseTimer = 0;
+    playerVelYOverride3 = 0;
+    fastFallActive = false;
+    setGravityOverride(entry.enemy, 0);
+    screenShake(0.5);
+  },
+  update(dt, entry, playerPos2, inputState2) {
+    const enemy = entry.enemy;
+    if (phase3 === "windup") {
+      return updateWindup(dt, enemy, playerPos2, inputState2);
+    } else if (phase3 === "recovery") {
+      return updateRecovery(dt);
+    }
+    return "cancel";
+  },
+  onCancel(entry) {
+    setGravityOverride(entry.enemy, 1);
+    resetState();
+  },
+  onComplete(entry) {
+    resetState();
+  }
+};
+function updateWindup(dt, enemy, playerPos2, inputState2) {
+  phaseTimer += dt * 1e3;
+  enemy.vel.y = 0;
+  if (phaseTimer <= dt * 1e3 + 0.1) {
+    aimX = inputState2.aimWorldPos.x;
+    aimZ = inputState2.aimWorldPos.z;
+  }
+  playerVelYOverride3 = 0;
+  if (phaseTimer >= SPIKE.windupDuration) {
+    executeStrike(enemy, playerPos2);
+    return "active";
+  }
+  return "active";
+}
+function executeStrike(enemy, playerPos2) {
+  enemy.health -= SPIKE.damage;
+  enemy.flashTimer = 150;
+  const dx = aimX - playerPos2.x;
+  const dz = aimZ - playerPos2.z;
+  const horizontalDist = Math.sqrt(dx * dx + dz * dz) || 0.01;
+  const nx = dx / horizontalDist;
+  const nz = dz / horizontalDist;
+  const angleRad = SPIKE.projectileAngle * Math.PI / 180;
+  const dirY = -Math.tan(angleRad);
+  const dirX = nx;
+  const dirZ = nz;
+  createCarrier(enemy, { x: dirX, y: dirY, z: dirZ }, {
+    speed: SPIKE.projectileSpeed,
+    gravityMult: 0.5,
+    // some gravity for arc feel
+    throughDamage: SPIKE.throughDamage,
+    throughKnockback: SPIKE.throughKnockback,
+    impactDamage: SPIKE.impactDamage,
+    impactRadius: SPIKE.impactRadius,
+    impactKnockback: SPIKE.impactKnockback,
+    impactShake: SPIKE.impactShake
+  });
+  screenShake(SPIKE.screenShake);
+  emit({
+    type: "spikeStrike",
+    enemy,
+    damage: SPIKE.damage,
+    position: { x: enemy.pos.x, z: enemy.pos.z }
+  });
+  spawnDamageNumber(enemy.pos.x, enemy.pos.z, `SPIKE! ${SPIKE.damage}`, "#ff4488");
+  phase3 = "recovery";
+  phaseTimer = 0;
+  playerVelYOverride3 = 0;
+  fastFallActive = true;
+}
+function updateRecovery(dt) {
+  phaseTimer += dt * 1e3;
+  playerVelYOverride3 = 0;
+  if (phaseTimer >= SPIKE.hangDuration) {
+    playerVelYOverride3 = null;
+    return "complete";
+  }
+  return "active";
+}
+function getSpikePlayerVelYOverride() {
+  return playerVelYOverride3;
+}
+function getSpikeFastFallActive() {
+  return fastFallActive;
+}
+function resetState() {
+  phase3 = "none";
+  target3 = null;
+  phaseTimer = 0;
+  aimX = 0;
+  aimZ = 0;
+  playerVelYOverride3 = null;
+  fastFallActive = false;
+}
+function resetSpike() {
+  resetState();
+}
+
+// src/config/physics.ts
+var PHYSICS = {
+  // Knockback velocity
+  friction: 25,
+  // deceleration rate (units/s²) — higher = snappier stop
+  minVelocity: 0.1,
+  // below this speed, zero out velocity
+  pushInstantRatio: 0,
+  // fraction of knockback as instant position offset (0 = pure velocity)
+  // Wall slam
+  wallSlamMinSpeed: 3,
+  // minimum impact speed for wall damage
+  wallSlamDamage: 8,
+  // damage per unit of impact speed above threshold
+  wallSlamStun: 400,
+  // ms stun on wall slam
+  wallSlamBounce: 0.4,
+  // velocity reflection coefficient (0 = dead stop, 1 = perfect bounce)
+  wallSlamShake: 3,
+  // screen shake intensity on wall slam
+  // Force push wave occlusion
+  pushWaveBlockRadius: 0.8,
+  // lateral distance for one enemy to block another from push wave
+  // Enemy-enemy collision
+  enemyBounce: 0.4,
+  // enemy-enemy restitution coefficient
+  impactMinSpeed: 2,
+  // minimum relative speed for collision damage
+  impactDamage: 5,
+  // damage per unit of relative speed above threshold
+  impactStun: 300,
+  // ms stun when hit by another enemy
+  // Y-axis / vertical physics
+  gravity: 25,
+  // units/s² downward acceleration
+  terminalVelocity: 20,
+  // max downward Y velocity
+  airControlMult: 1,
+  // XZ movement multiplier while airborne (1.0 = full control)
+  landingLagBase: 50,
+  // ms of landing lag (minimum)
+  landingLagPerSpeed: 10,
+  // ms of landing lag per unit of fall speed
+  groundEpsilon: 0.05
+  // height threshold for "grounded" detection
+};
+
+// src/config/abilities.ts
+var ABILITIES = {
+  dash: {
+    name: "Shadow Dash",
+    key: "Shift",
+    cooldown: 3e3,
+    duration: 200,
+    distance: 5,
+    curve: "easeOut",
+    invincible: true,
+    iFrameStart: 0,
+    iFrameEnd: 200,
+    directionSource: "movement",
+    afterimageCount: 3,
+    afterimageFadeDuration: 300,
+    ghostColor: 4521898,
+    trailColor: 4521864,
+    screenShakeOnStart: 1.5,
+    canShootDuring: false,
+    canAbilityCancel: false,
+    endLag: 50,
+    description: "Dash forward, briefly invincible"
+  },
+  ultimate: {
+    name: "Launch / Push",
+    key: "E",
+    cooldown: 500,
+    chargeTimeMs: 1500,
+    minLength: 3,
+    maxLength: 12,
+    width: 3,
+    minKnockback: 4,
+    maxKnockback: 12,
+    color: 4521898,
+    telegraphOpacity: 0.3,
+    chargeMoveSpeedMult: 0.4,
+    description: "Charge a directional push \u2014 hold to extend range"
+  }
+};
+
 // src/engine/aoeTelegraph.ts
-var sceneRef2;
+var sceneRef;
 var activeTelegraphs = [];
 var pendingEffects = [];
 var ringGeo;
-var planeGeo;
 function easeOutQuad(t) {
   return t * (2 - t);
 }
 function initAoeTelegraph(scene2) {
-  sceneRef2 = scene2;
+  sceneRef = scene2;
 }
 function createAoeRing(x, z, maxRadius, durationMs, color) {
   if (!ringGeo) {
@@ -586,62 +1887,13 @@ function createAoeRing(x, z, maxRadius, durationMs, color) {
   const mesh = new THREE.Mesh(ringGeo, mat);
   mesh.position.set(x, 0.05, z);
   mesh.scale.set(0.01, 0.01, 0.01);
-  sceneRef2.add(mesh);
+  sceneRef.add(mesh);
   const telegraph = {
     type: "ring",
     mesh,
     material: mat,
     center: { x, z },
     maxRadius,
-    duration: durationMs,
-    elapsed: 0,
-    color
-  };
-  activeTelegraphs.push(telegraph);
-  return telegraph;
-}
-function createAoeRect(x, z, width, height, rotation, durationMs, color) {
-  if (!planeGeo) {
-    planeGeo = new THREE.PlaneGeometry(1, 1);
-    planeGeo.rotateX(-Math.PI / 2);
-  }
-  const group = new THREE.Group();
-  group.position.set(x, 0.05, z);
-  group.rotation.y = rotation;
-  const fillMat = new THREE.MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0,
-    // ramps up over first 30%
-    side: THREE.DoubleSide,
-    depthWrite: false
-  });
-  const fillMesh = new THREE.Mesh(planeGeo, fillMat);
-  fillMesh.scale.set(width * 0.8, 1, height * 0.8);
-  group.add(fillMesh);
-  const edgeGeo = new THREE.EdgesGeometry(new THREE.PlaneGeometry(width, height));
-  edgeGeo.rotateX(-Math.PI / 2);
-  const borderMat = new THREE.LineBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0.9,
-    depthWrite: false
-  });
-  const borderMesh = new THREE.LineSegments(edgeGeo, borderMat);
-  group.add(borderMesh);
-  sceneRef2.add(group);
-  const telegraph = {
-    type: "rect",
-    mesh: group,
-    fillMesh,
-    fillMaterial: fillMat,
-    borderMesh,
-    borderMaterial: borderMat,
-    borderEdgeGeo: edgeGeo,
-    center: { x, z },
-    width,
-    height,
-    rotation,
     duration: durationMs,
     elapsed: 0,
     color
@@ -723,19 +1975,16 @@ function updateRect(t, progress) {
 function removeTelegraph(t) {
   if (t.type === "ring") {
     t.material.dispose();
-    sceneRef2.remove(t.mesh);
+    sceneRef.remove(t.mesh);
   } else if (t.type === "rect") {
     t.fillMaterial.dispose();
     t.borderMaterial.dispose();
     t.borderEdgeGeo.dispose();
-    sceneRef2.remove(t.mesh);
+    sceneRef.remove(t.mesh);
   }
 }
 function schedulePendingEffect(enemy, delayMs, callback) {
   pendingEffects.push({ enemy, delay: delayMs, callback });
-}
-function scheduleCallback(delayMs, callback) {
-  pendingEffects.push({ enemy: null, delay: delayMs, callback });
 }
 function updatePendingEffects(dt) {
   const dtMs = dt * 1e3;
@@ -774,43 +2023,6 @@ function applyAoeEffect({ x, z, radius, durationMs, color, label, effectFn, game
     }
   }
 }
-function applyAoeRectEffect({
-  x,
-  z,
-  width,
-  height,
-  rotation,
-  telegraphDurationMs,
-  lingerDurationMs,
-  color,
-  damage,
-  playerDamageFn,
-  enemyDamageFn,
-  gameState: gameState2,
-  excludeEnemy
-}) {
-  createAoeRect(x, z, width, height, rotation, telegraphDurationMs, color);
-  const colorStr = "#" + color.toString(16).padStart(6, "0");
-  scheduleCallback(telegraphDurationMs, () => {
-    createAoeRect(x, z, width, height, rotation, lingerDurationMs, color);
-    for (const enemy of gameState2.enemies) {
-      if (enemy === excludeEnemy) continue;
-      const enemyRadius = enemy.config && enemy.config.size ? enemy.config.size.radius : 0;
-      if (isInRotatedRect(enemy.pos.x, enemy.pos.z, x, z, width, height, rotation, enemyRadius)) {
-        if (enemyDamageFn) {
-          enemyDamageFn(enemy);
-        }
-        enemy.flashTimer = 200;
-        enemy.bodyMesh.material.emissive.setHex(color);
-        if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(color);
-        spawnDamageNumber(enemy.pos.x, enemy.pos.z, damage, colorStr);
-      }
-    }
-    if (playerDamageFn) {
-      playerDamageFn(x, z, width, height, rotation);
-    }
-  });
-}
 function clearAoeTelegraphs() {
   for (const t of activeTelegraphs) {
     removeTelegraph(t);
@@ -820,6 +2032,13 @@ function clearAoeTelegraphs() {
 }
 
 // src/config/enemies.ts
+var MOB_GLOBAL = {
+  speedMult: 1,
+  damageMult: 1,
+  healthMult: 1,
+  telegraphMult: 1,
+  recoveryMult: 1
+};
 var ENEMY_TYPES = {
   goblin: {
     name: "Goblin",
@@ -830,11 +2049,21 @@ var ENEMY_TYPES = {
     attackRate: 800,
     behavior: "rush",
     knockbackResist: 0,
+    mass: 1,
     color: 16729190,
     emissive: 16720452,
     size: { radius: 0.3, height: 0.8 },
     drops: { currency: { min: 1, max: 3 }, healthChance: 0.1 },
     rush: { stopDistance: 0.5 },
+    melee: {
+      telegraphDuration: 300,
+      attackDuration: 100,
+      recoveryDuration: 400,
+      lungeDistance: 0.8,
+      damage: 10,
+      hitArc: 1.5,
+      hitRange: 1.2
+    },
     pitLeap: {
       edgeTimeRequired: 1500,
       leapSpeed: 7,
@@ -851,6 +2080,7 @@ var ENEMY_TYPES = {
     attackRate: 2500,
     behavior: "kite",
     knockbackResist: 0.1,
+    mass: 0.8,
     color: 11176191,
     emissive: 8930508,
     size: { radius: 0.25, height: 1 },
@@ -876,6 +2106,7 @@ var ENEMY_TYPES = {
     attackRate: 3e3,
     behavior: "mortar",
     knockbackResist: 0.1,
+    mass: 0.9,
     color: 4513279,
     emissive: 13391104,
     size: { radius: 0.3, height: 0.9 },
@@ -914,6 +2145,7 @@ var ENEMY_TYPES = {
     attackRate: 1200,
     behavior: "tank",
     knockbackResist: 0.6,
+    mass: 3,
     color: 16746547,
     emissive: 2263244,
     size: { radius: 0.5, height: 1.4 },
@@ -937,6 +2169,14 @@ var ENEMY_TYPES = {
       emissive: 4508927,
       opacity: 0.35
     },
+    melee: {
+      telegraphDuration: 700,
+      attackDuration: 150,
+      recoveryDuration: 800,
+      damage: 30,
+      hitArc: 2,
+      hitRange: 2.5
+    },
     deathExplosion: {
       radius: 4,
       damage: 20,
@@ -947,6 +2187,135 @@ var ENEMY_TYPES = {
     }
   }
 };
+
+// src/engine/pools.ts
+var ObjectPool = class {
+  constructor(createFn, initialSize = 50) {
+    this.pool = [];
+    this.active = [];
+    this.createFn = createFn;
+    for (let i = 0; i < initialSize; i++) {
+      const obj = createFn();
+      obj.mesh.visible = false;
+      this.pool.push(obj);
+    }
+  }
+  acquire() {
+    let obj = this.pool.pop();
+    if (!obj) {
+      obj = this.createFn();
+    }
+    obj.mesh.visible = true;
+    this.active.push(obj);
+    return obj;
+  }
+  release(obj) {
+    obj.mesh.visible = false;
+    const idx = this.active.indexOf(obj);
+    if (idx !== -1) {
+      const last = this.active.length - 1;
+      if (idx !== last) this.active[idx] = this.active[last];
+      this.active.length = last;
+    }
+    this.pool.push(obj);
+  }
+  releaseAll() {
+    for (let i = this.active.length - 1; i >= 0; i--) {
+      const obj = this.active[i];
+      obj.mesh.visible = false;
+      this.pool.push(obj);
+    }
+    this.active.length = 0;
+  }
+  getActive() {
+    return this.active;
+  }
+};
+
+// src/entities/projectile.ts
+var playerPool;
+var enemyPool;
+var sceneRef2;
+var basePlayerProjSize;
+function initProjectilePool(scene2) {
+  sceneRef2 = scene2;
+  basePlayerProjSize = PLAYER.projectile.size;
+  const playerProjGeo = new THREE.SphereGeometry(basePlayerProjSize, 6, 4);
+  const playerProjMat = new THREE.MeshStandardMaterial({
+    color: PLAYER.projectile.color,
+    emissive: PLAYER.projectile.color,
+    emissiveIntensity: 0.8
+  });
+  playerPool = new ObjectPool(() => {
+    const mesh = new THREE.Mesh(playerProjGeo, playerProjMat.clone());
+    scene2.add(mesh);
+    return { mesh, dir: new THREE.Vector3(), speed: 0, damage: 0, life: 0, isEnemy: false };
+  }, 80);
+  const enemyProjGeo = new THREE.SphereGeometry(0.1, 6, 4);
+  enemyPool = new ObjectPool(() => {
+    const mesh = new THREE.Mesh(
+      enemyProjGeo,
+      new THREE.MeshStandardMaterial({
+        color: 16729190,
+        emissive: 16720452,
+        emissiveIntensity: 0.8
+      })
+    );
+    scene2.add(mesh);
+    return { mesh, dir: new THREE.Vector3(), speed: 0, damage: 0, life: 0, isEnemy: true };
+  }, 40);
+}
+function fireProjectile(origin, direction, config, isEnemy) {
+  if (isEnemy === void 0) isEnemy = false;
+  const pool3 = isEnemy ? enemyPool : playerPool;
+  const p = pool3.acquire();
+  p.mesh.position.set(origin.x, 0.8, origin.z);
+  p.dir.copy(direction).normalize();
+  p.speed = config.speed;
+  p.damage = config.damage;
+  p.life = 0;
+  if (!isEnemy && basePlayerProjSize) {
+    const s = PLAYER.projectile.size / basePlayerProjSize;
+    p.mesh.scale.set(s, s, s);
+  }
+  if (isEnemy && config.color) {
+    p.mesh.material.color.setHex(config.color);
+    p.mesh.material.emissive.setHex(config.color);
+  }
+  return p;
+}
+function updateProjectiles(dt) {
+  const maxLife = 2;
+  for (const pool3 of [playerPool, enemyPool]) {
+    const active3 = pool3.getActive();
+    for (let i = active3.length - 1; i >= 0; i--) {
+      const p = active3[i];
+      p.mesh.position.x += p.dir.x * p.speed * dt;
+      p.mesh.position.z += p.dir.z * p.speed * dt;
+      p.life += dt;
+      if (p.life > maxLife) {
+        pool3.release(p);
+      }
+    }
+  }
+}
+function getPlayerProjectiles() {
+  return playerPool ? playerPool.getActive() : [];
+}
+function getEnemyProjectiles() {
+  return enemyPool ? enemyPool.getActive() : [];
+}
+function releaseProjectile(p) {
+  if (p.isEnemy) {
+    enemyPool.release(p);
+  } else {
+    playerPool.release(p);
+  }
+}
+function releaseAllProjectiles() {
+  if (playerPool) playerPool.releaseAll();
+  if (enemyPool) enemyPool.releaseAll();
+}
 
 // src/entities/enemyRig.ts
 var SILHOUETTES = {
@@ -1265,24 +2634,6 @@ function updateHitReaction(state, meshGroup, dt) {
   }
 }
 
-// src/engine/events.ts
-var listeners = /* @__PURE__ */ new Map();
-function emit(event) {
-  const set = listeners.get(event.type);
-  if (!set) return;
-  for (const fn of set) {
-    fn(event);
-  }
-}
-function on(type, callback) {
-  let set = listeners.get(type);
-  if (!set) {
-    set = /* @__PURE__ */ new Set();
-    listeners.set(type, set);
-  }
-  set.add(callback);
-}
-
 // src/entities/enemy.ts
 var sceneRef3;
 var shieldGeo;
@@ -1360,6 +2711,9 @@ function spawnEnemy(typeName, position, gameState2) {
     // THREE.Line for aim arc preview
     mortarGroundCircle: null,
     // THREE.Mesh for persistent ground circle
+    // Physics velocity (knockback system)
+    vel: { x: 0, y: 0, z: 0 },
+    // knockback velocity — integrated by applyVelocities()
     // Pit / edge-slide
     wasDeflected: false,
     // true when movement was deflected by collision (edge-sliding)
@@ -1381,6 +2735,11 @@ function spawnEnemy(typeName, position, gameState2) {
     leapArcHeight: 0,
     leapCooldown: 0,
     // ms until next leap allowed
+    // Melee attack state machine (for enemies with config.melee)
+    meleePhase: "idle",
+    meleeTimer: 0,
+    meleeHasHit: false,
+    // prevent double-hit per attack cycle
     // Hit reaction (squash/bounce)
     hitReaction: createHitReaction(),
     allMaterials: model.allMaterials
@@ -1425,66 +2784,24 @@ function pitAwareDir(x, z, dx, dz, lookahead) {
   }
   return { dx: 0, dz: 0 };
 }
-function raycastTerrainDist(ox, oz, dx, dz, maxDist) {
-  if (!_collisionBounds) _collisionBounds = getCollisionBounds();
-  let closest = maxDist;
-  for (const box of _collisionBounds) {
-    let tmin, tmax;
-    if (Math.abs(dx) < 1e-8) {
-      if (ox < box.minX || ox > box.maxX) continue;
-      tmin = -Infinity;
-      tmax = Infinity;
-    } else {
-      const invDx = 1 / dx;
-      let t1 = (box.minX - ox) * invDx;
-      let t2 = (box.maxX - ox) * invDx;
-      if (t1 > t2) {
-        const tmp = t1;
-        t1 = t2;
-        t2 = tmp;
-      }
-      tmin = t1;
-      tmax = t2;
-    }
-    if (Math.abs(dz) < 1e-8) {
-      if (oz < box.minZ || oz > box.maxZ) continue;
-    } else {
-      const invDz = 1 / dz;
-      let t1 = (box.minZ - oz) * invDz;
-      let t2 = (box.maxZ - oz) * invDz;
-      if (t1 > t2) {
-        const tmp = t1;
-        t1 = t2;
-        t2 = tmp;
-      }
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-    }
-    if (tmax < 0 || tmin > tmax) continue;
-    const t = tmin > 0 ? tmin : tmax;
-    if (t > 0 && t < closest) {
-      closest = t;
-    }
-  }
-  return closest;
-}
 function updateEnemies(dt, playerPos2, gameState2) {
   for (let i = gameState2.enemies.length - 1; i >= 0; i--) {
     const enemy = gameState2.enemies[i];
+    if (enemy.isCarrierPayload) continue;
     if (enemy.isLeaping) {
       updateLeap(enemy, dt);
-    } else if (enemy.stunTimer > 0) {
-      enemy.stunTimer -= dt * 1e3;
+    } else if (enemy.stunTimer > 0 || hasTag(enemy, TAG.STUNNED)) {
+      if (enemy.stunTimer > 0) enemy.stunTimer -= dt * 1e3;
     } else {
       switch (enemy.behavior) {
         case "rush":
-          behaviorRush(enemy, playerPos2, dt);
+          behaviorRush(enemy, playerPos2, dt, gameState2);
           break;
         case "kite":
           behaviorKite(enemy, playerPos2, dt, gameState2);
           break;
         case "tank":
-          behaviorTank(enemy, playerPos2, dt);
+          behaviorTank(enemy, playerPos2, dt, gameState2);
           break;
         case "mortar":
           behaviorMortar(enemy, playerPos2, dt, gameState2);
@@ -1493,11 +2810,41 @@ function updateEnemies(dt, playerPos2, gameState2) {
     }
     enemy.pos.x = Math.max(-19, Math.min(19, enemy.pos.x));
     enemy.pos.z = Math.max(-19, Math.min(19, enemy.pos.z));
+    if (!enemy.isLeaping) {
+      const groundBelow = getGroundHeight(enemy.pos.x, enemy.pos.z);
+      if (enemy.pos.y > groundBelow + 0.05) {
+        const vel = enemy.vel;
+        if (vel && vel.y === 0) vel.y = 0;
+      }
+    }
     if (enemy.isLeaping) {
       enemy.mesh.position.x = enemy.pos.x;
       enemy.mesh.position.z = enemy.pos.z;
     } else {
       enemy.mesh.position.copy(enemy.pos);
+    }
+    const groundBelowEnemy = getGroundHeight(enemy.pos.x, enemy.pos.z);
+    const enemyAirborne = enemy.pos.y > groundBelowEnemy + 0.15 && !enemy.isLeaping;
+    if (enemyAirborne) {
+      if (!enemy._tumbleAngle) enemy._tumbleAngle = 0;
+      enemy._tumbleAngle += dt * 12;
+      enemy.mesh.rotation.x = Math.sin(enemy._tumbleAngle) * 0.4;
+      enemy.mesh.rotation.z = Math.cos(enemy._tumbleAngle * 0.7) * 0.3;
+      const vy = enemy.vel ? enemy.vel.y : 0;
+      if (vy > 2) {
+        enemy.mesh.scale.set(0.9, 1.15, 0.9);
+      } else if (vy < -2) {
+        enemy.mesh.scale.set(1.1, 0.85, 1.1);
+      } else {
+        enemy.mesh.scale.set(1, 1, 1);
+      }
+    } else {
+      if (enemy._tumbleAngle) {
+        enemy._tumbleAngle = 0;
+        enemy.mesh.rotation.x = 0;
+        enemy.mesh.rotation.z = 0;
+        enemy.mesh.scale.set(1, 1, 1);
+      }
     }
     if (enemy.flashTimer > 0) {
       enemy.flashTimer -= dt * 1e3;
@@ -1600,17 +2947,115 @@ function updateEnemies(dt, playerPos2, gameState2) {
     }
   }
 }
-function behaviorRush(enemy, playerPos2, dt) {
+function startEnemyMelee(enemy) {
+  const meleeCfg = enemy.config.melee;
+  if (!meleeCfg) return;
+  const telegraphDur = meleeCfg.telegraphDuration * MOB_GLOBAL.telegraphMult;
+  enemy.meleePhase = "telegraph";
+  enemy.meleeTimer = telegraphDur;
+  enemy.meleeHasHit = false;
+  enemy.flashTimer = telegraphDur;
+  enemy.bodyMesh.material.emissive.setHex(16755200);
+  if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16755200);
+  emit({
+    type: "enemyMeleeTelegraph",
+    position: { x: enemy.pos.x, z: enemy.pos.z },
+    facingAngle: enemy.mesh.rotation.y,
+    hitArc: meleeCfg.hitArc,
+    hitRange: meleeCfg.hitRange,
+    duration: telegraphDur + meleeCfg.attackDuration
+    // visible through telegraph + attack
+  });
+}
+function updateEnemyMelee(enemy, dt, playerPos2, gameState2) {
+  const meleeCfg = enemy.config.melee;
+  if (!meleeCfg || enemy.meleePhase === "idle") return;
+  enemy.meleeTimer -= dt * 1e3;
+  if (enemy.meleePhase === "telegraph") {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.015);
+    const r = Math.floor(255 * pulse);
+    const g = Math.floor(170 * pulse);
+    enemy.bodyMesh.material.emissive.setRGB(r / 255, g / 255, 0);
+    if (enemy.headMesh) enemy.headMesh.material.emissive.setRGB(r / 255, g / 255, 0);
+    if (enemy.meleeTimer <= 0) {
+      enemy.meleePhase = "attacking";
+      enemy.meleeTimer = meleeCfg.attackDuration;
+      if (meleeCfg.lungeDistance) {
+        _toPlayer.subVectors(playerPos2, enemy.pos);
+        _toPlayer.y = 0;
+        const dist = _toPlayer.length();
+        if (dist > 0.1) {
+          _toPlayer.normalize();
+          enemy.pos.x += _toPlayer.x * meleeCfg.lungeDistance;
+          enemy.pos.z += _toPlayer.z * meleeCfg.lungeDistance;
+        }
+      }
+      enemy.bodyMesh.material.emissive.setHex(16729088);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16729088);
+    }
+  } else if (enemy.meleePhase === "attacking") {
+    if (!enemy.meleeHasHit) {
+      const dx = playerPos2.x - enemy.pos.x;
+      const dz = playerPos2.z - enemy.pos.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < meleeCfg.hitRange && !isPlayerInvincible()) {
+        const angleToPlayer = Math.atan2(-dx, -dz);
+        const facingAngle = enemy.mesh.rotation.y;
+        let angleDiff = angleToPlayer - facingAngle;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        if (Math.abs(angleDiff) <= meleeCfg.hitArc / 2) {
+          const dmg = meleeCfg.damage * MOB_GLOBAL.damageMult;
+          gameState2.playerHealth -= dmg;
+          enemy.meleeHasHit = true;
+          screenShake(3, 120);
+          emit({ type: "playerHit", damage: dmg, position: { x: playerPos2.x, z: playerPos2.z } });
+          spawnDamageNumber(playerPos2.x, playerPos2.z, Math.round(dmg), "#ff4466");
+          if (gameState2.playerHealth <= 0) {
+            gameState2.playerHealth = 0;
+            gameState2.phase = "gameOver";
+          }
+        }
+      }
+    }
+    if (enemy.meleeTimer <= 0) {
+      enemy.meleePhase = "recovery";
+      enemy.meleeTimer = meleeCfg.recoveryDuration * MOB_GLOBAL.recoveryMult;
+      enemy.bodyMesh.material.emissive.setHex(2236962);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(2236962);
+    }
+  } else if (enemy.meleePhase === "recovery") {
+    if (enemy.meleeTimer <= 0) {
+      enemy.meleePhase = "idle";
+      enemy.lastAttackTime = performance.now();
+      enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
+    }
+  }
+}
+function behaviorRush(enemy, playerPos2, dt, gameState2) {
   if (enemy.isLeaping) return;
+  if (enemy.meleePhase !== "idle") {
+    updateEnemyMelee(enemy, dt, playerPos2, gameState2);
+    return;
+  }
   _toPlayer.subVectors(playerPos2, enemy.pos);
   _toPlayer.y = 0;
   const dist = _toPlayer.length();
   const stopDist = enemy.config.rush && enemy.config.rush.stopDistance || 0.5;
+  const meleeCfg = enemy.config.melee;
+  if (meleeCfg && dist <= meleeCfg.hitRange) {
+    const now = performance.now();
+    if (now - enemy.lastAttackTime > enemy.config.attackRate) {
+      startEnemyMelee(enemy);
+      return;
+    }
+  }
   if (dist > stopDist) {
     _toPlayer.normalize();
     const slideBoost = enemy.wasDeflected ? 1.175 : 1;
     const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-    const speed = enemy.config.speed * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
+    const speed = enemy.config.speed * MOB_GLOBAL.speedMult * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
     enemy.pos.x += _toPlayer.x * speed * dt;
     enemy.pos.z += _toPlayer.z * speed * dt;
   }
@@ -1691,7 +3136,7 @@ function behaviorKite(enemy, playerPos2, dt, gameState2) {
   if (!isTelegraphing) {
     const slideBoost = enemy.wasDeflected ? 1.175 : 1;
     const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-    const speed = enemy.config.speed * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
+    const speed = enemy.config.speed * MOB_GLOBAL.speedMult * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
     if (dist < preferredRange - (kite.retreatBuffer || 1)) {
       _toPlayer.normalize();
       const retreat = pitAwareDir(enemy.pos.x, enemy.pos.z, -_toPlayer.x, -_toPlayer.z, 2.5);
@@ -1715,62 +3160,37 @@ function behaviorKite(enemy, playerPos2, dt, gameState2) {
   if (enemy.sniperPhase === "idle") {
     if (dist < enemy.config.attackRange && now - enemy.lastAttackTime > enemy.config.attackRate) {
       enemy.sniperPhase = "telegraphing";
-      enemy.sniperTimer = sniper.telegraphDuration || 800;
+      enemy.sniperTimer = (sniper.telegraphDuration || 800) * MOB_GLOBAL.telegraphMult;
       const aimAngle = Math.atan2(playerPos2.x - enemy.pos.x, playerPos2.z - enemy.pos.z);
       enemy.sniperAimAngle = aimAngle;
-      const maxShotLength = sniper.shotLength || 14;
-      const dirX = Math.sin(aimAngle);
-      const dirZ = Math.cos(aimAngle);
-      const terrainDist = raycastTerrainDist(enemy.pos.x, enemy.pos.z, dirX, dirZ, maxShotLength);
-      const shotLength = Math.min(maxShotLength, terrainDist);
-      enemy.sniperAimCenter.x = enemy.pos.x + dirX * (shotLength / 2);
-      enemy.sniperAimCenter.z = enemy.pos.z + dirZ * (shotLength / 2);
-      enemy.flashTimer = sniper.telegraphDuration || 800;
+      enemy.flashTimer = enemy.sniperTimer;
       enemy.bodyMesh.material.emissive.setHex(sniper.color || 11158783);
       if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(sniper.color || 11158783);
-      const shotWidth = sniper.shotWidth || 1.2;
-      const dmg = sniper.damage || 15;
-      const color = sniper.color || 11158783;
-      const lingerMs = sniper.lingerDuration || 200;
-      applyAoeRectEffect({
-        x: enemy.sniperAimCenter.x,
-        z: enemy.sniperAimCenter.z,
-        width: shotWidth,
-        height: shotLength,
-        rotation: aimAngle,
-        telegraphDurationMs: sniper.telegraphDuration || 800,
-        lingerDurationMs: lingerMs,
-        color,
-        damage: dmg,
-        enemyDamageFn: (e) => {
-          e.health -= dmg;
-          const slowDur = sniper.slowDuration || 1e3;
-          const slowMul = sniper.slowMult || 0.5;
-          slowEnemy(e, slowDur, slowMul);
-          spawnDamageNumber(e.pos.x, e.pos.z, "SLOWED", "#cc88ff");
-        },
-        playerDamageFn: (cx, cz, w, h, rot) => {
-          if (isPlayerInvincible()) return;
-          const pp = getPlayerPos();
-          if (isInRotatedRect(pp.x, pp.z, cx, cz, w, h, rot)) {
-            gameState2.playerHealth -= dmg;
-            screenShake(3, 100);
-            spawnDamageNumber(pp.x, pp.z, dmg, "#ff4466");
-            if (gameState2.playerHealth <= 0) {
-              gameState2.playerHealth = 0;
-              gameState2.phase = "gameOver";
-            }
-          }
-        },
-        gameState: gameState2,
-        excludeEnemy: enemy
-      });
     }
   } else if (enemy.sniperPhase === "telegraphing") {
     enemy.sniperTimer -= dt * 1e3;
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.012);
+    const c = sniper.color || 11158783;
+    const r = (c >> 16 & 255) / 255;
+    const g = (c >> 8 & 255) / 255;
+    const b = (c & 255) / 255;
+    enemy.bodyMesh.material.emissive.setRGB(r * pulse, g * pulse, b * pulse);
+    if (enemy.headMesh) enemy.headMesh.material.emissive.setRGB(r * pulse, g * pulse, b * pulse);
     if (enemy.sniperTimer <= 0) {
       enemy.sniperPhase = "idle";
       enemy.lastAttackTime = now;
+      const dirX = Math.sin(enemy.sniperAimAngle);
+      const dirZ = Math.cos(enemy.sniperAimAngle);
+      const origin = { x: enemy.pos.x, y: 0.5, z: enemy.pos.z };
+      const direction = { x: dirX, y: 0, z: dirZ };
+      const projConfig = {
+        speed: 12,
+        damage: (sniper.damage || 15) * MOB_GLOBAL.damageMult,
+        color: sniper.color || 11158783
+      };
+      fireProjectile(origin, direction, projConfig, true);
+      enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
     }
   }
 }
@@ -1785,7 +3205,7 @@ function behaviorMortar(enemy, playerPos2, dt, gameState2) {
   if (!isAiming) {
     const slideBoost = enemy.wasDeflected ? 1.175 : 1;
     const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-    const speed = enemy.config.speed * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
+    const speed = enemy.config.speed * MOB_GLOBAL.speedMult * (enemy.slowTimer > 0 ? enemy.slowMult : 1) * slideBoost * iceEffects.speedMult;
     if (dist < preferredRange - (kite.retreatBuffer || 1.5)) {
       _toPlayer.normalize();
       const retreat = pitAwareDir(enemy.pos.x, enemy.pos.z, -_toPlayer.x, -_toPlayer.z, 2.5);
@@ -1935,14 +3355,14 @@ function createMortarGroundCircle(enemy) {
     _circleGeo = new THREE.RingGeometry(0.85, 1, 32);
     _circleGeo.rotateX(-Math.PI / 2);
   }
-  const ringMat = new THREE.MeshBasicMaterial({
+  const ringMat2 = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
     opacity: 0.3,
     side: THREE.DoubleSide,
     depthWrite: false
   });
-  const ringMesh = new THREE.Mesh(_circleGeo, ringMat);
+  const ringMesh2 = new THREE.Mesh(_circleGeo, ringMat2);
   if (!_mortarFillGeoShared) {
     _mortarFillGeoShared = new THREE.CircleGeometry(1, 32);
     _mortarFillGeoShared.rotateX(-Math.PI / 2);
@@ -1956,7 +3376,7 @@ function createMortarGroundCircle(enemy) {
   });
   const fillMesh = new THREE.Mesh(_mortarFillGeoShared, fillMat);
   const group = new THREE.Group();
-  group.add(ringMesh);
+  group.add(ringMesh2);
   group.add(fillMesh);
   group.position.set(enemy.mortarTarget.x, 0.05, enemy.mortarTarget.z);
   const circleStartScale = mortar.circleStartScale || 0.25;
@@ -1965,7 +3385,7 @@ function createMortarGroundCircle(enemy) {
   sceneRef3.add(group);
   enemy.mortarGroundCircle = {
     group,
-    ringMat,
+    ringMat: ringMat2,
     fillMat,
     color,
     targetRadius: radius,
@@ -1994,14 +3414,14 @@ function createDeathTelegraph(enemy) {
     _deathCircleGeo = new THREE.RingGeometry(0.85, 1, 32);
     _deathCircleGeo.rotateX(-Math.PI / 2);
   }
-  const ringMat = new THREE.MeshBasicMaterial({
+  const ringMat2 = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
     opacity: 0.5,
     side: THREE.DoubleSide,
     depthWrite: false
   });
-  const ringMesh = new THREE.Mesh(_deathCircleGeo, ringMat);
+  const ringMesh2 = new THREE.Mesh(_deathCircleGeo, ringMat2);
   if (!_deathFillGeoShared) {
     _deathFillGeoShared = new THREE.CircleGeometry(1, 32);
     _deathFillGeoShared.rotateX(-Math.PI / 2);
@@ -2015,14 +3435,14 @@ function createDeathTelegraph(enemy) {
   });
   const fillMesh = new THREE.Mesh(_deathFillGeoShared, fillMat);
   const group = new THREE.Group();
-  group.add(ringMesh);
+  group.add(ringMesh2);
   group.add(fillMesh);
   group.position.set(enemy.pos.x, 0.05, enemy.pos.z);
   group.scale.set(0.1, 0.1, 0.1);
   sceneRef3.add(group);
   enemy.deathTelegraph = {
     group,
-    ringMat,
+    ringMat: ringMat2,
     fillMat,
     targetRadius: radius
   };
@@ -2087,18 +3507,23 @@ function onDeathExplosion(enemy, gameState2) {
     }
   }
 }
-function behaviorTank(enemy, playerPos2, dt) {
+function behaviorTank(enemy, playerPos2, dt, gameState2) {
   const tank = enemy.config.tank || {};
   _toPlayer.subVectors(playerPos2, enemy.pos);
   _toPlayer.y = 0;
   const dist = _toPlayer.length();
+  if (enemy.meleePhase !== "idle") {
+    updateEnemyMelee(enemy, dt, playerPos2, gameState2);
+    return;
+  }
   const slowFactor = enemy.slowTimer > 0 ? enemy.slowMult : 1;
   const slideBoost = enemy.wasDeflected ? 1.175 : 1;
   const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
+  const baseSpeed = enemy.config.speed * MOB_GLOBAL.speedMult;
   if (enemy.isCharging) {
     const speedMult = tank.chargeSpeedMult || 3;
-    enemy.pos.x += enemy.chargeDir.x * enemy.config.speed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
-    enemy.pos.z += enemy.chargeDir.z * enemy.config.speed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
+    enemy.pos.x += enemy.chargeDir.x * baseSpeed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
+    enemy.pos.z += enemy.chargeDir.z * baseSpeed * speedMult * slowFactor * slideBoost * iceEffects.speedMult * dt;
     enemy.chargeTimer -= dt * 1e3;
     if (enemy.chargeTimer <= 0) {
       enemy.isCharging = false;
@@ -2107,10 +3532,18 @@ function behaviorTank(enemy, playerPos2, dt) {
       enemy.chargeCooldown = cdMin + Math.random() * (cdMax - cdMin);
     }
   } else {
+    const meleeCfg = enemy.config.melee;
+    if (meleeCfg && dist <= meleeCfg.hitRange) {
+      const now = performance.now();
+      if (now - enemy.lastAttackTime > enemy.config.attackRate) {
+        startEnemyMelee(enemy);
+        return;
+      }
+    }
     if (dist > 1) {
       _toPlayer.normalize();
-      enemy.pos.x += _toPlayer.x * enemy.config.speed * slowFactor * slideBoost * iceEffects.speedMult * dt;
-      enemy.pos.z += _toPlayer.z * enemy.config.speed * slowFactor * slideBoost * iceEffects.speedMult * dt;
+      enemy.pos.x += _toPlayer.x * baseSpeed * slowFactor * slideBoost * iceEffects.speedMult * dt;
+      enemy.pos.z += _toPlayer.z * baseSpeed * slowFactor * slideBoost * iceEffects.speedMult * dt;
     }
     enemy.chargeCooldown -= dt * 1e3;
     const minD = tank.chargeMinDist || 2;
@@ -2142,6 +3575,11 @@ function slowEnemy(enemy, durationMs, mult) {
 function stunEnemy(enemy, durationMs) {
   enemy.stunTimer = durationMs;
   enemy.isCharging = false;
+  if (enemy.meleePhase !== "idle") {
+    enemy.meleePhase = "idle";
+    enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
+    if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
+  }
   if (enemy.sniperPhase === "telegraphing") {
     enemy.sniperPhase = "idle";
   }
@@ -2409,6 +3847,196 @@ function clearIcePatches() {
   activeIcePatches.length = 0;
 }
 
+// src/effects/launchPillar.ts
+var sceneRef5;
+var activePillars = [];
+var pillarGeo;
+function initLaunchPillars(scene2) {
+  sceneRef5 = scene2;
+}
+function spawnLaunchPillar(x, z) {
+  if (!sceneRef5) return;
+  if (!pillarGeo) {
+    pillarGeo = new THREE.CylinderGeometry(
+      LAUNCH.pillarRadius * 0.7,
+      // top radius (tapered)
+      LAUNCH.pillarRadius,
+      // bottom radius
+      LAUNCH.pillarHeight,
+      6
+      // 6 sides — hexagonal for rocky look
+    );
+  }
+  const mat = new THREE.MeshStandardMaterial({
+    color: LAUNCH.pillarColor,
+    flatShading: true,
+    transparent: true,
+    opacity: 1
+  });
+  const mesh = new THREE.Mesh(pillarGeo, mat);
+  mesh.position.set(x, -LAUNCH.pillarHeight, z);
+  mesh.rotation.y = Math.random() * Math.PI * 2;
+  sceneRef5.add(mesh);
+  activePillars.push({
+    mesh,
+    material: mat,
+    elapsed: 0
+  });
+}
+function easeOutQuad2(t) {
+  return t * (2 - t);
+}
+function easeInQuad(t) {
+  return t * t;
+}
+function updateLaunchPillars(dt) {
+  const dtMs = dt * 1e3;
+  for (let i = activePillars.length - 1; i >= 0; i--) {
+    const p = activePillars[i];
+    p.elapsed += dtMs;
+    const { pillarRiseTime, pillarHoldTime, pillarDuration, pillarHeight } = LAUNCH;
+    const sinkStart = pillarRiseTime + pillarHoldTime;
+    const sinkDuration = pillarDuration - sinkStart;
+    if (p.elapsed < pillarRiseTime) {
+      const t = easeOutQuad2(p.elapsed / pillarRiseTime);
+      p.mesh.position.y = -pillarHeight + t * (pillarHeight * 0.5 + pillarHeight);
+    } else if (p.elapsed < sinkStart) {
+      p.mesh.position.y = pillarHeight * 0.5;
+    } else if (p.elapsed < pillarDuration) {
+      const sinkT = easeInQuad((p.elapsed - sinkStart) / sinkDuration);
+      p.mesh.position.y = pillarHeight * 0.5 - sinkT * (pillarHeight * 0.5 + pillarHeight);
+      p.material.opacity = 1 - sinkT;
+    } else {
+      p.material.dispose();
+      sceneRef5.remove(p.mesh);
+      activePillars.splice(i, 1);
+    }
+  }
+}
+function clearLaunchPillars() {
+  for (const p of activePillars) {
+    p.material.dispose();
+    sceneRef5.remove(p.mesh);
+  }
+  activePillars.length = 0;
+}
+
+// src/effects/launchIndicator.ts
+var sceneRef6;
+var ringGeo2;
+var ringMat;
+var ringMesh;
+var previousTarget = null;
+function initLaunchIndicator(scene2) {
+  sceneRef6 = scene2;
+}
+function findLaunchTarget(enemies, playerPos2) {
+  let closestEnemy = null;
+  let closestDistSq = LAUNCH.range * LAUNCH.range;
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
+    if (e.health <= 0 || e.fellInPit) continue;
+    const dx = e.pos.x - playerPos2.x;
+    const dz = e.pos.z - playerPos2.z;
+    const distSq = dx * dx + dz * dz;
+    if (distSq < closestDistSq) {
+      closestDistSq = distSq;
+      closestEnemy = e;
+    }
+  }
+  return closestEnemy;
+}
+function ensureRing() {
+  if (ringMesh) return;
+  if (!sceneRef6) return;
+  const innerRadius = LAUNCH.indicatorRingRadius * 0.65;
+  ringGeo2 = new THREE.RingGeometry(innerRadius, LAUNCH.indicatorRingRadius, 24);
+  ringGeo2.rotateX(-Math.PI / 2);
+  ringMat = new THREE.MeshBasicMaterial({
+    color: LAUNCH.indicatorColor,
+    transparent: true,
+    opacity: LAUNCH.indicatorOpacity,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  ringMesh = new THREE.Mesh(ringGeo2, ringMat);
+  ringMesh.renderOrder = -1;
+  ringMesh.visible = false;
+  sceneRef6.add(ringMesh);
+}
+function setTargetHighlight(enemy, intensity) {
+  if (!enemy || !enemy.bodyMesh) return;
+  enemy.bodyMesh.material.emissive.setHex(LAUNCH.indicatorColor);
+  enemy.bodyMesh.material.emissiveIntensity = intensity;
+  if (enemy.headMesh) {
+    enemy.headMesh.material.emissive.setHex(LAUNCH.indicatorColor);
+    enemy.headMesh.material.emissiveIntensity = intensity;
+  }
+}
+function restoreTargetEmissive(enemy) {
+  if (!enemy || !enemy.bodyMesh || !enemy.config) return;
+  enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
+  enemy.bodyMesh.material.emissiveIntensity = enemy.config.emissiveIntensity || 0.3;
+  if (enemy.headMesh) {
+    enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
+    enemy.headMesh.material.emissiveIntensity = enemy.config.emissiveIntensity || 0.3;
+  }
+}
+function updateLaunchIndicator(target4, windupProgress) {
+  ensureRing();
+  if (previousTarget && previousTarget !== target4) {
+    restoreTargetEmissive(previousTarget);
+  }
+  previousTarget = target4;
+  if (!target4) {
+    if (ringMesh) ringMesh.visible = false;
+    return;
+  }
+  if (ringMesh) {
+    ringMesh.position.set(target4.pos.x, 0.04, target4.pos.z);
+    ringMesh.visible = true;
+  }
+  if (windupProgress < 0) {
+    const pulse = 0.3 + 0.1 * Math.sin(performance.now() * 4e-3);
+    if (ringMat) {
+      ringMat.opacity = LAUNCH.indicatorOpacity * pulse / 0.3;
+    }
+    if (ringMesh) {
+      ringMesh.scale.setScalar(1);
+    }
+    setTargetHighlight(target4, 0.5);
+  } else {
+    const t = Math.min(windupProgress, 1);
+    const pulse = 0.8 + 0.2 * Math.sin(performance.now() * 0.015);
+    if (ringMat) {
+      ringMat.opacity = (LAUNCH.indicatorOpacity + (0.8 - LAUNCH.indicatorOpacity) * t) * pulse;
+    }
+    if (ringMesh) {
+      const scalePulse = 1 + 0.15 * Math.sin(performance.now() * 0.02) * t;
+      ringMesh.scale.setScalar(scalePulse);
+    }
+    setTargetHighlight(target4, 0.5 + 0.5 * t);
+  }
+}
+function clearLaunchIndicator() {
+  if (previousTarget) {
+    restoreTargetEmissive(previousTarget);
+    previousTarget = null;
+  }
+  if (ringMesh && sceneRef6) {
+    sceneRef6.remove(ringMesh);
+    ringMesh = null;
+  }
+  if (ringMat) {
+    ringMat.dispose();
+    ringMat = null;
+  }
+  if (ringGeo2) {
+    ringGeo2.dispose();
+    ringGeo2 = null;
+  }
+}
+
 // src/entities/playerRig.ts
 var P = {
   // Overall scale reference
@@ -2461,7 +4089,9 @@ var COLORS = {
   torso: { color: 4508808, emissive: 2271846, emissiveIntensity: 0.4 },
   head: { color: 5627306, emissive: 3390344, emissiveIntensity: 0.5 },
   arm: { color: 3848314, emissive: 2005344, emissiveIntensity: 0.35 },
-  leg: { color: 3716469, emissive: 1873496, emissiveIntensity: 0.35 }
+  leg: { color: 3716469, emissive: 1873496, emissiveIntensity: 0.35 },
+  fist: { color: 5627306, emissive: 3390344, emissiveIntensity: 0.5 }
+  // bright like head — reads as "hands"
 };
 var _torsoGeo = null;
 var _headGeo = null;
@@ -2469,6 +4099,7 @@ var _upperArmGeo = null;
 var _lowerArmGeo = null;
 var _thighGeo = null;
 var _shinGeo = null;
+var _fistGeo = null;
 function ensureGeometry() {
   if (_torsoGeo) return;
   _torsoGeo = new THREE.BoxGeometry(P.torsoWidth, P.torsoHeight, P.torsoDepth);
@@ -2477,6 +4108,7 @@ function ensureGeometry() {
   _lowerArmGeo = new THREE.BoxGeometry(P.lowerArmWidth, P.lowerArmHeight, P.lowerArmDepth);
   _thighGeo = new THREE.BoxGeometry(P.thighWidth, P.thighHeight, P.thighDepth);
   _shinGeo = new THREE.BoxGeometry(P.shinWidth, P.shinHeight, P.shinDepth);
+  _fistGeo = new THREE.BoxGeometry(0.1, 0.08, 0.1);
 }
 function makeMat(palette) {
   return new THREE.MeshStandardMaterial({
@@ -2522,6 +4154,7 @@ function createPlayerRig(parentGroup) {
   lowerArmL.position.y = P.elbowY;
   upperArmL.add(lowerArmL);
   addMesh(_lowerArmGeo, COLORS.arm, lowerArmL, 0, P.lowerArmY, 0);
+  addMesh(_fistGeo, COLORS.fist, lowerArmL, 0, P.lowerArmY - P.lowerArmHeight / 2 - 0.02, 0);
   const shoulderR = new THREE.Group();
   shoulderR.position.set(P.shoulderOffsetX, P.shoulderY, 0);
   torso.add(shoulderR);
@@ -2532,6 +4165,7 @@ function createPlayerRig(parentGroup) {
   lowerArmR.position.y = P.elbowY;
   upperArmR.add(lowerArmR);
   addMesh(_lowerArmGeo, COLORS.arm, lowerArmR, 0, P.lowerArmY, 0);
+  addMesh(_fistGeo, COLORS.fist, lowerArmR, 0, P.lowerArmY - P.lowerArmHeight / 2 - 0.02, 0);
   const thighL = new THREE.Group();
   thighL.position.set(-P.legOffsetX, 0, 0);
   hip.add(thighL);
@@ -2626,6 +4260,29 @@ var C = {
   // radians — front leg forward
   dashLegTrail: -0.5,
   // radians — back leg behind
+  // Airborne
+  jumpTuckAngle: 0.7,
+  // radians — thigh tuck during jump rise
+  jumpKneeBend: 0.9,
+  // radians — knee bend during tuck
+  jumpArmRaise: -0.4,
+  // radians — arms rise slightly
+  fallSpreadAngle: 0.35,
+  // radians — legs spread slightly during fall
+  fallArmRaise: -0.6,
+  // radians — arms rise higher in freefall
+  slamTuckAngle: 1,
+  // radians — tight tuck during slam
+  slamArmAngle: 0.8,
+  // radians — arms up overhead during slam
+  airSquashY: 1.1,
+  // stretch on jump rise
+  airSquashXZ: 0.92,
+  // compress X/Z on jump rise
+  slamStretchY: 0.8,
+  // compress on slam descent
+  slamStretchXZ: 1.15,
+  // widen on slam descent
   // Transitions (ms)
   idleToRunBlend: 80,
   runToIdleBlend: 120,
@@ -2647,7 +4304,10 @@ function createAnimatorState() {
     currentLean: 0,
     dashDir: 0,
     dashT: 0,
-    time: 0
+    time: 0,
+    punchSide: 0,
+    chargeT: 0,
+    chargeReleaseTimer: 0
   };
 }
 function resetAnimatorState(anim) {
@@ -2666,8 +4326,11 @@ function easeOutBack(t) {
   const c3 = c1 + 1;
   return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
 }
-function easeOutQuad2(t) {
+function easeOutQuad3(t) {
   return 1 - (1 - t) * (1 - t);
+}
+function clamp(v, min, max) {
+  return v < min ? min : v > max ? max : v;
 }
 function lerpAngle(from, to, t) {
   let diff = to - from;
@@ -2675,7 +4338,7 @@ function lerpAngle(from, to, t) {
   while (diff < -Math.PI) diff += Math.PI * 2;
   return from + diff * t;
 }
-function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, isInEndLag, dashProgress) {
+function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, isInEndLag, dashProgress, isSwinging = false, swingProgress = 0, isAirborne = false, velY = 0, isSlamming2 = false, isCharging2 = false, chargeT = 0) {
   anim.time += dt;
   const isMoving = Math.abs(inputState2.moveX) > 0.01 || Math.abs(inputState2.moveZ) > 0.01;
   const prevState = anim.currentState;
@@ -2688,14 +4351,49 @@ function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, is
     if (anim.currentState !== "endLag") {
       transitionTo(anim, "endLag", 0);
     }
+  } else if (isCharging2) {
+    if (anim.currentState !== "charge") {
+      transitionTo(anim, "charge", 0);
+    }
+    anim.chargeT = chargeT;
+  } else if (anim.currentState === "charge" && !isCharging2) {
+    transitionTo(anim, "chargeRelease", 0);
+    anim.chargeReleaseTimer = 0;
+  } else if (anim.currentState === "chargeRelease") {
+    anim.chargeReleaseTimer += dt;
+    if (anim.chargeReleaseTimer >= 0.25) {
+      if (isMoving) {
+        transitionTo(anim, "run", C.endLagToNormalBlend / 1e3);
+      } else {
+        transitionTo(anim, "idle", C.endLagToNormalBlend / 1e3);
+      }
+    }
+  } else if (isSwinging) {
+    if (anim.currentState !== "swing") {
+      transitionTo(anim, "swing", 0);
+      anim.punchSide = 1 - anim.punchSide;
+    }
+    anim.dashT = swingProgress;
+  } else if (isAirborne && isSlamming2) {
+    if (anim.currentState !== "slam") {
+      transitionTo(anim, "slam", 0);
+    }
+  } else if (isAirborne && velY > 0) {
+    if (anim.currentState !== "jump") {
+      transitionTo(anim, "jump", 0);
+    }
+  } else if (isAirborne) {
+    if (anim.currentState !== "fall") {
+      transitionTo(anim, "fall", 0);
+    }
   } else if (isMoving) {
     if (anim.currentState !== "run") {
-      const blend = anim.currentState === "endLag" ? C.endLagToNormalBlend : C.idleToRunBlend;
+      const blend = anim.currentState === "endLag" || anim.currentState === "swing" ? C.endLagToNormalBlend : C.idleToRunBlend;
       transitionTo(anim, "run", blend / 1e3);
     }
   } else {
     if (anim.currentState !== "idle") {
-      const blend = anim.currentState === "endLag" ? C.endLagToNormalBlend : C.runToIdleBlend;
+      const blend = anim.currentState === "endLag" || anim.currentState === "swing" ? C.endLagToNormalBlend : C.runToIdleBlend;
       transitionTo(anim, "idle", blend / 1e3);
     }
   }
@@ -2724,6 +4422,24 @@ function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, is
       break;
     case "endLag":
       applyEndLag(joints, anim);
+      break;
+    case "swing":
+      applySwing(joints, anim);
+      break;
+    case "charge":
+      applyCharge(joints, anim);
+      break;
+    case "chargeRelease":
+      applyChargeRelease(joints, anim);
+      break;
+    case "jump":
+      applyJump(joints, anim);
+      break;
+    case "fall":
+      applyFall(joints, anim);
+      break;
+    case "slam":
+      applySlam(joints, anim);
       break;
   }
   const hipOffset = anim.moveDirSmoothed - aimAngle;
@@ -2778,29 +4494,29 @@ function applyRun(joints, anim, dt, input) {
   const speed = Math.sqrt(input.moveX * input.moveX + input.moveZ * input.moveZ);
   const distThisFrame = speed * 5 * dt;
   anim.runCyclePhase = (anim.runCyclePhase + distThisFrame * C.runCycleRate) % 1;
-  const phase = anim.runCyclePhase * Math.PI * 2;
-  const thighSwing = Math.sin(phase) * C.strideAngle;
+  const phase4 = anim.runCyclePhase * Math.PI * 2;
+  const thighSwing = Math.sin(phase4) * C.strideAngle;
   joints.thighL.rotation.x = thighSwing;
   joints.thighR.rotation.x = -thighSwing;
-  const kneeL = Math.max(0, Math.sin(phase - 0.6)) * C.kneeBendMax;
-  const kneeR = Math.max(0, Math.sin(phase - 0.6 + Math.PI)) * C.kneeBendMax;
+  const kneeL = Math.max(0, Math.sin(phase4 - 0.6)) * C.kneeBendMax;
+  const kneeR = Math.max(0, Math.sin(phase4 - 0.6 + Math.PI)) * C.kneeBendMax;
   joints.shinL.rotation.x = -kneeL;
   joints.shinR.rotation.x = -kneeR;
-  const armSwing = Math.sin(phase) * C.strideAngle * C.armSwingRatio;
+  const armSwing = Math.sin(phase4) * C.strideAngle * C.armSwingRatio;
   joints.upperArmL.rotation.x = -armSwing;
   joints.upperArmR.rotation.x = armSwing;
-  const forearmSwing = Math.sin(phase - C.forearmLag) * C.strideAngle * C.armSwingRatio * 0.5;
+  const forearmSwing = Math.sin(phase4 - C.forearmLag) * C.strideAngle * C.armSwingRatio * 0.5;
   joints.lowerArmL.rotation.x = -Math.abs(forearmSwing) - 0.15;
   joints.lowerArmR.rotation.x = -Math.abs(forearmSwing) - 0.15;
-  const bounce = Math.abs(Math.sin(phase * 2)) * C.bodyBounceHeight;
+  const bounce = Math.abs(Math.sin(phase4 * 2)) * C.bodyBounceHeight;
   joints.hip.position.y = 0.5 + bounce;
-  joints.torso.rotation.y = Math.sin(phase) * 0.06;
+  joints.torso.rotation.y = Math.sin(phase4) * 0.06;
 }
 function applyDash(joints, anim) {
   const t = anim.dashT;
   if (t < 0.15) {
     const subT = t / 0.15;
-    const ease = easeOutQuad2(subT);
+    const ease = easeOutQuad3(subT);
     joints.rigRoot.scale.set(
       1 + (C.squashScaleXZ - 1) * ease,
       1 + (C.squashScaleY - 1) * ease,
@@ -2814,7 +4530,7 @@ function applyDash(joints, anim) {
     joints.upperArmR.rotation.x = C.dashArmSweep * ease * 0.5;
   } else if (t < 0.85) {
     const subT = (t - 0.15) / 0.7;
-    const ease = easeOutQuad2(subT);
+    const ease = easeOutQuad3(subT);
     joints.rigRoot.scale.set(
       C.stretchScaleXZ,
       C.stretchScaleY,
@@ -2845,17 +4561,17 @@ function applyDash(joints, anim) {
 }
 function getDashLean(t) {
   if (t < 0.15) {
-    return C.dashLeanAngle * easeOutQuad2(t / 0.15);
+    return C.dashLeanAngle * easeOutQuad3(t / 0.15);
   } else if (t < 0.85) {
     return C.dashLeanAngle;
   } else {
     const subT = (t - 0.85) / 0.15;
-    return C.dashLeanAngle * (1 - easeOutQuad2(subT));
+    return C.dashLeanAngle * (1 - easeOutQuad3(subT));
   }
 }
 function applyEndLag(joints, anim) {
   const t = Math.min(anim.stateTimer / 0.05, 1);
-  const ease = easeOutQuad2(t);
+  const ease = easeOutQuad3(t);
   const scaleY = 1 + (1.05 - 1) * (1 - ease);
   joints.rigRoot.scale.set(1, scaleY, 1);
   joints.rigRoot.rotation.x = -0.06 * (1 - ease);
@@ -2867,6 +4583,182 @@ function applyEndLag(joints, anim) {
   joints.upperArmL.rotation.x = -0.2 * (1 - ease);
   joints.upperArmR.rotation.x = -0.2 * (1 - ease);
 }
+function applySwing(joints, anim) {
+  const t = clamp(anim.dashT, 0, 1);
+  const isLeft = anim.punchSide === 1;
+  const punchUpper = isLeft ? joints.upperArmL : joints.upperArmR;
+  const punchLower = isLeft ? joints.lowerArmL : joints.lowerArmR;
+  const guardUpper = isLeft ? joints.upperArmR : joints.upperArmL;
+  const guardLower = isLeft ? joints.lowerArmR : joints.lowerArmL;
+  const torsoTwistSign = isLeft ? 1 : -1;
+  const leadThigh = isLeft ? joints.thighL : joints.thighR;
+  const leadShin = isLeft ? joints.shinL : joints.shinR;
+  const rearThigh = isLeft ? joints.thighR : joints.thighL;
+  const rearShin = isLeft ? joints.shinR : joints.shinL;
+  if (t < 0.25) {
+    const subT = t / 0.25;
+    const ease = easeOutQuad3(subT);
+    punchUpper.rotation.x = 0.35 * ease;
+    punchLower.rotation.x = -0.9 * ease;
+    guardUpper.rotation.x = -0.35 * ease;
+    guardLower.rotation.x = -0.75 * ease;
+    joints.torso.rotation.y = -0.25 * torsoTwistSign * ease;
+    joints.rigRoot.rotation.x = 0.04 * ease;
+    joints.hip.position.y = 0.5 - 0.02 * ease;
+    rearThigh.rotation.x = -0.12 * ease;
+    rearShin.rotation.x = -0.2 * ease;
+    leadThigh.rotation.x = 0.08 * ease;
+    leadShin.rotation.x = -0.05 * ease;
+    joints.hip.rotation.z = -0.03 * torsoTwistSign * ease;
+  } else {
+    const subT = (t - 0.25) / 0.75;
+    const ease = easeOutQuad3(subT);
+    punchUpper.rotation.x = 0.35 + (-1.3 - 0.35) * ease;
+    punchLower.rotation.x = -0.9 + (0.9 - 0.12) * ease;
+    guardUpper.rotation.x = -0.35;
+    guardLower.rotation.x = -0.75;
+    joints.torso.rotation.y = (-0.25 + (0.4 + 0.25) * ease) * torsoTwistSign;
+    const leanCurve = subT < 0.35 ? easeOutQuad3(subT / 0.35) : 1 - 0.4 * easeOutQuad3((subT - 0.35) / 0.65);
+    joints.rigRoot.rotation.x = 0.04 + 0.16 * leanCurve;
+    const hipDrop = subT < 0.3 ? easeOutQuad3(subT / 0.3) : 1 - 0.5 * easeOutQuad3((subT - 0.3) / 0.7);
+    joints.hip.position.y = 0.5 - 0.02 - 0.025 * hipDrop;
+    joints.hip.rotation.z = (-0.03 + 0.08 * ease) * torsoTwistSign;
+    const stepCurve = subT < 0.4 ? easeOutQuad3(subT / 0.4) : 1 - 0.3 * easeOutQuad3((subT - 0.4) / 0.6);
+    leadThigh.rotation.x = 0.08 + 0.35 * stepCurve;
+    leadShin.rotation.x = -0.05 - 0.25 * stepCurve;
+    const pushCurve = subT < 0.5 ? easeOutQuad3(subT / 0.5) : 1 - 0.2 * easeOutQuad3((subT - 0.5) / 0.5);
+    rearThigh.rotation.x = -0.12 - 0.2 * pushCurve;
+    rearShin.rotation.x = -0.2 - 0.15 * pushCurve;
+  }
+}
+function applyCharge(joints, anim) {
+  const chargeT = clamp(anim.chargeT, 0, 1);
+  const blendIn = clamp(anim.stateTimer / 0.15, 0, 1);
+  const ease = easeOutQuad3(blendIn);
+  const loopRate = 3.5;
+  const sway = Math.sin(anim.time * loopRate * Math.PI * 2);
+  const swaySmall = Math.sin(anim.time * loopRate * 0.7 * Math.PI * 2);
+  const crouch = 0.04 + 0.04 * chargeT;
+  joints.hip.position.y = 0.5 - crouch * ease;
+  joints.thighL.rotation.x = 0.15 * ease;
+  joints.thighR.rotation.x = -0.15 * ease;
+  joints.thighL.rotation.z = 0.08 * ease;
+  joints.thighR.rotation.z = -0.08 * ease;
+  joints.shinL.rotation.x = -0.2 * ease;
+  joints.shinR.rotation.x = -0.2 * ease;
+  const armPull = 0.5 + 0.6 * chargeT;
+  const elbowFlare = 0.2 + 0.3 * chargeT;
+  joints.upperArmL.rotation.x = armPull * ease;
+  joints.upperArmR.rotation.x = armPull * ease;
+  joints.upperArmL.rotation.z = elbowFlare * ease;
+  joints.upperArmR.rotation.z = -elbowFlare * ease;
+  joints.lowerArmL.rotation.x = (-0.6 - 0.3 * chargeT) * ease;
+  joints.lowerArmR.rotation.x = (-0.6 - 0.3 * chargeT) * ease;
+  const leanBack = -0.06 - 0.08 * chargeT;
+  joints.rigRoot.rotation.x = leanBack * ease;
+  const puff = 1 + 0.05 * chargeT * ease;
+  joints.torso.rotation.x = -0.04 * chargeT * ease;
+  const swayAmp = 0.02 + 0.03 * chargeT;
+  joints.torso.rotation.y = sway * swayAmp * ease;
+  joints.hip.rotation.z = swaySmall * 0.015 * ease;
+  const armPulse = sway * 0.06 * chargeT * ease;
+  joints.upperArmL.rotation.x += armPulse;
+  joints.upperArmR.rotation.x += armPulse;
+  joints.head.rotation.x = 0.08 * chargeT * ease;
+}
+function applyChargeRelease(joints, anim) {
+  const t = clamp(anim.chargeReleaseTimer / 0.25, 0, 1);
+  if (t < 0.35) {
+    const subT = t / 0.35;
+    const ease = easeOutQuad3(subT);
+    joints.upperArmL.rotation.x = 0.5 + (-1.4 - 0.5) * ease;
+    joints.upperArmR.rotation.x = 0.5 + (-1.4 - 0.5) * ease;
+    joints.lowerArmL.rotation.x = -0.6 + (0.6 - 0.1) * ease;
+    joints.lowerArmR.rotation.x = -0.6 + (0.6 - 0.1) * ease;
+    joints.upperArmL.rotation.z = 0.3 + (-0.3 - 0.3) * ease;
+    joints.upperArmR.rotation.z = -0.3 + (0.3 + 0.3) * ease;
+    joints.rigRoot.rotation.x = -0.1 + (0.22 + 0.1) * ease;
+    joints.hip.position.y = 0.5 - 0.06 * ease;
+    joints.thighL.rotation.x = 0.15 + 0.35 * ease;
+    joints.shinL.rotation.x = -0.2 - 0.2 * ease;
+    joints.thighR.rotation.x = -0.15 - 0.15 * ease;
+    joints.shinR.rotation.x = -0.2 - 0.1 * ease;
+    joints.torso.rotation.x = 0.06 * ease;
+  } else {
+    const subT = (t - 0.35) / 0.65;
+    const ease = easeOutQuad3(subT);
+    const armRetract = 1 - ease;
+    joints.upperArmL.rotation.x = -1.4 * armRetract;
+    joints.upperArmR.rotation.x = -1.4 * armRetract;
+    joints.lowerArmL.rotation.x = -0.1 * armRetract;
+    joints.lowerArmR.rotation.x = -0.1 * armRetract;
+    joints.upperArmL.rotation.z = 0;
+    joints.upperArmR.rotation.z = 0;
+    joints.rigRoot.rotation.x = 0.22 * armRetract;
+    joints.hip.position.y = 0.5 - 0.06 * armRetract;
+    joints.thighL.rotation.x = 0.5 * armRetract;
+    joints.shinL.rotation.x = -0.4 * armRetract;
+    joints.thighR.rotation.x = -0.3 * armRetract;
+    joints.shinR.rotation.x = -0.3 * armRetract;
+    joints.torso.rotation.x = 0.06 * armRetract;
+  }
+}
+function applyJump(joints, anim) {
+  const t = clamp(anim.stateTimer / 0.15, 0, 1);
+  const ease = easeOutQuad3(t);
+  joints.rigRoot.scale.set(
+    1 + (C.airSquashXZ - 1) * ease,
+    1 + (C.airSquashY - 1) * ease,
+    1 + (C.airSquashXZ - 1) * ease
+  );
+  joints.thighL.rotation.x = -C.jumpTuckAngle * ease;
+  joints.thighR.rotation.x = -C.jumpTuckAngle * ease;
+  joints.shinL.rotation.x = C.jumpKneeBend * ease;
+  joints.shinR.rotation.x = C.jumpKneeBend * ease;
+  joints.upperArmL.rotation.x = C.jumpArmRaise * ease;
+  joints.upperArmR.rotation.x = C.jumpArmRaise * ease;
+  joints.upperArmL.rotation.z = 0.2 * ease;
+  joints.upperArmR.rotation.z = -0.2 * ease;
+  joints.lowerArmL.rotation.x = -0.3 * ease;
+  joints.lowerArmR.rotation.x = -0.3 * ease;
+  joints.rigRoot.rotation.x = -0.08 * ease;
+}
+function applyFall(joints, anim) {
+  const t = clamp(anim.stateTimer / 0.2, 0, 1);
+  const ease = easeOutQuad3(t);
+  joints.rigRoot.scale.set(1, 1, 1);
+  joints.thighL.rotation.x = C.fallSpreadAngle * ease;
+  joints.thighR.rotation.x = -C.fallSpreadAngle * 0.5 * ease;
+  joints.shinL.rotation.x = -0.3 * ease;
+  joints.shinR.rotation.x = -0.4 * ease;
+  joints.upperArmL.rotation.x = C.fallArmRaise * ease;
+  joints.upperArmR.rotation.x = C.fallArmRaise * ease;
+  joints.upperArmL.rotation.z = 0.4 * ease;
+  joints.upperArmR.rotation.z = -0.4 * ease;
+  joints.lowerArmL.rotation.x = -0.2 * ease;
+  joints.lowerArmR.rotation.x = -0.2 * ease;
+  joints.rigRoot.rotation.x = 0.1 * ease;
+}
+function applySlam(joints, anim) {
+  const t = clamp(anim.stateTimer / 0.1, 0, 1);
+  const ease = easeOutQuad3(t);
+  joints.rigRoot.scale.set(
+    1 + (C.slamStretchXZ - 1) * ease,
+    1 + (C.slamStretchY - 1) * ease,
+    1 + (C.slamStretchXZ - 1) * ease
+  );
+  joints.thighL.rotation.x = -C.slamTuckAngle * ease;
+  joints.thighR.rotation.x = -C.slamTuckAngle * ease;
+  joints.shinL.rotation.x = C.jumpKneeBend * ease;
+  joints.shinR.rotation.x = C.jumpKneeBend * ease;
+  joints.upperArmL.rotation.x = -C.slamArmAngle * ease;
+  joints.upperArmR.rotation.x = -C.slamArmAngle * ease;
+  joints.upperArmL.rotation.z = 0.15 * ease;
+  joints.upperArmR.rotation.z = -0.15 * ease;
+  joints.lowerArmL.rotation.x = -0.5 * ease;
+  joints.lowerArmR.rotation.x = -0.5 * ease;
+  joints.rigRoot.rotation.x = 0.2 * ease;
+}
 
 // src/entities/player.ts
 var playerGroup;
@@ -2874,7 +4766,12 @@ var aimIndicator;
 var rig;
 var animState;
 var playerPos = new THREE.Vector3(0, 0, 0);
-var lastFireTime = 0;
+var meleeSwinging = false;
+var meleeCooldownTimer = 0;
+var meleeSwingTimer = 0;
+var MELEE_SWING_DURATION = 200;
+var meleeHitEnemies = /* @__PURE__ */ new Set();
+var meleeSwingDir = 0;
 var isDashing = false;
 var dashTimer = 0;
 var dashDuration = 0;
@@ -2892,7 +4789,15 @@ var chargeTelegraphGroup = null;
 var chargeFillMesh = null;
 var chargeBorderMesh = null;
 var chargeBorderGeo = null;
-var _fireDir = new THREE.Vector3();
+var playerVelY = 0;
+var isPlayerAirborne = false;
+var landingLagTimer = 0;
+var actionLockoutTimer = 0;
+var ACTION_LOCKOUT_MS = 300;
+var launchCooldownTimer = 0;
+var launchWindupTimer = 0;
+var launchWindupTarget = null;
+var isSlamming = false;
 var DEFAULT_EMISSIVE = 2271846;
 var DEFAULT_EMISSIVE_INTENSITY = 0.4;
 function restoreDefaultEmissive() {
@@ -2967,8 +4872,82 @@ function updatePlayer(inputState2, dt, gameState2) {
   if (inputState2.dash && gameState2.abilities.dash.cooldownRemaining <= 0) {
     startDash(inputState2, gameState2);
   }
-  if (inputState2.ultimate && gameState2.abilities.ultimate.cooldownRemaining <= 0 && !isCharging) {
+  if ((inputState2.chargeStarted || inputState2.ultimate) && gameState2.abilities.ultimate.cooldownRemaining <= 0 && !isCharging && !isPlayerAirborne && !playerHasTag(TAG.AERIAL) && actionLockoutTimer <= 0) {
     startCharge(inputState2, gameState2);
+  }
+  if (inputState2.jump && !isPlayerAirborne && !isDashing && landingLagTimer <= 0) {
+    playerVelY = JUMP.initialVelocity;
+    isPlayerAirborne = true;
+    emit({ type: "playerJump", position: { x: playerPos.x, z: playerPos.z } });
+  }
+  if (launchCooldownTimer > 0) {
+    launchCooldownTimer -= dt * 1e3;
+  }
+  if (launchWindupTimer > 0) {
+    if (isDashing || !launchWindupTarget || launchWindupTarget.health <= 0 || launchWindupTarget.fellInPit) {
+      updateLaunchIndicator(null, -1);
+      launchWindupTimer = 0;
+      launchWindupTarget = null;
+    }
+  }
+  if (launchWindupTimer > 0) {
+    launchWindupTimer -= dt * 1e3;
+    const progress = 1 - Math.max(0, launchWindupTimer) / LAUNCH.windupDuration;
+    updateLaunchIndicator(launchWindupTarget, progress);
+    if (launchWindupTimer <= 0) {
+      const closestEnemy = launchWindupTarget;
+      launchWindupTarget = null;
+      updateLaunchIndicator(null, -1);
+      const vel = closestEnemy.vel;
+      const launchVelY = JUMP.initialVelocity * LAUNCH.enemyVelMult;
+      if (vel) {
+        vel.y = launchVelY;
+        const arcDx = playerPos.x - closestEnemy.pos.x;
+        const arcDz = playerPos.z - closestEnemy.pos.z;
+        const arcDist = Math.sqrt(arcDx * arcDx + arcDz * arcDz);
+        if (arcDist > 0.1) {
+          const convergenceTime = launchVelY / PHYSICS.gravity;
+          const arcSpeed = arcDist * LAUNCH.arcFraction / convergenceTime;
+          vel.x = arcDx / arcDist * arcSpeed;
+          vel.z = arcDz / arcDist * arcSpeed;
+        }
+      }
+      spawnLaunchPillar(closestEnemy.pos.x, closestEnemy.pos.z);
+      closestEnemy.health -= LAUNCH.damage;
+      playerVelY = JUMP.initialVelocity * LAUNCH.playerVelMult;
+      isPlayerAirborne = true;
+      launchCooldownTimer = LAUNCH.cooldown;
+      registerLaunch(closestEnemy);
+      claimLaunched(closestEnemy, "floatSelector");
+      activateVerb("floatSelector", closestEnemy);
+      emit({
+        type: "enemyLaunched",
+        enemy: closestEnemy,
+        position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z },
+        velocity: JUMP.initialVelocity * LAUNCH.enemyVelMult
+      });
+      spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, `LAUNCH! ${LAUNCH.damage}`, "#ffaa00");
+      inputState2.launch = false;
+    }
+  } else if (inputState2.launch && !isPlayerAirborne && !isDashing && launchCooldownTimer <= 0) {
+    const closestEnemy = findLaunchTarget(gameState2.enemies || [], playerPos);
+    if (closestEnemy) {
+      launchWindupTarget = closestEnemy;
+      launchWindupTimer = LAUNCH.windupDuration;
+      const dx = closestEnemy.pos.x - playerPos.x;
+      const dz = closestEnemy.pos.z - playerPos.z;
+      playerGroup.rotation.y = Math.atan2(-dx, -dz);
+      inputState2.launch = false;
+    }
+  } else if (!isPlayerAirborne && !isDashing && launchCooldownTimer <= 0 && launchWindupTimer <= 0) {
+    const candidate = findLaunchTarget(gameState2.enemies || [], playerPos);
+    updateLaunchIndicator(candidate, -1);
+  } else if (launchWindupTimer <= 0) {
+    updateLaunchIndicator(null, -1);
+  }
+  if (inputState2.launch && isPlayerAirborne && !isSlamming && !playerHasTag(TAG.AERIAL)) {
+    isSlamming = true;
+    playerVelY = SELF_SLAM.slamVelocity;
   }
   if (Math.abs(inputState2.moveX) > 0.01 || Math.abs(inputState2.moveZ) > 0.01) {
     const chargeSlow = isCharging ? ABILITIES.ultimate.chargeMoveSpeedMult : 1;
@@ -2977,8 +4956,86 @@ function updatePlayer(inputState2, dt, gameState2) {
     playerPos.x += inputState2.moveX * PLAYER.speed * speedMod * dt;
     playerPos.z += inputState2.moveZ * PLAYER.speed * speedMod * dt;
   }
-  playerPos.x = Math.max(-19.5, Math.min(19.5, playerPos.x));
-  playerPos.z = Math.max(-19.5, Math.min(19.5, playerPos.z));
+  const clampX = ARENA_HALF_X - 0.5;
+  const clampZ = ARENA_HALF_Z - 0.5;
+  playerPos.x = Math.max(-clampX, Math.min(clampX, playerPos.x));
+  playerPos.z = Math.max(-clampZ, Math.min(clampZ, playerPos.z));
+  if (!isPlayerAirborne) {
+    const groundBelow = getGroundHeight(playerPos.x, playerPos.z);
+    if (playerPos.y > groundBelow + PHYSICS.groundEpsilon) {
+      isPlayerAirborne = true;
+      playerVelY = 0;
+    }
+  }
+  if (isPlayerAirborne) {
+    const dunkVelY = getDunkPlayerVelY();
+    const selectorVelY = getFloatSelectorPlayerVelY();
+    const spikeVelY = getSpikePlayerVelYOverride();
+    const hasVerbOverride = dunkVelY !== null || selectorVelY !== null || spikeVelY !== null;
+    if (hasVerbOverride) {
+      if (dunkVelY !== null) {
+        playerVelY = dunkVelY;
+      } else if (selectorVelY !== null) {
+        playerVelY = selectorVelY;
+      } else if (spikeVelY !== null) {
+        playerVelY = spikeVelY;
+      }
+    } else {
+      playerVelY -= JUMP.gravity * dt;
+      if (getSpikeFastFallActive()) {
+        playerVelY -= JUMP.gravity * (SPIKE.fastFallGravityMult - 1) * dt;
+      }
+    }
+    playerPos.y += playerVelY * dt;
+    const groundHeight = getGroundHeight(playerPos.x, playerPos.z);
+    if (playerPos.y <= groundHeight) {
+      const fallSpeed = Math.abs(playerVelY);
+      playerPos.y = groundHeight;
+      playerVelY = 0;
+      isPlayerAirborne = false;
+      if (isSlamming) {
+        isSlamming = false;
+        landingLagTimer = SELF_SLAM.landingLag;
+        screenShake(SELF_SLAM.landingShake);
+        const enemies = gameState2.enemies;
+        if (enemies) {
+          for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
+            if (e.health <= 0 || e.fellInPit) continue;
+            const dx = e.pos.x - playerPos.x;
+            const dz = e.pos.z - playerPos.z;
+            const distSq = dx * dx + dz * dz;
+            if (distSq < SELF_SLAM.damageRadius * SELF_SLAM.damageRadius) {
+              e.health -= SELF_SLAM.damage;
+              e.flashTimer = 100;
+              const dist = Math.sqrt(distSq) || 0.1;
+              const vel = e.vel;
+              if (vel) {
+                vel.x += dx / dist * SELF_SLAM.knockback;
+                vel.z += dz / dist * SELF_SLAM.knockback;
+              }
+            }
+          }
+        }
+        emit({ type: "playerSlam", position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+        spawnDamageNumber(playerPos.x, playerPos.z, "SLAM!", "#ff8800");
+      } else if (getDunkPhase() === "slam") {
+        const lag = getDunkLandingLag();
+        if (lag > 0) landingLagTimer = lag;
+        actionLockoutTimer = ACTION_LOCKOUT_MS;
+      } else {
+        landingLagTimer = JUMP.landingLag;
+        emit({ type: "playerLand", position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+      }
+    }
+  }
+  if (landingLagTimer > 0) {
+    landingLagTimer -= dt * 1e3;
+  }
+  if (actionLockoutTimer > 0) {
+    actionLockoutTimer -= dt * 1e3;
+  }
+  updateDunkVisuals(dt);
   playerGroup.position.copy(playerPos);
   aimAtCursor(inputState2);
   updateAnimation(
@@ -2989,18 +5046,111 @@ function updatePlayer(inputState2, dt, gameState2) {
     playerGroup.rotation.y,
     isDashing,
     endLagTimer > 0,
-    isDashing ? Math.min(dashTimer / dashDuration, 1) : 0
+    isDashing ? Math.min(dashTimer / dashDuration, 1) : 0,
+    meleeSwinging,
+    meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0,
+    isPlayerAirborne,
+    playerVelY,
+    isSlamming || getDunkPhase() === "slam",
+    isCharging,
+    isCharging ? Math.min(chargeTimer / ABILITIES.ultimate.chargeTimeMs, 1) : 0
   );
-  const dashCfg = ABILITIES.dash;
-  const canShoot = (!isDashing || dashCfg.canShootDuring) && !isCharging;
-  if (canShoot && now - lastFireTime > PLAYER.fireRate) {
-    _fireDir.set(
-      -Math.sin(playerGroup.rotation.y),
-      0,
-      -Math.cos(playerGroup.rotation.y)
-    );
-    fireProjectile(playerPos, _fireDir, { speed: PLAYER.projectile.speed, damage: PLAYER.projectile.damage, color: PLAYER.projectile.color }, false);
-    lastFireTime = now;
+  if (meleeCooldownTimer > 0) {
+    meleeCooldownTimer -= dt * 1e3;
+  }
+  if (meleeSwinging) {
+    meleeSwingTimer += dt * 1e3;
+    if (meleeSwingTimer >= MELEE_SWING_DURATION) {
+      meleeSwinging = false;
+      meleeSwingTimer = 0;
+    }
+  }
+  if (inputState2.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging && !playerHasTag(TAG.AERIAL) && actionLockoutTimer <= 0) {
+    if (isPlayerAirborne) {
+      const enemies = gameState2.enemies;
+      let closestEnemy = null;
+      let closestDistSq = AERIAL_STRIKE.range * AERIAL_STRIKE.range;
+      if (enemies) {
+        for (let i = 0; i < enemies.length; i++) {
+          const e = enemies[i];
+          if (e.health <= 0 || e.fellInPit) continue;
+          const dx = e.pos.x - playerPos.x;
+          const dz = e.pos.z - playerPos.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq < closestDistSq) {
+            closestDistSq = distSq;
+            closestEnemy = e;
+          }
+        }
+      }
+      if (closestEnemy) {
+        closestEnemy.health -= AERIAL_STRIKE.damage;
+        closestEnemy.flashTimer = 120;
+        const vel = closestEnemy.vel;
+        if (vel) vel.y = AERIAL_STRIKE.slamVelocity;
+        const dx = closestEnemy.pos.x - playerPos.x;
+        const dz = closestEnemy.pos.z - playerPos.z;
+        playerGroup.rotation.y = Math.atan2(-dx, -dz);
+        screenShake(AERIAL_STRIKE.screenShake);
+        meleeCooldownTimer = AERIAL_STRIKE.cooldown;
+        emit({
+          type: "aerialStrike",
+          enemy: closestEnemy,
+          damage: AERIAL_STRIKE.damage,
+          position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z }
+        });
+        spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, "SPIKE!", "#44ddff");
+      } else {
+        meleeSwinging = true;
+        meleeSwingTimer = 0;
+        meleeCooldownTimer = MELEE.cooldown;
+        meleeHitEnemies.clear();
+        meleeSwingDir = playerGroup.rotation.y;
+        emit({
+          type: "meleeSwing",
+          position: { x: playerPos.x, z: playerPos.z },
+          direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) }
+        });
+      }
+    } else {
+      const enemies = gameState2.enemies;
+      if (enemies) {
+        let bestDist = MELEE.autoTargetRange * MELEE.autoTargetRange;
+        let bestEnemy = null;
+        const aimAngle = playerGroup.rotation.y;
+        for (let i = 0; i < enemies.length; i++) {
+          const e = enemies[i];
+          if (e.health <= 0 || e.fellInPit) continue;
+          const dx = e.pos.x - playerPos.x;
+          const dz = e.pos.z - playerPos.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq > bestDist) continue;
+          const angleToEnemy = Math.atan2(-dx, -dz);
+          let angleDiff = angleToEnemy - aimAngle;
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+          if (Math.abs(angleDiff) <= MELEE.autoTargetArc / 2) {
+            bestDist = distSq;
+            bestEnemy = e;
+          }
+        }
+        if (bestEnemy) {
+          const dx = bestEnemy.pos.x - playerPos.x;
+          const dz = bestEnemy.pos.z - playerPos.z;
+          playerGroup.rotation.y = Math.atan2(-dx, -dz);
+        }
+      }
+      meleeSwinging = true;
+      meleeSwingTimer = 0;
+      meleeCooldownTimer = MELEE.cooldown;
+      meleeHitEnemies.clear();
+      meleeSwingDir = playerGroup.rotation.y;
+      emit({
+        type: "meleeSwing",
+        position: { x: playerPos.x, z: playerPos.z },
+        direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) }
+      });
+    }
   }
   updateAfterimages(dt);
 }
@@ -3069,8 +5219,10 @@ function updateDash(dt, gameState2) {
   playerPos.copy(dashStartPos);
   playerPos.x += dashDir.x * dashDistance * easedT;
   playerPos.z += dashDir.z * dashDistance * easedT;
-  playerPos.x = Math.max(-19.5, Math.min(19.5, playerPos.x));
-  playerPos.z = Math.max(-19.5, Math.min(19.5, playerPos.z));
+  const dashClampX = ARENA_HALF_X - 0.5;
+  const dashClampZ = ARENA_HALF_Z - 0.5;
+  playerPos.x = Math.max(-dashClampX, Math.min(dashClampX, playerPos.x));
+  playerPos.z = Math.max(-dashClampZ, Math.min(dashClampZ, playerPos.z));
   isInvincible = cfg.invincible && (dashTimer >= cfg.iFrameStart && dashTimer <= cfg.iFrameEnd);
   if (cfg.afterimageCount > 0) {
     const interval = dashDuration / (cfg.afterimageCount + 1);
@@ -3253,6 +5405,15 @@ function removeChargeTelegraph() {
     chargeBorderGeo = null;
   }
 }
+function isMeleeSwinging() {
+  return meleeSwinging;
+}
+function getMeleeSwingDir() {
+  return meleeSwingDir;
+}
+function getMeleeHitEnemies() {
+  return meleeHitEnemies;
+}
 function getPlayerPos() {
   return playerPos;
 }
@@ -3274,10 +5435,26 @@ function resetPlayer() {
   isDashing = false;
   isInvincible = false;
   endLagTimer = 0;
-  lastFireTime = 0;
+  meleeSwinging = false;
+  meleeCooldownTimer = 0;
+  meleeSwingTimer = 0;
+  meleeHitEnemies.clear();
   isCharging = false;
   chargeTimer = 0;
   pushEvent = null;
+  playerVelY = 0;
+  isPlayerAirborne = false;
+  landingLagTimer = 0;
+  launchCooldownTimer = 0;
+  launchWindupTimer = 0;
+  launchWindupTarget = null;
+  clearLaunchIndicator();
+  isSlamming = false;
+  actionLockoutTimer = 0;
+  resetDunk();
+  resetFloatSelector();
+  resetSpike();
+  clearPlayerTags();
   removeChargeTelegraph();
   restoreDefaultEmissive();
   resetAnimatorState(animState);
@@ -3286,6 +5463,10 @@ function resetPlayer() {
     scene2.remove(ai.mesh);
   }
   afterimages.length = 0;
+}
+function setPlayerPosition(x, z) {
+  playerPos.set(x, 0, z);
+  playerGroup.position.set(x, 0, z);
 }
 
 // src/engine/input.ts
@@ -3296,9 +5477,17 @@ var inputState = {
   aimWorldPos: { x: 0, y: 0, z: 0 },
   mouseNDC: { x: 0, y: 0 },
   dash: false,
+  attack: false,
+  attackHeld: false,
+  // continuous: true while LMB is down
   ultimate: false,
   ultimateHeld: false,
-  toggleEditor: false
+  interact: false,
+  toggleEditor: false,
+  bulletTime: false,
+  jump: false,
+  launch: false,
+  chargeStarted: false
 };
 var INV_SQRT2 = 1 / Math.SQRT2;
 var ISO_RIGHT_X = INV_SQRT2;
@@ -3316,17 +5505,22 @@ var touchAimX = 0;
 var touchAimY = 0;
 var touchAimActive = false;
 var touchActive = false;
+var _checkMouseHold = () => {
+};
 function initInput() {
   window.addEventListener("keydown", (e) => {
     if (e.repeat) return;
     keys[e.code] = true;
     usingGamepad = false;
     if (e.code === "Space") {
-      inputState.dash = true;
+      inputState.jump = true;
       e.preventDefault();
     }
-    if (e.code === "KeyE") inputState.ultimate = true;
+    if (e.code === "ShiftLeft" || e.code === "ShiftRight") inputState.dash = true;
+    if (e.code === "KeyE") inputState.launch = true;
+    if (e.code === "KeyF" || e.code === "Enter") inputState.interact = true;
     if (e.code === "Backquote") inputState.toggleEditor = true;
+    if (e.code === "KeyQ") inputState.bulletTime = true;
   });
   window.addEventListener("keyup", (e) => {
     keys[e.code] = false;
@@ -3336,6 +5530,29 @@ function initInput() {
     inputState.mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
     usingGamepad = false;
   });
+  let mouseDownTime = 0;
+  let mouseIsDown = false;
+  const HOLD_THRESHOLD = 200;
+  window.addEventListener("mousedown", (e) => {
+    if (e.button === 0) {
+      inputState.attack = true;
+      inputState.attackHeld = true;
+      mouseDownTime = performance.now();
+      mouseIsDown = true;
+      usingGamepad = false;
+    }
+  });
+  window.addEventListener("mouseup", (e) => {
+    if (e.button === 0) {
+      mouseIsDown = false;
+      inputState.attackHeld = false;
+    }
+  });
+  _checkMouseHold = () => {
+    if (mouseIsDown && performance.now() - mouseDownTime > HOLD_THRESHOLD) {
+      inputState.chargeStarted = true;
+    }
+  };
   window.addEventListener("gamepadconnected", (e) => {
     console.log(`[input] Gamepad connected: ${e.gamepad.id}`);
     gamepadIndex = e.gamepad.index;
@@ -3467,6 +5684,12 @@ function pollGamepad() {
   const ultBtn = buttons[5] && buttons[5].pressed || buttons[7] && buttons[7].pressed;
   if (ultBtn && !prevGamepadButtons.ult) inputState.ultimate = true;
   prevGamepadButtons.ult = !!ultBtn;
+  const interactBtn = buttons[3] && buttons[3].pressed;
+  if (interactBtn && !prevGamepadButtons.interact) inputState.interact = true;
+  prevGamepadButtons.interact = !!interactBtn;
+  const btBtn = buttons[6] && buttons[6].pressed;
+  if (btBtn && !prevGamepadButtons.bulletTime) inputState.bulletTime = true;
+  prevGamepadButtons.bulletTime = !!btBtn;
   if (ultBtn) inputState.ultimateHeld = true;
 }
 function updateInput() {
@@ -3482,7 +5705,8 @@ function updateInput() {
     inputState.moveX /= len;
     inputState.moveZ /= len;
   }
-  inputState.ultimateHeld = !!keys["KeyE"] || _touchUltHeld;
+  _checkMouseHold();
+  inputState.ultimateHeld = !!keys["KeyE"] || _touchUltHeld || inputState.chargeStarted;
   if ((!usingGamepad || !gamepadAimActive) && !touchAimActive && !_abilityAimActive) {
     const worldPos = screenToWorld(inputState.mouseNDC.x, inputState.mouseNDC.y);
     inputState.aimWorldPos.x = worldPos.x;
@@ -3494,8 +5718,14 @@ function updateInput() {
 }
 function consumeInput() {
   inputState.dash = false;
+  inputState.attack = false;
   inputState.ultimate = false;
+  inputState.interact = false;
   inputState.toggleEditor = false;
+  inputState.bulletTime = false;
+  inputState.jump = false;
+  inputState.launch = false;
+  inputState.chargeStarted = false;
 }
 function getInputState() {
   return inputState;
@@ -3557,366 +5787,215 @@ function autoAimClosestEnemy(enemies) {
   }
 }
 
-// src/config/waves.ts
-var WAVES = [
+// src/config/rooms.ts
+function pack(enemies, zone = "ahead") {
+  return { enemies, spawnZone: zone };
+}
+function goblins(n) {
+  return Array.from({ length: n }, () => ({ type: "goblin" }));
+}
+function archers(n) {
+  return Array.from({ length: n }, () => ({ type: "skeletonArcher" }));
+}
+function imps(n) {
+  return Array.from({ length: n }, () => ({ type: "iceMortarImp" }));
+}
+var ROOMS = [
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 1: "The Approach" — goblins only, teach melee + dash
+  // Player enters at +Z (bottom-left in iso), progresses toward -Z (top-right)
+  // ══════════════════════════════════════════════════════════════════════
   {
-    wave: 1,
-    message: "Wave 1 \u2014 The dungeon stirs...",
-    groups: [
-      {
-        id: "w1g1",
-        triggerDelay: 0,
-        telegraphDuration: 1500,
-        stagger: 200,
-        spawns: [
-          { type: "goblin", x: 5, z: 2 },
-          { type: "goblin", x: 11, z: 0 },
-          { type: "goblin", x: 0, z: 5 },
-          { type: "iceMortarImp", x: 7, z: -11 },
-          { type: "iceMortarImp", x: -10, z: 9 }
-        ]
-      },
-      {
-        id: "w1g2",
-        triggerDelay: 0,
-        telegraphDuration: 1500,
-        stagger: 200,
-        spawns: [
-          { type: "goblin", x: -2, z: -9 },
-          { type: "goblin", x: -10, z: -3 },
-          { type: "goblin", x: -10, z: 0 }
-        ]
-      }
-    ]
+    name: "The Approach",
+    arenaHalfX: 10,
+    arenaHalfZ: 22,
+    obstacles: [
+      { x: -4, z: 5, w: 1.5, h: 2, d: 1.5 },
+      // pillar left near entrance
+      { x: 4, z: -5, w: 1.5, h: 2, d: 1.5 },
+      // pillar right mid
+      { x: 0, z: -12, w: 3, h: 1, d: 1 }
+      // low wall far
+    ],
+    pits: [
+      { x: 5, z: -8, w: 3, d: 3 }
+      // small pit mid-right (teaches force push)
+    ],
+    heightZones: [
+      { x: -6, z: -2, w: 5, d: 4, y: 1.2, label: "raised left" },
+      // low platform, jumpable
+      { x: 3, z: -15, w: 4, d: 3, y: 1.5, label: "raised far-right" }
+      // slightly higher
+    ],
+    spawnBudget: {
+      maxConcurrent: 4,
+      telegraphDuration: 1500,
+      packs: [
+        // Start light: 2 goblins ahead
+        pack(goblins(2), "ahead"),
+        pack(goblins(2), "ahead"),
+        // Ramp up: 3 goblins, mix positions
+        pack(goblins(3), "ahead"),
+        pack(goblins(3), "sides"),
+        // One final push from far end
+        pack(goblins(2), "far")
+      ]
+    },
+    playerStart: { x: 0, z: 18 }
   },
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 2: "The Crossfire" — goblins + archers, introduce ranged pressure
+  // ══════════════════════════════════════════════════════════════════════
   {
-    wave: 2,
-    message: "Wave 2 \u2014 Watch the big ones",
-    groups: [
-      {
-        id: "w2g1",
-        triggerDelay: 0,
-        telegraphDuration: 1500,
-        stagger: 150,
-        spawns: [
-          { type: "goblin", x: 14, z: 0 },
-          { type: "stoneGolem", x: 12, z: 2 },
-          { type: "goblin", x: 12, z: -2 },
-          { type: "goblin", x: -14, z: 0 },
-          { type: "goblin", x: -12, z: 2 },
-          { type: "stoneGolem", x: -12, z: -1 },
-          { type: "goblin", x: 6, z: -7 },
-          { type: "goblin", x: -6, z: 6 }
-        ]
-      },
-      {
-        id: "w2g2",
-        triggerDelay: 3e3,
-        telegraphDuration: 2e3,
-        stagger: 400,
-        spawns: [
-          { type: "skeletonArcher", x: 12, z: 12 },
-          { type: "skeletonArcher", x: -12, z: -12 },
-          { type: "skeletonArcher", x: -12, z: 12 }
-        ]
-      }
-    ]
+    name: "The Crossfire",
+    arenaHalfX: 12,
+    arenaHalfZ: 24,
+    obstacles: [
+      { x: -6, z: 0, w: 2, h: 2, d: 2 },
+      // cover pillar left
+      { x: 6, z: 0, w: 2, h: 2, d: 2 },
+      // cover pillar right
+      { x: 0, z: -10, w: 4, h: 1.5, d: 1 },
+      // mid wall (toward far/exit end)
+      { x: -3, z: 10, w: 1.5, h: 2, d: 1.5 }
+      // pillar near entrance
+    ],
+    pits: [
+      { x: -8, z: -8, w: 3, d: 4 },
+      // pit left mid (toward exit)
+      { x: 8, z: 5, w: 3, d: 3 }
+      // pit right near entrance
+    ],
+    spawnBudget: {
+      maxConcurrent: 5,
+      telegraphDuration: 1500,
+      packs: [
+        // Intro: goblins rush
+        pack(goblins(2), "ahead"),
+        // Archer appears far back
+        pack([...archers(1), ...goblins(1)], "far"),
+        // More melee pressure
+        pack(goblins(3), "ahead"),
+        // Flanking archers
+        pack(archers(2), "sides"),
+        // Mixed push
+        pack([...goblins(2), ...archers(1)], "ahead"),
+        // Final rush
+        pack(goblins(3), "sides")
+      ]
+    },
+    playerStart: { x: 0, z: 20 }
   },
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 3: "The Crucible" — full mix with imps, area denial
+  // ══════════════════════════════════════════════════════════════════════
   {
-    wave: 3,
-    message: "Wave 3 \u2014 Final wave?",
-    groups: [
-      {
-        id: "w3g1",
-        triggerDelay: 0,
-        telegraphDuration: 1500,
-        stagger: 100,
-        spawns: [
-          { type: "goblin", x: 15, z: 5 },
-          { type: "goblin", x: 15, z: -5 },
-          { type: "goblin", x: -15, z: 5 },
-          { type: "goblin", x: -15, z: -5 },
-          { type: "goblin", x: 5, z: 15 },
-          { type: "goblin", x: -5, z: 15 }
-        ]
-      },
-      {
-        id: "w3g2",
-        triggerDelay: 2e3,
-        telegraphDuration: 2e3,
-        stagger: 300,
-        spawns: [
-          { type: "skeletonArcher", x: 14, z: 10 },
-          { type: "skeletonArcher", x: -14, z: 10 },
-          { type: "skeletonArcher", x: 0, z: -16 },
-          { type: "skeletonArcher", x: 14, z: -10 }
-        ]
-      },
-      {
-        id: "w3g3",
-        triggerDelay: 6e3,
-        telegraphDuration: 2500,
-        stagger: 500,
-        spawns: [
-          { type: "stoneGolem", x: 0, z: 15 },
-          { type: "stoneGolem", x: -15, z: -5 },
-          { type: "stoneGolem", x: 15, z: -5 }
-        ]
-      },
-      {
-        id: "w3g4",
-        triggerDelay: 7e3,
-        telegraphDuration: 1500,
-        stagger: 200,
-        spawns: [
-          { type: "iceMortarImp", x: -13, z: 0 },
-          { type: "iceMortarImp", x: -3, z: -12 },
-          { type: "iceMortarImp", x: 12, z: 1 },
-          { type: "iceMortarImp", x: -5, z: 11 }
-        ]
-      }
-    ]
+    name: "The Crucible",
+    arenaHalfX: 13,
+    arenaHalfZ: 25,
+    obstacles: [
+      { x: -5, z: 8, w: 2, h: 2, d: 2 },
+      // pillar near entrance left
+      { x: 5, z: 8, w: 2, h: 2, d: 2 },
+      // pillar near entrance right
+      { x: 0, z: -5, w: 1.5, h: 2.5, d: 1.5 },
+      // tall center pillar
+      { x: -8, z: -10, w: 3, h: 1, d: 1 },
+      // low wall far left
+      { x: 8, z: -10, w: 3, h: 1, d: 1 }
+      // low wall far right
+    ],
+    pits: [
+      { x: 0, z: 3, w: 5, d: 3 },
+      // central pit (forces flanking)
+      { x: -9, z: -15, w: 3, d: 4 },
+      // far left pit
+      { x: 9, z: -15, w: 3, d: 4 }
+      // far right pit
+    ],
+    spawnBudget: {
+      maxConcurrent: 6,
+      telegraphDuration: 1500,
+      packs: [
+        // Start with melee rush
+        pack(goblins(3), "ahead"),
+        // Introduce ranged
+        pack([...archers(1), ...goblins(1)], "far"),
+        // First imp — area denial begins
+        pack([...imps(1), ...goblins(1)], "sides"),
+        // Melee wave to push player into imp zones
+        pack(goblins(3), "ahead"),
+        // More imps + archer
+        pack([...imps(1), ...archers(1)], "far"),
+        // Heavy mixed final push
+        pack([...goblins(2), ...imps(1)], "ahead"),
+        pack([...archers(1), ...goblins(1)], "sides")
+      ]
+    },
+    playerStart: { x: 0, z: 21 }
+  },
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 4: "The Respite" — rest room, heal to full
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: "The Respite",
+    arenaHalfX: 8,
+    arenaHalfZ: 12,
+    obstacles: [],
+    pits: [],
+    spawnBudget: {
+      maxConcurrent: 0,
+      telegraphDuration: 0,
+      packs: []
+    },
+    playerStart: { x: 0, z: 8 },
+    isRestRoom: true
+  },
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 5: "The Throne" — victory room (boss designed separately)
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: "The Throne",
+    arenaHalfX: 10,
+    arenaHalfZ: 10,
+    obstacles: [],
+    pits: [],
+    spawnBudget: {
+      maxConcurrent: 0,
+      telegraphDuration: 0,
+      packs: []
+    },
+    playerStart: { x: 0, z: 6 },
+    isVictoryRoom: true
   }
 ];
 
-// src/engine/telegraph.ts
-var sceneRef5;
-var ringGeo2;
-var fillGeo;
-var typeGeos = {};
-function initTelegraph(scene2) {
-  sceneRef5 = scene2;
-  ringGeo2 = new THREE.RingGeometry(0.6, 0.8, 24);
-  ringGeo2.rotateX(-Math.PI / 2);
-  fillGeo = new THREE.CircleGeometry(0.6, 24);
-  fillGeo.rotateX(-Math.PI / 2);
-  typeGeos.goblin = new THREE.ConeGeometry(0.2, 0.4, 3);
-  typeGeos.skeletonArcher = new THREE.BoxGeometry(0.25, 0.25, 0.25);
-  typeGeos.stoneGolem = new THREE.CylinderGeometry(0.25, 0.25, 0.1, 6);
-}
-function createTelegraph(x, z, typeName) {
-  const color = ENEMY_TYPES[typeName] ? ENEMY_TYPES[typeName].color : 16777215;
-  const group = new THREE.Group();
-  group.position.set(x, 0, z);
-  const ringMat = new THREE.MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0.6,
-    side: THREE.DoubleSide,
-    depthWrite: false
-  });
-  const ring = new THREE.Mesh(ringGeo2, ringMat);
-  ring.position.y = 0.03;
-  group.add(ring);
-  const fillMat = new THREE.MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0,
-    side: THREE.DoubleSide,
-    depthWrite: false
-  });
-  const fill = new THREE.Mesh(fillGeo, fillMat);
-  fill.position.y = 0.02;
-  group.add(fill);
-  const typeGeo = typeGeos[typeName] || typeGeos.goblin;
-  const typeMat = new THREE.MeshStandardMaterial({
-    color,
-    emissive: color,
-    emissiveIntensity: 0.6,
-    transparent: true,
-    opacity: 0.8
-  });
-  const typeIndicator = new THREE.Mesh(typeGeo, typeMat);
-  typeIndicator.position.y = 1.2;
-  if (typeName === "skeletonArcher") {
-    typeIndicator.rotation.y = Math.PI / 4;
-  }
-  group.add(typeIndicator);
-  sceneRef5.add(group);
-  return {
-    group,
-    ring,
-    ringMat,
-    fill,
-    fillMat,
-    typeIndicator,
-    typeMat,
-    baseColor: color,
-    time: 0
-  };
-}
-function updateTelegraph(telegraph, progress, dt) {
-  telegraph.time += dt;
-  telegraph.fillMat.opacity = progress * 0.4;
-  const freq = 2 + progress * 8;
-  const pulse = 0.5 + 0.5 * Math.sin(telegraph.time * freq * Math.PI * 2);
-  telegraph.ringMat.opacity = 0.3 + pulse * 0.5;
-  const scale = 1 + 0.1 * Math.sin(telegraph.time * freq * Math.PI * 2);
-  telegraph.ring.scale.set(scale, 1, scale);
-  if (progress > 0.8) {
-    const flash = Math.sin(telegraph.time * 20) > 0.5;
-    telegraph.ringMat.color.setHex(flash ? 16777215 : telegraph.baseColor);
-    telegraph.fillMat.color.setHex(flash ? 16777215 : telegraph.baseColor);
-  }
-  telegraph.typeIndicator.position.y = 1.2 + 0.15 * Math.sin(telegraph.time * 2);
-  telegraph.typeIndicator.rotation.y += dt * 1.5;
-}
-function removeTelegraph2(telegraph) {
-  if (telegraph.group.parent) {
-    sceneRef5.remove(telegraph.group);
-  }
-  telegraph.ringMat.dispose();
-  telegraph.fillMat.dispose();
-  telegraph.typeMat.dispose();
-}
-
-// src/engine/waveRunner.ts
-var sceneRef6;
-var waveState = {
-  status: "idle",
-  // 'idle' | 'announce' | 'running' | 'cleared' | 'victory'
-  waveIndex: 0,
-  elapsedMs: 0,
-  // ms since wave entered 'running'
-  announceTimer: 0,
-  clearPauseTimer: 0,
-  groups: []
-  // runtime state per group
+// src/config/spawn.ts
+var SPAWN_CONFIG = {
+  telegraphDuration: 1500,
+  // ms — how long spawn warnings show before enemies appear
+  spawnCooldown: 500,
+  // ms — minimum delay between consecutive pack dispatches
+  maxConcurrentMult: 1,
+  // multiplier on per-room maxConcurrent
+  spawnAheadMin: 8,
+  // minimum distance ahead of player to spawn enemies (Z units)
+  spawnAheadMax: 15
+  // maximum distance ahead of player to spawn enemies (Z units)
 };
-var announceEl;
-function initWaveRunner(scene2) {
-  sceneRef6 = scene2;
-  initTelegraph(scene2);
-  announceEl = document.getElementById("wave-announce");
-}
-function startWave(index, gameState2) {
-  if (index >= WAVES.length) {
-    waveState.status = "victory";
-    showAnnounce("VICTORY");
-    return;
-  }
-  waveState.waveIndex = index;
-  waveState.status = "announce";
-  waveState.announceTimer = 2e3;
-  waveState.elapsedMs = 0;
-  waveState.groups = [];
-  gameState2.currentWave = WAVES[index].wave;
-  showAnnounce(WAVES[index].message);
-}
-function updateWaveRunner(dt, gameState2) {
-  const dtMs = dt * 1e3;
-  switch (waveState.status) {
-    case "idle":
-    case "victory":
-      return;
-    case "announce":
-      waveState.announceTimer -= dtMs;
-      if (waveState.announceTimer <= 0) {
-        hideAnnounce();
-        waveState.status = "running";
-        emit({ type: "waveBegan", waveIndex: waveState.waveIndex });
-        initGroupRuntimes();
-      }
-      break;
-    case "running":
-      waveState.elapsedMs += dtMs;
-      let allGroupsDone = true;
-      for (const g of waveState.groups) {
-        updateGroup(g, dt, dtMs, gameState2);
-        if (g.phase !== "done") allGroupsDone = false;
-      }
-      if (allGroupsDone && gameState2.enemies.length === 0) {
-        waveState.status = "cleared";
-        waveState.clearPauseTimer = 2e3;
-        emit({ type: "waveCleared", waveIndex: waveState.waveIndex });
-        showAnnounce("Wave cleared!");
-      }
-      break;
-    case "cleared":
-      waveState.clearPauseTimer -= dtMs;
-      if (waveState.clearPauseTimer <= 0) {
-        hideAnnounce();
-        startWave(waveState.waveIndex + 1, gameState2);
-      }
-      break;
-  }
-}
-function initGroupRuntimes() {
-  const waveCfg = WAVES[waveState.waveIndex];
-  waveState.groups = waveCfg.groups.map((groupCfg) => ({
-    config: groupCfg,
-    phase: "waiting",
-    // 'waiting' | 'telegraphing' | 'spawning' | 'done'
-    timer: 0,
-    spawnIndex: 0,
-    staggerTimer: 0,
-    telegraphs: []
-  }));
-}
-function updateGroup(g, dt, dtMs, gameState2) {
-  switch (g.phase) {
-    case "waiting":
-      if (waveState.elapsedMs >= g.config.triggerDelay) {
-        g.phase = "telegraphing";
-        g.timer = g.config.telegraphDuration;
-        for (const s of g.config.spawns) {
-          const t = createTelegraph(s.x, s.z, s.type);
-          g.telegraphs.push(t);
-        }
-      }
-      break;
-    case "telegraphing":
-      g.timer -= dtMs;
-      const progress = 1 - Math.max(0, g.timer / g.config.telegraphDuration);
-      for (const t of g.telegraphs) {
-        updateTelegraph(t, progress, dt);
-      }
-      if (g.timer <= 0) {
-        for (const t of g.telegraphs) {
-          removeTelegraph2(t);
-        }
-        g.telegraphs = [];
-        g.phase = "spawning";
-        g.spawnIndex = 0;
-        g.staggerTimer = 0;
-      }
-      break;
-    case "spawning":
-      g.staggerTimer -= dtMs;
-      while (g.staggerTimer <= 0 && g.spawnIndex < g.config.spawns.length) {
-        const s = g.config.spawns[g.spawnIndex];
-        spawnEnemy(s.type, new THREE.Vector3(s.x, 0, s.z), gameState2);
-        g.spawnIndex++;
-        if (g.spawnIndex < g.config.spawns.length) {
-          g.staggerTimer += g.config.stagger;
-        }
-      }
-      if (g.spawnIndex >= g.config.spawns.length) {
-        g.phase = "done";
-      }
-      break;
-  }
-}
-function resetWaveRunner() {
-  for (const g of waveState.groups) {
-    for (const t of g.telegraphs) {
-      removeTelegraph2(t);
-    }
-  }
-  waveState.status = "idle";
-  waveState.waveIndex = 0;
-  waveState.elapsedMs = 0;
-  waveState.groups = [];
-  hideAnnounce();
-}
-function showAnnounce(text) {
-  if (!announceEl) return;
-  announceEl.textContent = text;
-  announceEl.classList.add("visible");
-}
-function hideAnnounce() {
-  if (!announceEl) return;
-  announceEl.classList.remove("visible");
+
+// src/engine/meleemath.ts
+function isInMeleeArc(playerX, playerZ, swingAngle, targetX, targetZ, range, arc) {
+  const dx = targetX - playerX;
+  const dz = targetZ - playerZ;
+  const distSq = dx * dx + dz * dz;
+  if (distSq > range * range) return false;
+  if (distSq < 1e-3) return true;
+  const angleToTarget = Math.atan2(-dx, -dz);
+  let angleDiff = angleToTarget - swingAngle;
+  while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+  while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+  return Math.abs(angleDiff) <= arc / 2;
 }
 
 // src/engine/physics.ts
@@ -3952,17 +6031,6 @@ function createGhostMesh(x, z, radius, height, color) {
   group.position.set(x, 0, z);
   getScene().add(group);
   return group;
-}
-function spawnPushGhosts(enemy, oldX, oldZ, newX, newZ) {
-  const cfg = enemy.config;
-  const r = cfg.size.radius;
-  const h = cfg.size.height;
-  for (let t = 0.33; t < 1; t += 0.33) {
-    const gx = oldX + (newX - oldX) * t;
-    const gz = oldZ + (newZ - oldZ) * t;
-    const mesh = createGhostMesh(gx, gz, r, h, 4521898);
-    effectGhosts.push({ type: "fade", mesh, life: 0, maxLife: 300 });
-  }
 }
 function spawnPitFallGhost(enemy) {
   const cfg = enemy.config;
@@ -4053,18 +6121,6 @@ function circleVsAABB(cx, cz, radius, box) {
 function pointVsAABB(px, pz, box) {
   return px >= box.minX && px <= box.maxX && pz >= box.minZ && pz <= box.maxZ;
 }
-function resolveTerrainCollision(x, z, radius) {
-  const bounds = getBounds();
-  let rx = x, rz = z;
-  for (const box of bounds) {
-    const push = circleVsAABB(rx, rz, radius, box);
-    if (push) {
-      rx += push.x;
-      rz += push.z;
-    }
-  }
-  return { x: rx, z: rz };
-}
 function pointHitsTerrain(px, pz) {
   const bounds = getBounds();
   for (const box of bounds) {
@@ -4072,11 +6128,12 @@ function pointHitsTerrain(px, pz) {
   }
   return false;
 }
-function resolveMovementCollision(x, z, radius) {
+function resolveMovementCollision(x, z, radius, entityY = 0) {
   const bounds = getMoveBounds();
   let rx = x, rz = z;
   let wasDeflected = false;
   for (const box of bounds) {
+    if (box.maxY !== void 0 && entityY >= box.maxY) continue;
     const push = circleVsAABB(rx, rz, radius, box);
     if (push) {
       rx += push.x;
@@ -4085,6 +6142,210 @@ function resolveMovementCollision(x, z, radius) {
     }
   }
   return { x: rx, z: rz, wasDeflected };
+}
+function resolveTerrainCollisionEx(x, z, radius, entityY = 0) {
+  const bounds = getBounds();
+  let rx = x, rz = z;
+  let hitWall = false;
+  let totalNX = 0, totalNZ = 0;
+  for (const box of bounds) {
+    if (box.maxY !== void 0 && entityY >= box.maxY) continue;
+    const push = circleVsAABB(rx, rz, radius, box);
+    if (push) {
+      rx += push.x;
+      rz += push.z;
+      hitWall = true;
+      const len = Math.sqrt(push.x * push.x + push.z * push.z);
+      if (len > 1e-3) {
+        totalNX += push.x / len;
+        totalNZ += push.z / len;
+      }
+    }
+  }
+  const nLen = Math.sqrt(totalNX * totalNX + totalNZ * totalNZ);
+  if (nLen > 1e-3) {
+    totalNX /= nLen;
+    totalNZ /= nLen;
+  }
+  return { x: rx, z: rz, hitWall, normalX: totalNX, normalZ: totalNZ };
+}
+function applyVelocities(dt, gameState2) {
+  for (const enemy of gameState2.enemies) {
+    if (enemy.health <= 0) continue;
+    if (enemy.isLeaping) continue;
+    if (enemy.isCarrierPayload) continue;
+    const vel = enemy.vel;
+    if (!vel) continue;
+    if (vel.y === void 0) vel.y = 0;
+    const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    const hasXZVelocity = speed >= PHYSICS.minVelocity;
+    if (!hasXZVelocity && vel.y === 0 && enemy.pos.y <= PHYSICS.groundEpsilon) {
+      vel.x = 0;
+      vel.z = 0;
+      continue;
+    }
+    if (hasXZVelocity) {
+      const moveDist = speed * dt;
+      const enemyRadius = enemy.config.size.radius;
+      const moveSteps = Math.ceil(moveDist / enemyRadius);
+      const subDt = dt / Math.max(moveSteps, 1);
+      let fellInPit = false;
+      let result = { x: enemy.pos.x, z: enemy.pos.z, hitWall: false, normalX: 0, normalZ: 0 };
+      for (let s = 0; s < moveSteps; s++) {
+        enemy.pos.x += vel.x * subDt;
+        enemy.pos.z += vel.z * subDt;
+        const isGrounded = enemy.pos.y <= PHYSICS.groundEpsilon;
+        if (isGrounded && pointInPit(enemy.pos.x, enemy.pos.z)) {
+          fellInPit = true;
+          break;
+        }
+        result = resolveTerrainCollisionEx(enemy.pos.x, enemy.pos.z, enemyRadius, enemy.pos.y);
+        enemy.pos.x = result.x;
+        enemy.pos.z = result.z;
+        if (result.hitWall) break;
+      }
+      if (fellInPit) {
+        spawnPitFallGhost(enemy);
+        emit({ type: "pitFall", position: { x: enemy.pos.x, z: enemy.pos.z }, isPlayer: false });
+        createAoeRing(enemy.pos.x, enemy.pos.z, 2.5, 500, 8930559);
+        enemy.health = 0;
+        enemy.fellInPit = true;
+        enemy.stunTimer = 9999;
+        spawnDamageNumber(enemy.pos.x, enemy.pos.z, "FELL!", "#8844ff");
+        screenShake(4, 200);
+        vel.x = 0;
+        vel.y = 0;
+        vel.z = 0;
+        continue;
+      }
+      if (result.hitWall && speed > PHYSICS.wallSlamMinSpeed) {
+        const slamDamage = Math.round((speed - PHYSICS.wallSlamMinSpeed) * PHYSICS.wallSlamDamage);
+        applyDamageToEnemy(enemy, slamDamage, gameState2);
+        stunEnemy(enemy, PHYSICS.wallSlamStun);
+        emit({ type: "wallSlam", enemy, speed, damage: slamDamage, position: { x: enemy.pos.x, z: enemy.pos.z } });
+        spawnDamageNumber(enemy.pos.x, enemy.pos.z, slamDamage, "#ff8844");
+        screenShake(PHYSICS.wallSlamShake, 120);
+        enemy.flashTimer = 120;
+        if (enemy.bodyMesh) enemy.bodyMesh.material.emissive.setHex(16746564);
+        if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16746564);
+        createAoeRing(enemy.pos.x, enemy.pos.z, 1.5, 300, 16746564);
+        const dot = vel.x * result.normalX + vel.z * result.normalZ;
+        vel.x = (vel.x - 2 * dot * result.normalX) * PHYSICS.wallSlamBounce;
+        vel.z = (vel.z - 2 * dot * result.normalZ) * PHYSICS.wallSlamBounce;
+      }
+    } else {
+      vel.x = 0;
+      vel.z = 0;
+    }
+    const launchedEntry = getLaunchedEntry(enemy);
+    const gravMult = launchedEntry?.gravityMult ?? 1;
+    if (enemy.pos.y > PHYSICS.groundEpsilon || vel.y > 0) {
+      enemy.pos.y += vel.y * dt;
+      vel.y -= PHYSICS.gravity * gravMult * dt;
+      vel.y = Math.max(vel.y, -PHYSICS.terminalVelocity);
+    }
+    const groundHeight = getGroundHeight(enemy.pos.x, enemy.pos.z);
+    if (enemy.pos.y < groundHeight) {
+      enemy.pos.y = groundHeight;
+      vel.y = 0;
+    }
+    enemy.mesh.position.copy(enemy.pos);
+    const isGroundedNow = enemy.pos.y <= groundHeight + PHYSICS.groundEpsilon;
+    if (isGroundedNow && speed >= PHYSICS.minVelocity) {
+      const newSpeed = speed - PHYSICS.friction * dt;
+      if (newSpeed <= PHYSICS.minVelocity) {
+        vel.x = 0;
+        vel.z = 0;
+      } else {
+        const scale = newSpeed / speed;
+        vel.x *= scale;
+        vel.z *= scale;
+      }
+    }
+  }
+}
+function resolveEnemyCollisions(gameState2) {
+  const enemies = gameState2.enemies;
+  const len = enemies.length;
+  for (let i = 0; i < len; i++) {
+    const a = enemies[i];
+    if (a.health <= 0) continue;
+    if (a.isLeaping) continue;
+    if (a.isCarrierPayload) continue;
+    for (let j = i + 1; j < len; j++) {
+      const b = enemies[j];
+      if (b.health <= 0) continue;
+      if (b.isLeaping) continue;
+      const dx = b.pos.x - a.pos.x;
+      const dz = b.pos.z - a.pos.z;
+      const distSq = dx * dx + dz * dz;
+      const radA = a.config.size.radius;
+      const radB = b.config.size.radius;
+      const minDist = radA + radB;
+      if (distSq >= minDist * minDist) continue;
+      const dist = Math.sqrt(distSq);
+      if (dist < 0.01) continue;
+      const overlap = minDist - dist;
+      const nx = dx / dist;
+      const nz = dz / dist;
+      const massA = a.config.mass ?? 1;
+      const massB = b.config.mass ?? 1;
+      const totalMass = massA + massB;
+      const ratioA = massB / totalMass;
+      const ratioB = massA / totalMass;
+      a.pos.x -= nx * overlap * ratioA;
+      a.pos.z -= nz * overlap * ratioA;
+      b.pos.x += nx * overlap * ratioB;
+      b.pos.z += nz * overlap * ratioB;
+      const velA = a.vel;
+      const velB = b.vel;
+      if (!velA || !velB) continue;
+      const relVelX = velA.x - velB.x;
+      const relVelZ = velA.z - velB.z;
+      const relVelDotN = relVelX * nx + relVelZ * nz;
+      if (relVelDotN <= 0) continue;
+      const e = PHYSICS.enemyBounce;
+      const impulse = (1 + e) * relVelDotN / totalMass;
+      velA.x -= impulse * massB * nx;
+      velA.z -= impulse * massB * nz;
+      velB.x += impulse * massA * nx;
+      velB.z += impulse * massA * nz;
+      const relSpeed = Math.sqrt(relVelX * relVelX + relVelZ * relVelZ);
+      if (relSpeed > PHYSICS.impactMinSpeed) {
+        const dmg = Math.round((relSpeed - PHYSICS.impactMinSpeed) * PHYSICS.impactDamage);
+        const midX = (a.pos.x + b.pos.x) / 2;
+        const midZ = (a.pos.z + b.pos.z) / 2;
+        const dmgA = Math.round(dmg * ratioA);
+        const dmgB = Math.round(dmg * ratioB);
+        if (dmgA > 0) {
+          applyDamageToEnemy(a, dmgA, gameState2);
+          a.flashTimer = 100;
+          if (a.bodyMesh) a.bodyMesh.material.emissive.setHex(16755268);
+          if (a.headMesh) a.headMesh.material.emissive.setHex(16755268);
+        }
+        if (dmgB > 0) {
+          applyDamageToEnemy(b, dmgB, gameState2);
+          b.flashTimer = 100;
+          if (b.bodyMesh) b.bodyMesh.material.emissive.setHex(16755268);
+          if (b.headMesh) b.headMesh.material.emissive.setHex(16755268);
+        }
+        stunEnemy(a, PHYSICS.impactStun);
+        stunEnemy(b, PHYSICS.impactStun);
+        spawnDamageNumber(midX, midZ, dmg, "#ffaa44");
+        screenShake(2, 80);
+        emit({
+          type: "enemyImpact",
+          enemyA: a,
+          enemyB: b,
+          speed: relSpeed,
+          damage: dmg,
+          position: { x: midX, z: midZ }
+        });
+      }
+      a.mesh.position.copy(a.pos);
+      b.mesh.position.copy(b.pos);
+    }
+  }
 }
 function pointInPit(px, pz) {
   const pits = getPits();
@@ -4174,20 +6435,59 @@ function onShieldBreak(enemy, gameState2) {
   }
   screenShake(4, 200);
 }
+function checkMeleeHits(gameState2) {
+  if (!isMeleeSwinging()) return;
+  const playerPos2 = getPlayerPos();
+  const swingDir = getMeleeSwingDir();
+  const hitEnemies = getMeleeHitEnemies();
+  for (const enemy of gameState2.enemies) {
+    if (enemy.health <= 0) continue;
+    if (enemy.fellInPit) continue;
+    if (hitEnemies.has(enemy)) continue;
+    if (!isInMeleeArc(playerPos2.x, playerPos2.z, swingDir, enemy.pos.x, enemy.pos.z, MELEE.range, MELEE.arc)) {
+      continue;
+    }
+    hitEnemies.add(enemy);
+    const wasShielded = enemy.shieldActive;
+    applyDamageToEnemy(enemy, MELEE.damage, gameState2);
+    emit({ type: "enemyHit", enemy, damage: MELEE.damage, position: { x: enemy.pos.x, z: enemy.pos.z }, wasShielded });
+    emit({ type: "meleeHit", enemy, damage: MELEE.damage, position: { x: enemy.pos.x, z: enemy.pos.z } });
+    const dmgColor = wasShielded ? "#88eeff" : "#ff8844";
+    spawnDamageNumber(enemy.pos.x, enemy.pos.z, MELEE.damage, dmgColor);
+    enemy.flashTimer = 100;
+    enemy.bodyMesh.material.emissive.setHex(16777215);
+    if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16777215);
+    screenShake(MELEE.screenShake, 80);
+  }
+}
 function checkCollisions(gameState2) {
   const playerPos2 = getPlayerPos();
   const playerR = PLAYER.size.radius;
   if (!isPlayerDashing()) {
-    const resolved = resolveMovementCollision(playerPos2.x, playerPos2.z, playerR);
-    playerPos2.x = resolved.x;
-    playerPos2.z = resolved.z;
+    const resolved2 = resolveMovementCollision(playerPos2.x, playerPos2.z, playerR, playerPos2.y);
+    playerPos2.x = resolved2.x;
+    playerPos2.z = resolved2.z;
   }
   for (const enemy of gameState2.enemies) {
     if (enemy.isLeaping) continue;
-    const resolved = resolveMovementCollision(enemy.pos.x, enemy.pos.z, enemy.config.size.radius);
-    enemy.pos.x = resolved.x;
-    enemy.pos.z = resolved.z;
-    enemy.wasDeflected = resolved.wasDeflected;
+    if (enemy.fellInPit) continue;
+    const vel = enemy.vel;
+    const hasVelocity = vel && vel.x * vel.x + vel.z * vel.z > PHYSICS.minVelocity * PHYSICS.minVelocity;
+    const bounds = hasVelocity ? getBounds() : getMoveBounds();
+    let rx = enemy.pos.x, rz = enemy.pos.z;
+    let wasDeflected = false;
+    for (const box of bounds) {
+      if (box.maxY !== void 0 && enemy.pos.y >= box.maxY) continue;
+      const push = circleVsAABB(rx, rz, enemy.config.size.radius, box);
+      if (push) {
+        rx += push.x;
+        rz += push.z;
+        wasDeflected = true;
+      }
+    }
+    enemy.pos.x = rx;
+    enemy.pos.z = rz;
+    enemy.wasDeflected = wasDeflected;
     enemy.mesh.position.copy(enemy.pos);
   }
   const playerProj = getPlayerProjectiles();
@@ -4248,6 +6548,7 @@ function checkCollisions(gameState2) {
     const now = performance.now();
     for (const enemy of gameState2.enemies) {
       if (enemy.behavior === "kite") continue;
+      if (enemy.config.melee) continue;
       if (enemy.stunTimer > 0) continue;
       const dx = enemy.pos.x - playerPos2.x;
       const dz = enemy.pos.z - playerPos2.z;
@@ -4271,10 +6572,17 @@ function checkCollisions(gameState2) {
       }
     }
   }
+  checkMeleeHits(gameState2);
   const pushEvt = consumePushEvent();
   if (pushEvt) {
     const dirX = pushEvt.dirX;
     const dirZ = pushEvt.dirZ;
+    const perpX = -dirZ;
+    const perpZ = dirX;
+    const halfLen = pushEvt.length / 2;
+    const playerX = pushEvt.x - dirX * halfLen;
+    const playerZ = pushEvt.z - dirZ * halfLen;
+    const candidates = [];
     for (const enemy of gameState2.enemies) {
       if (enemy.health <= 0) continue;
       if (enemy.isLeaping) continue;
@@ -4289,32 +6597,1230 @@ function checkCollisions(gameState2) {
         pushEvt.rotation,
         enemyRadius
       )) {
-        const oldX = enemy.pos.x;
-        const oldZ = enemy.pos.z;
-        const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-        const kbMult = 1 - (enemy.knockbackResist ?? enemy.config.knockbackResist ?? 0);
-        const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
-        enemy.pos.x += dirX * kbDist;
-        enemy.pos.z += dirZ * kbDist;
-        enemy.mesh.position.copy(enemy.pos);
-        spawnPushGhosts(enemy, oldX, oldZ, enemy.pos.x, enemy.pos.z);
-        emit({ type: "enemyPushed", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
-        enemy.flashTimer = 100;
-        enemy.bodyMesh.material.emissive.setHex(4521898);
-        if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(4521898);
-        spawnDamageNumber(enemy.pos.x, enemy.pos.z, "PUSH", "#44ffaa");
+        const dx = enemy.pos.x - playerX;
+        const dz = enemy.pos.z - playerZ;
+        const forward = dx * dirX + dz * dirZ;
+        const lateral = dx * perpX + dz * perpZ;
+        candidates.push({ enemy, forward, lateral });
       }
     }
-  }
-  if (pushEvt) {
-    for (const enemy of gameState2.enemies) {
-      if (enemy.isLeaping) continue;
-      const resolved = resolveTerrainCollision(enemy.pos.x, enemy.pos.z, enemy.config.size.radius);
-      enemy.pos.x = resolved.x;
-      enemy.pos.z = resolved.z;
-      enemy.mesh.position.copy(enemy.pos);
+    candidates.sort((a, b) => a.forward - b.forward);
+    const pushedLaterals = [];
+    const blockRadius = PHYSICS.pushWaveBlockRadius;
+    for (const { enemy, lateral } of candidates) {
+      let blocked = false;
+      for (const pushedLat of pushedLaterals) {
+        if (Math.abs(lateral - pushedLat) < blockRadius) {
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) continue;
+      const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
+      const kbMult = 1 - (enemy.knockbackResist ?? enemy.config.knockbackResist ?? 0);
+      const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
+      if (kbDist > 0) {
+        const v0 = Math.sqrt(2 * PHYSICS.friction * kbDist);
+        enemy.vel.x = dirX * v0;
+        enemy.vel.z = dirZ * v0;
+      }
+      emit({ type: "enemyPushed", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+      enemy.flashTimer = 100;
+      enemy.bodyMesh.material.emissive.setHex(4521898);
+      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(4521898);
+      spawnDamageNumber(enemy.pos.x, enemy.pos.z, "PUSH", "#44ffaa");
+      pushedLaterals.push(lateral);
     }
   }
+}
+
+// src/engine/particles.ts
+var HIT_SPARK = {
+  count: 5,
+  lifetime: 0.25,
+  speed: 6,
+  spread: Math.PI * 0.8,
+  size: 0.06,
+  color: 16777130,
+  fadeOut: true,
+  gravity: 4,
+  shape: "box"
+};
+var DEATH_PUFF = {
+  count: 8,
+  lifetime: 0.4,
+  speed: 3,
+  spread: Math.PI,
+  size: 0.08,
+  color: 16777215,
+  // will be overridden with enemy color
+  fadeOut: true,
+  gravity: 1,
+  shape: "sphere"
+};
+var DASH_TRAIL = {
+  count: 3,
+  lifetime: 0.3,
+  speed: 1.5,
+  spread: Math.PI * 0.3,
+  size: 0.05,
+  color: 4521864,
+  fadeOut: true,
+  gravity: 0,
+  shape: "box"
+};
+var SHIELD_BREAK_BURST = {
+  count: 10,
+  lifetime: 0.35,
+  speed: 8,
+  spread: Math.PI,
+  size: 0.07,
+  color: 8974079,
+  fadeOut: true,
+  gravity: 3,
+  shape: "box"
+};
+var PUSH_BURST = {
+  count: 4,
+  lifetime: 0.2,
+  speed: 5,
+  spread: Math.PI * 0.5,
+  size: 0.05,
+  color: 4521898,
+  fadeOut: true,
+  gravity: 2,
+  shape: "box"
+};
+var CHARGE_BLAST = {
+  count: 12,
+  lifetime: 0.3,
+  speed: 10,
+  spread: Math.PI * 0.4,
+  size: 0.08,
+  color: 4521898,
+  fadeOut: true,
+  gravity: 2,
+  shape: "sphere"
+};
+var ENEMY_IMPACT_SPARK = {
+  count: 6,
+  lifetime: 0.25,
+  speed: 5,
+  spread: Math.PI,
+  size: 0.06,
+  color: 16755268,
+  fadeOut: true,
+  gravity: 4,
+  shape: "sphere"
+};
+var WALL_SLAM_SPARK = {
+  count: 8,
+  lifetime: 0.3,
+  speed: 7,
+  spread: Math.PI * 0.6,
+  size: 0.07,
+  color: 16746564,
+  fadeOut: true,
+  gravity: 5,
+  shape: "box"
+};
+var DOOR_UNLOCK_BURST = {
+  count: 12,
+  lifetime: 0.5,
+  speed: 6,
+  spread: Math.PI * 0.5,
+  size: 0.08,
+  color: 8961023,
+  fadeOut: true,
+  gravity: -2,
+  // float upward
+  shape: "sphere"
+};
+var JUMP_DUST = {
+  count: 4,
+  lifetime: 0.2,
+  speed: 3,
+  spread: Math.PI,
+  size: 0.05,
+  color: 12298888,
+  fadeOut: true,
+  gravity: 2,
+  shape: "sphere"
+};
+var LAND_DUST = {
+  count: 6,
+  lifetime: 0.3,
+  speed: 4,
+  spread: Math.PI,
+  size: 0.06,
+  color: 12298888,
+  fadeOut: true,
+  gravity: 3,
+  shape: "sphere"
+};
+var LAUNCH_BURST = {
+  count: 6,
+  lifetime: 0.3,
+  speed: 7,
+  spread: Math.PI * 0.4,
+  size: 0.06,
+  color: 16755200,
+  fadeOut: true,
+  gravity: -2,
+  // float upward with the launch
+  shape: "box"
+};
+var AERIAL_SPIKE = {
+  count: 8,
+  lifetime: 0.25,
+  speed: 8,
+  spread: Math.PI * 0.6,
+  size: 0.07,
+  color: 4513279,
+  fadeOut: true,
+  gravity: 6,
+  shape: "box"
+};
+var SLAM_IMPACT = {
+  count: 10,
+  lifetime: 0.35,
+  speed: 8,
+  spread: Math.PI,
+  size: 0.07,
+  color: 16746496,
+  fadeOut: true,
+  gravity: 4,
+  shape: "box"
+};
+var DUNK_GRAB_SPARK = {
+  count: 5,
+  lifetime: 0.2,
+  speed: 5,
+  spread: Math.PI * 0.5,
+  size: 0.05,
+  color: 16729343,
+  fadeOut: true,
+  gravity: 0,
+  shape: "sphere"
+};
+var DUNK_IMPACT_BURST = {
+  count: 14,
+  lifetime: 0.4,
+  speed: 10,
+  spread: Math.PI,
+  size: 0.08,
+  color: 16720452,
+  fadeOut: true,
+  gravity: 5,
+  shape: "box"
+};
+var POOL_SIZE2 = 80;
+var pool2 = [];
+var sceneRef7 = null;
+var boxGeo = null;
+var sphereGeo = null;
+function initParticles(scene2) {
+  sceneRef7 = scene2;
+  boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  sphereGeo = new THREE.SphereGeometry(0.5, 4, 3);
+  for (let i = 0; i < POOL_SIZE2; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 16777215,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false
+    });
+    const mesh = new THREE.Mesh(boxGeo, mat);
+    mesh.visible = false;
+    scene2.add(mesh);
+    pool2.push({
+      mesh,
+      active: false,
+      life: 0,
+      maxLife: 1,
+      vx: 0,
+      vy: 0,
+      vz: 0,
+      gravity: 0,
+      fadeOut: true,
+      material: mat,
+      baseScale: 1
+    });
+  }
+  initArcDecals(scene2);
+  initEnemyArcDecals(scene2);
+  wireEventBus();
+}
+var ARC_DECAL_POOL_SIZE = 3;
+var ARC_DECAL_LIFETIME = 0.25;
+var arcDecalPool = [];
+var arcDecalGeo = null;
+function initArcDecals(scene2) {
+  arcDecalGeo = new THREE.CircleGeometry(1, 24, Math.PI / 2 - MELEE.arc / 2, MELEE.arc);
+  arcDecalGeo.rotateX(-Math.PI / 2);
+  for (let i = 0; i < ARC_DECAL_POOL_SIZE; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 16777215,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const mesh = new THREE.Mesh(arcDecalGeo, mat);
+    mesh.visible = false;
+    scene2.add(mesh);
+    arcDecalPool.push({ mesh, active: false, life: 0 });
+  }
+}
+function spawnArcDecal(x, z, dirX, dirZ) {
+  let decal = null;
+  for (const d of arcDecalPool) {
+    if (!d.active) {
+      decal = d;
+      break;
+    }
+  }
+  if (!decal) return;
+  decal.active = true;
+  decal.life = 0;
+  decal.mesh.visible = true;
+  decal.mesh.position.set(x, 0.05, z);
+  const r = MELEE.range;
+  decal.mesh.scale.set(r * 0.3, 1, r * 0.3);
+  decal.mesh.rotation.y = Math.atan2(-dirX, -dirZ);
+  decal.mesh.material.opacity = 0.4;
+}
+function updateArcDecals(dt) {
+  for (const d of arcDecalPool) {
+    if (!d.active) continue;
+    d.life += dt;
+    if (d.life >= ARC_DECAL_LIFETIME) {
+      d.active = false;
+      d.mesh.visible = false;
+      continue;
+    }
+    const t = d.life / ARC_DECAL_LIFETIME;
+    const ease = 1 - (1 - t) * (1 - t);
+    const r = MELEE.range;
+    const s = r * (0.3 + 0.7 * ease);
+    d.mesh.scale.set(s, 1, s);
+    d.mesh.material.opacity = 0.4 * (1 - ease);
+  }
+}
+function clearArcDecals() {
+  for (const d of arcDecalPool) {
+    d.active = false;
+    d.mesh.visible = false;
+  }
+}
+var ENEMY_ARC_POOL_SIZE = 6;
+var enemyArcPool = [];
+function initEnemyArcDecals(scene2) {
+  for (let i = 0; i < ENEMY_ARC_POOL_SIZE; i++) {
+    const geo = new THREE.CircleGeometry(1, 24, 0, Math.PI);
+    geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 16729088,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.visible = false;
+    scene2.add(mesh);
+    enemyArcPool.push({ mesh, active: false, life: 0, maxLife: 1 });
+  }
+}
+function spawnEnemyArcDecal(x, z, facingAngle, hitArc, hitRange, durationMs) {
+  let decal = null;
+  for (const d of enemyArcPool) {
+    if (!d.active) {
+      decal = d;
+      break;
+    }
+  }
+  if (!decal) return;
+  const newGeo = new THREE.CircleGeometry(hitRange, 24, Math.PI / 2 - hitArc / 2, hitArc);
+  newGeo.rotateX(-Math.PI / 2);
+  decal.mesh.geometry.dispose();
+  decal.mesh.geometry = newGeo;
+  decal.active = true;
+  decal.life = 0;
+  decal.maxLife = durationMs / 1e3;
+  decal.mesh.visible = true;
+  decal.mesh.position.set(x, 0.05, z);
+  decal.mesh.scale.set(1, 1, 1);
+  decal.mesh.rotation.set(0, facingAngle, 0);
+  decal.mesh.material.opacity = 0.35;
+}
+function updateEnemyArcDecals(dt) {
+  for (const d of enemyArcPool) {
+    if (!d.active) continue;
+    d.life += dt;
+    if (d.life >= d.maxLife) {
+      d.active = false;
+      d.mesh.visible = false;
+      continue;
+    }
+    const t = d.life / d.maxLife;
+    if (t < 0.8) {
+      const pulse = 0.275 + 0.075 * Math.sin(d.life * 12);
+      d.mesh.material.opacity = pulse;
+    } else {
+      const fadeT = (t - 0.8) / 0.2;
+      d.mesh.material.opacity = 0.35 * (1 - fadeT);
+    }
+  }
+}
+function clearEnemyArcDecals() {
+  for (const d of enemyArcPool) {
+    d.active = false;
+    d.mesh.visible = false;
+  }
+}
+function burst(position, config, direction) {
+  if (!sceneRef7) return;
+  const y = position.y ?? 0.5;
+  for (let i = 0; i < config.count; i++) {
+    const p = acquireParticle();
+    if (!p) break;
+    p.mesh.geometry = config.shape === "sphere" ? sphereGeo : boxGeo;
+    const s = config.size * (0.7 + Math.random() * 0.6);
+    p.mesh.scale.set(s, s, s);
+    p.baseScale = s;
+    p.material.color.setHex(config.color);
+    p.material.opacity = 1;
+    p.mesh.position.set(
+      position.x + (Math.random() - 0.5) * 0.1,
+      y + (Math.random() - 0.5) * 0.1,
+      position.z + (Math.random() - 0.5) * 0.1
+    );
+    let vx, vy, vz;
+    if (direction) {
+      const angle = Math.atan2(direction.x, direction.z) + (Math.random() - 0.5) * config.spread;
+      const elevAngle = (Math.random() - 0.3) * config.spread * 0.5;
+      vx = Math.sin(angle) * Math.cos(elevAngle);
+      vy = Math.sin(elevAngle) + Math.random() * 0.3;
+      vz = Math.cos(angle) * Math.cos(elevAngle);
+    } else {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * config.spread;
+      vx = Math.sin(phi) * Math.cos(theta);
+      vy = Math.cos(phi) * 0.5 + Math.random() * 0.5;
+      vz = Math.sin(phi) * Math.sin(theta);
+    }
+    const speed = config.speed * (0.6 + Math.random() * 0.8);
+    p.vx = vx * speed;
+    p.vy = vy * speed;
+    p.vz = vz * speed;
+    p.gravity = config.gravity;
+    p.fadeOut = config.fadeOut;
+    p.life = 0;
+    p.maxLife = config.lifetime * (0.7 + Math.random() * 0.6);
+    p.active = true;
+    p.mesh.visible = true;
+  }
+}
+function updateParticles(dt) {
+  updateArcDecals(dt);
+  updateEnemyArcDecals(dt);
+  for (const p of pool2) {
+    if (!p.active) continue;
+    p.life += dt;
+    if (p.life >= p.maxLife) {
+      p.active = false;
+      p.mesh.visible = false;
+      continue;
+    }
+    p.vy -= p.gravity * dt;
+    p.mesh.position.x += p.vx * dt;
+    p.mesh.position.y += p.vy * dt;
+    p.mesh.position.z += p.vz * dt;
+    if (p.mesh.position.y < 0.02) {
+      p.mesh.position.y = 0.02;
+      p.vy = 0;
+      p.vx *= 0.8;
+      p.vz *= 0.8;
+    }
+    if (p.fadeOut) {
+      const t = p.life / p.maxLife;
+      p.material.opacity = 1 - t * t;
+    }
+    const lifeRatio = p.life / p.maxLife;
+    if (lifeRatio > 0.7) {
+      const shrink = 1 - (lifeRatio - 0.7) / 0.3;
+      p.mesh.scale.setScalar(p.baseScale * shrink);
+    }
+  }
+}
+function acquireParticle() {
+  for (const p of pool2) {
+    if (!p.active) return p;
+  }
+  return null;
+}
+function clearParticles() {
+  for (const p of pool2) {
+    p.active = false;
+    p.mesh.visible = false;
+  }
+  clearArcDecals();
+  clearEnemyArcDecals();
+}
+function wireEventBus() {
+  on("enemyHit", (e) => {
+    if (e.type === "enemyHit") {
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        HIT_SPARK
+      );
+    }
+  });
+  on("enemyDied", (e) => {
+    if (e.type === "enemyDied") {
+      const color = e.enemy.config?.color ?? DEATH_PUFF.color;
+      burst(
+        { x: e.position.x, y: 0.4, z: e.position.z },
+        { ...DEATH_PUFF, color }
+      );
+    }
+  });
+  on("playerDash", (e) => {
+    if (e.type === "playerDash") {
+      burst(
+        { x: e.position.x, y: 0.4, z: e.position.z },
+        DASH_TRAIL,
+        { x: -e.direction.x, z: -e.direction.z }
+      );
+    }
+  });
+  on("shieldBreak", (e) => {
+    if (e.type === "shieldBreak") {
+      burst(
+        { x: e.position.x, y: 0.6, z: e.position.z },
+        SHIELD_BREAK_BURST
+      );
+    }
+  });
+  on("chargeFired", (e) => {
+    if (e.type === "chargeFired") {
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        { ...CHARGE_BLAST, count: Math.round(6 + e.chargeT * 6) },
+        { x: e.direction.x, z: e.direction.z }
+      );
+    }
+  });
+  on("enemyPushed", (e) => {
+    if (e.type === "enemyPushed") {
+      burst(
+        { x: e.position.x, y: 0.3, z: e.position.z },
+        PUSH_BURST
+      );
+    }
+  });
+  on("meleeSwing", (e) => {
+    if (e.type === "meleeSwing") {
+      burst(
+        { x: e.position.x, y: 0.6, z: e.position.z },
+        { ...DASH_TRAIL, count: 2, speed: 3, lifetime: 0.15, color: 16777215 },
+        { x: e.direction.x, z: e.direction.z }
+      );
+      spawnArcDecal(e.position.x, e.position.z, e.direction.x, e.direction.z);
+    }
+  });
+  on("wallSlam", (e) => {
+    if (e.type === "wallSlam") {
+      burst(
+        { x: e.position.x, y: 0.3, z: e.position.z },
+        { ...WALL_SLAM_SPARK, count: Math.round(4 + e.speed / 5 * 4) }
+      );
+    }
+  });
+  on("enemyImpact", (e) => {
+    if (e.type === "enemyImpact") {
+      burst(
+        { x: e.position.x, y: 0.4, z: e.position.z },
+        { ...ENEMY_IMPACT_SPARK, count: Math.round(3 + e.speed / 5 * 3) }
+      );
+    }
+  });
+  on("enemyMeleeTelegraph", (e) => {
+    if (e.type === "enemyMeleeTelegraph") {
+      spawnEnemyArcDecal(
+        e.position.x,
+        e.position.z,
+        e.facingAngle,
+        e.hitArc,
+        e.hitRange,
+        e.duration
+      );
+    }
+  });
+  on("doorUnlocked", (e) => {
+    if (e.type === "doorUnlocked") {
+      burst({ x: 0, y: 2, z: 0 }, DOOR_UNLOCK_BURST);
+    }
+  });
+  on("playerJump", (e) => {
+    if (e.type === "playerJump") {
+      burst({ x: e.position.x, y: 0.1, z: e.position.z }, JUMP_DUST);
+    }
+  });
+  on("playerLand", (e) => {
+    if (e.type === "playerLand") {
+      const intensity = Math.min(e.fallSpeed / 10, 2);
+      burst(
+        { x: e.position.x, y: 0.1, z: e.position.z },
+        { ...LAND_DUST, count: Math.round(3 + intensity * 4) }
+      );
+    }
+  });
+  on("enemyLaunched", (e) => {
+    if (e.type === "enemyLaunched") {
+      burst(
+        { x: e.position.x, y: 0.3, z: e.position.z },
+        LAUNCH_BURST
+      );
+    }
+  });
+  on("aerialStrike", (e) => {
+    if (e.type === "aerialStrike") {
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        AERIAL_SPIKE
+      );
+    }
+  });
+  on("playerSlam", (e) => {
+    if (e.type === "playerSlam") {
+      burst(
+        { x: e.position.x, y: 0.1, z: e.position.z },
+        { ...SLAM_IMPACT, count: Math.round(8 + e.fallSpeed / 15 * 4) }
+      );
+    }
+  });
+  on("dunkGrab", (e) => {
+    if (e.type === "dunkGrab") {
+      burst(
+        { x: e.position.x, y: 0.8, z: e.position.z },
+        DUNK_GRAB_SPARK
+      );
+    }
+  });
+  on("dunkImpact", (e) => {
+    if (e.type === "dunkImpact") {
+      burst(
+        { x: e.position.x, y: 0.1, z: e.position.z },
+        DUNK_IMPACT_BURST
+      );
+    }
+  });
+}
+
+// src/engine/telegraph.ts
+var sceneRef8;
+var ringGeo3;
+var fillGeo;
+var typeGeos = {};
+function initTelegraph(scene2) {
+  sceneRef8 = scene2;
+  ringGeo3 = new THREE.RingGeometry(0.6, 0.8, 24);
+  ringGeo3.rotateX(-Math.PI / 2);
+  fillGeo = new THREE.CircleGeometry(0.6, 24);
+  fillGeo.rotateX(-Math.PI / 2);
+  typeGeos.goblin = new THREE.ConeGeometry(0.2, 0.4, 3);
+  typeGeos.skeletonArcher = new THREE.BoxGeometry(0.25, 0.25, 0.25);
+  typeGeos.stoneGolem = new THREE.CylinderGeometry(0.25, 0.25, 0.1, 6);
+  typeGeos.iceMortarImp = new THREE.SphereGeometry(0.2, 8, 8);
+}
+function createTelegraph(x, z, typeName) {
+  const color = ENEMY_TYPES[typeName] ? ENEMY_TYPES[typeName].color : 16777215;
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  const ringMat2 = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.6,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  const ring = new THREE.Mesh(ringGeo3, ringMat2);
+  ring.position.y = 0.03;
+  group.add(ring);
+  const fillMat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  const fill = new THREE.Mesh(fillGeo, fillMat);
+  fill.position.y = 0.02;
+  group.add(fill);
+  const typeGeo = typeGeos[typeName] || typeGeos.goblin;
+  const typeMat = new THREE.MeshStandardMaterial({
+    color,
+    emissive: color,
+    emissiveIntensity: 0.6,
+    transparent: true,
+    opacity: 0.8
+  });
+  const typeIndicator = new THREE.Mesh(typeGeo, typeMat);
+  typeIndicator.position.y = 1.2;
+  if (typeName === "skeletonArcher") {
+    typeIndicator.rotation.y = Math.PI / 4;
+  }
+  group.add(typeIndicator);
+  sceneRef8.add(group);
+  return {
+    group,
+    ring,
+    ringMat: ringMat2,
+    fill,
+    fillMat,
+    typeIndicator,
+    typeMat,
+    baseColor: color,
+    time: 0
+  };
+}
+function updateTelegraph(telegraph, progress, dt) {
+  telegraph.time += dt;
+  telegraph.fillMat.opacity = progress * 0.4;
+  const freq = 2 + progress * 8;
+  const pulse = 0.5 + 0.5 * Math.sin(telegraph.time * freq * Math.PI * 2);
+  telegraph.ringMat.opacity = 0.3 + pulse * 0.5;
+  const scale = 1 + 0.1 * Math.sin(telegraph.time * freq * Math.PI * 2);
+  telegraph.ring.scale.set(scale, 1, scale);
+  if (progress > 0.8) {
+    const flash = Math.sin(telegraph.time * 20) > 0.5;
+    telegraph.ringMat.color.setHex(flash ? 16777215 : telegraph.baseColor);
+    telegraph.fillMat.color.setHex(flash ? 16777215 : telegraph.baseColor);
+  }
+  telegraph.typeIndicator.position.y = 1.2 + 0.15 * Math.sin(telegraph.time * 2);
+  telegraph.typeIndicator.rotation.y += dt * 1.5;
+}
+function removeTelegraph2(telegraph) {
+  if (telegraph.group.parent) {
+    sceneRef8.remove(telegraph.group);
+  }
+  telegraph.ringMat.dispose();
+  telegraph.fillMat.dispose();
+  telegraph.typeMat.dispose();
+}
+
+// src/config/door.ts
+var DOOR_CONFIG = {
+  unlockDuration: 1e3,
+  // ms — door unlock animation duration
+  interactRadius: 3.5,
+  // units — how close player must be to interact with door
+  // (door is at wall edge, player clamps ~0.5u away, so needs generous radius)
+  restPause: 2e3
+  // ms — how long before rest room door opens
+};
+
+// src/engine/door.ts
+var doorState = "none";
+var doorGroup = null;
+var doorFrameMesh = null;
+var doorPanelMesh = null;
+var doorGlowMesh = null;
+var doorAnimTimer = 0;
+var doorRoomIndex = 0;
+var sceneRef9 = null;
+var doorX = 0;
+var doorZ = 0;
+var promptEl = null;
+var promptVisible = false;
+function initDoor(scene2) {
+  sceneRef9 = scene2;
+  promptEl = document.getElementById("door-prompt");
+  if (!promptEl) {
+    promptEl = document.createElement("div");
+    promptEl.id = "door-prompt";
+    promptEl.style.cssText = `
+      position: fixed;
+      bottom: 25%;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #88bbff;
+      font-family: 'Courier New', monospace;
+      font-size: 16px;
+      font-weight: bold;
+      text-align: center;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      text-shadow: 0 0 10px rgba(136, 187, 255, 0.6);
+      z-index: 50;
+    `;
+    promptEl.textContent = "Press F to enter";
+    document.body.appendChild(promptEl);
+  }
+}
+function createDoor(arenaHalfX, arenaHalfZ, roomIndex) {
+  removeDoor();
+  doorState = "locked";
+  doorRoomIndex = roomIndex;
+  doorAnimTimer = 0;
+  doorX = 0;
+  doorZ = -arenaHalfZ + 1;
+  doorGroup = new THREE.Group();
+  doorGroup.position.set(doorX, 0, doorZ);
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: 4868714,
+    emissive: 4482730,
+    emissiveIntensity: 0.5,
+    roughness: 0.5
+  });
+  const leftPillar = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 4, 0.6),
+    frameMat
+  );
+  leftPillar.position.set(-2, 2, 0);
+  doorGroup.add(leftPillar);
+  const rightPillar = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 4, 0.6),
+    frameMat
+  );
+  rightPillar.position.set(2, 2, 0);
+  doorGroup.add(rightPillar);
+  const lintel = new THREE.Mesh(
+    new THREE.BoxGeometry(4.6, 0.5, 0.6),
+    frameMat
+  );
+  lintel.position.set(0, 4.25, 0);
+  doorGroup.add(lintel);
+  doorFrameMesh = doorGroup;
+  const panelMat = new THREE.MeshStandardMaterial({
+    color: 1710638,
+    emissive: 3359846,
+    emissiveIntensity: 0.2,
+    transparent: true,
+    opacity: 0.9,
+    roughness: 0.5
+  });
+  doorPanelMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(3.4, 3.6, 0.25),
+    panelMat
+  );
+  doorPanelMesh.position.set(0, 1.8, 0);
+  doorGroup.add(doorPanelMesh);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 8961023,
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide
+  });
+  doorGlowMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.4, 3.6),
+    glowMat
+  );
+  doorGlowMesh.position.set(0, 1.8, 0.2);
+  doorGroup.add(doorGlowMesh);
+  sceneRef9.add(doorGroup);
+}
+function unlockDoor() {
+  if (doorState !== "locked") return;
+  doorState = "unlocking";
+  doorAnimTimer = 0;
+}
+function updateDoor(dt, playerPos2, interact, playerDashing) {
+  if (doorState === "none" || !doorGroup) return false;
+  if (doorState === "unlocking") {
+    doorAnimTimer += dt * 1e3;
+    const progress = Math.min(doorAnimTimer / DOOR_CONFIG.unlockDuration, 1);
+    doorPanelMesh.position.y = 1.8 + progress * 4;
+    doorPanelMesh.material.opacity = 0.9 * (1 - progress);
+    doorGlowMesh.material.opacity = progress * 0.6;
+    doorGroup.children.forEach((child) => {
+      if (child.material && child !== doorPanelMesh && child !== doorGlowMesh) {
+        child.material.emissiveIntensity = 0.5 + progress * 0.8;
+      }
+    });
+    if (progress >= 1) {
+      doorState = "open";
+      emit({ type: "doorUnlocked", roomIndex: doorRoomIndex });
+    }
+  }
+  if (doorState === "open") {
+    doorAnimTimer += dt * 1e3;
+    const pulse = 0.4 + 0.2 * Math.sin(doorAnimTimer * 3e-3 * Math.PI * 2);
+    doorGlowMesh.material.opacity = pulse;
+    if (playerPos2) {
+      const dx = playerPos2.x - doorX;
+      const dz = playerPos2.z - doorZ;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      const nearDoor = dist < DOOR_CONFIG.interactRadius;
+      if (nearDoor) {
+        showPrompt();
+        if (interact || playerDashing) {
+          hidePrompt();
+          emit({ type: "doorEntered", roomIndex: doorRoomIndex });
+          doorState = "none";
+          return true;
+        }
+      } else {
+        hidePrompt();
+      }
+    }
+  } else {
+    hidePrompt();
+  }
+  return false;
+}
+function showPrompt() {
+  if (promptEl && !promptVisible) {
+    promptVisible = true;
+    promptEl.style.opacity = "1";
+  }
+}
+function hidePrompt() {
+  if (promptEl && promptVisible) {
+    promptVisible = false;
+    promptEl.style.opacity = "0";
+  }
+}
+function removeDoor() {
+  hidePrompt();
+  if (doorGroup && sceneRef9) {
+    sceneRef9.remove(doorGroup);
+    doorGroup.traverse((child) => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    });
+  }
+  doorGroup = null;
+  doorPanelMesh = null;
+  doorGlowMesh = null;
+  doorFrameMesh = null;
+  doorState = "none";
+}
+
+// src/engine/roomManager.ts
+var currentRoomIndex = 0;
+var packIndex = 0;
+var totalKills = 0;
+var roomBudgetTotal = 0;
+var roomCleared = false;
+var spawnCooldownTimer = 0;
+var finalWaveAnnounced = false;
+var restRoomTimer = 0;
+var activeTelegraphs2 = [];
+var announceEl = null;
+var sceneRef10 = null;
+function initRoomManager(scene2) {
+  sceneRef10 = scene2;
+  announceEl = document.getElementById("wave-announce");
+  initTelegraph(scene2);
+  initDoor(scene2);
+  on("enemyDied", () => {
+    totalKills++;
+  });
+}
+function loadRoom(index, gameState2) {
+  if (index >= ROOMS.length) {
+    showAnnounce("VICTORY!");
+    return;
+  }
+  const room = ROOMS[index];
+  currentRoomIndex = index;
+  packIndex = 0;
+  totalKills = 0;
+  roomCleared = false;
+  spawnCooldownTimer = 0;
+  finalWaveAnnounced = false;
+  activeTelegraphs2 = [];
+  roomBudgetTotal = room.spawnBudget.packs.reduce(
+    (sum, p) => sum + p.enemies.length,
+    0
+  );
+  restRoomTimer = 0;
+  clearEnemies(gameState2);
+  releaseAllProjectiles();
+  clearMortarProjectiles();
+  clearIcePatches();
+  clearAoeTelegraphs();
+  clearDamageNumbers();
+  clearEffectGhosts();
+  clearParticles();
+  removeDoor();
+  setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);
+  setHeightZones(room.heightZones || []);
+  invalidateCollisionBounds();
+  rebuildArenaVisuals();
+  setPlayerPosition(room.playerStart.x, room.playerStart.z);
+  gameState2.currentWave = index + 1;
+  showAnnounce(room.name);
+  setTimeout(hideAnnounce, 2e3);
+  if (room.isRestRoom) {
+    gameState2.playerHealth = gameState2.playerMaxHealth;
+    emit({ type: "playerHealed", amount: gameState2.playerMaxHealth, position: { x: room.playerStart.x, z: room.playerStart.z } });
+    emit({ type: "restRoomEntered", roomIndex: index });
+    roomCleared = true;
+    if (index + 1 < ROOMS.length) {
+      createDoor(room.arenaHalfX, room.arenaHalfZ, index);
+      restRoomTimer = DOOR_CONFIG.restPause;
+    }
+    return;
+  }
+  if (room.isVictoryRoom) {
+    showAnnounce("VICTORY!");
+    emit({ type: "roomCleared", roomIndex: index });
+    roomCleared = true;
+    return;
+  }
+  if (index + 1 < ROOMS.length) {
+    createDoor(room.arenaHalfX, room.arenaHalfZ, index);
+  }
+}
+function updateRoomManager(dt, gameState2) {
+  if (gameState2.phase !== "playing") return;
+  const room = ROOMS[currentRoomIndex];
+  if (!room) return;
+  if (room.isRestRoom && restRoomTimer > 0) {
+    restRoomTimer -= dt * 1e3;
+    if (restRoomTimer <= 0) {
+      unlockDoor();
+    }
+  }
+  const playerPos2 = getPlayerPos();
+  const input = getInputState();
+  const doorTriggered = updateDoor(dt, playerPos2, input.interact, isPlayerDashing());
+  if (doorTriggered) {
+    loadRoom(currentRoomIndex + 1, gameState2);
+    return;
+  }
+  for (let i = activeTelegraphs2.length - 1; i >= 0; i--) {
+    const tg = activeTelegraphs2[i];
+    tg.timer -= dt * 1e3;
+    const progress = 1 - tg.timer / tg.duration;
+    for (const tel of tg.telegraphs) {
+      updateTelegraph(tel, Math.min(progress, 1), dt);
+    }
+    if (tg.timer <= 0) {
+      for (const tel of tg.telegraphs) {
+        removeTelegraph2(tel);
+      }
+      for (let j = 0; j < tg.pack.enemies.length; j++) {
+        const enemy = tg.pack.enemies[j];
+        const pos = tg.positions[j];
+        const spawnPos = new THREE.Vector3(pos.x, 0, pos.z);
+        spawnEnemy(enemy.type, spawnPos, gameState2);
+      }
+      emit({ type: "spawnPackSpawned", packIndex: tg.packIdx, roomIndex: currentRoomIndex });
+      activeTelegraphs2.splice(i, 1);
+    }
+  }
+  if (room.isRestRoom || room.isVictoryRoom) return;
+  const aliveCount = gameState2.enemies.length;
+  const budget = room.spawnBudget;
+  const effectiveMaxConcurrent = Math.round(budget.maxConcurrent * SPAWN_CONFIG.maxConcurrentMult);
+  if (!finalWaveAnnounced && packIndex >= budget.packs.length && activeTelegraphs2.length === 0 && aliveCount > 0) {
+    finalWaveAnnounced = true;
+    showAnnounce("FINAL WAVE");
+    setTimeout(hideAnnounce, 1500);
+  }
+  spawnCooldownTimer -= dt * 1e3;
+  if (packIndex < budget.packs.length && spawnCooldownTimer <= 0) {
+    const nextPack = budget.packs[packIndex];
+    const telegraphingCount = activeTelegraphs2.reduce(
+      (sum, tg) => sum + tg.pack.enemies.length,
+      0
+    );
+    const totalActive = aliveCount + telegraphingCount;
+    if (totalActive + nextPack.enemies.length <= effectiveMaxConcurrent + 1) {
+      const positions = resolveSpawnPositions(nextPack, room);
+      const telegraphs = positions.map(
+        (pos, idx) => createTelegraph(pos.x, pos.z, nextPack.enemies[idx].type)
+      );
+      const duration = budget.telegraphDuration || SPAWN_CONFIG.telegraphDuration;
+      activeTelegraphs2.push({
+        telegraphs,
+        pack: nextPack,
+        positions,
+        timer: duration,
+        duration,
+        packIdx: packIndex
+      });
+      emit({ type: "spawnPackTelegraph", packIndex, roomIndex: currentRoomIndex });
+      packIndex++;
+      spawnCooldownTimer = SPAWN_CONFIG.spawnCooldown;
+    }
+  }
+  if (!roomCleared && packIndex >= budget.packs.length && activeTelegraphs2.length === 0 && aliveCount === 0) {
+    roomCleared = true;
+    emit({ type: "roomCleared", roomIndex: currentRoomIndex });
+    emit({ type: "roomClearComplete", roomIndex: currentRoomIndex });
+    if (currentRoomIndex + 1 >= ROOMS.length) {
+      showAnnounce("VICTORY!");
+    } else {
+      showAnnounce("Room Cleared!");
+      setTimeout(hideAnnounce, 1500);
+      unlockDoor();
+    }
+  }
+}
+function resolveSpawnPositions(pack2, room) {
+  const playerPos2 = getPlayerPos();
+  const playerZ = playerPos2 ? playerPos2.z : room.playerStart.z;
+  const playerX = playerPos2 ? playerPos2.x : room.playerStart.x;
+  const hx = room.arenaHalfX - 1.5;
+  const hz = room.arenaHalfZ - 1.5;
+  return pack2.enemies.map(() => {
+    let x, z;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      switch (pack2.spawnZone) {
+        case "ahead": {
+          const aheadMin = SPAWN_CONFIG.spawnAheadMin;
+          const aheadMax = SPAWN_CONFIG.spawnAheadMax;
+          x = (Math.random() * 2 - 1) * hx;
+          z = playerZ - aheadMin - Math.random() * (aheadMax - aheadMin);
+          break;
+        }
+        case "sides": {
+          const side = Math.random() < 0.5 ? -1 : 1;
+          x = side * (hx * 0.6 + Math.random() * hx * 0.3);
+          z = playerZ - 3 - Math.random() * 10;
+          break;
+        }
+        case "far": {
+          x = (Math.random() * 2 - 1) * hx;
+          z = -hz + 2 + Math.random() * 5;
+          break;
+        }
+        case "behind": {
+          x = (Math.random() * 2 - 1) * hx;
+          z = playerZ + 5 + Math.random() * 5;
+          break;
+        }
+        default: {
+          x = (Math.random() * 2 - 1) * hx;
+          z = playerZ - 5 - Math.random() * 10;
+        }
+      }
+      x = Math.max(-hx, Math.min(hx, x));
+      z = Math.max(-hz, Math.min(hz, z));
+      if (!isInsideObstacle(x, z) && !isInsidePit(x, z)) {
+        return { x, z };
+      }
+    }
+    return { x: (Math.random() * 2 - 1) * 3, z: 0 };
+  });
+}
+function isInsideObstacle(x, z) {
+  const bounds = getBounds();
+  const obstacleCount = bounds.length - 4;
+  for (let i = 0; i < obstacleCount; i++) {
+    const b = bounds[i];
+    if (x >= b.minX - 1 && x <= b.maxX + 1 && z >= b.minZ - 1 && z <= b.maxZ + 1) {
+      return true;
+    }
+  }
+  return false;
+}
+function isInsidePit(x, z) {
+  const pits = getPits();
+  for (const p of pits) {
+    if (x >= p.minX - 0.5 && x <= p.maxX + 0.5 && z >= p.minZ - 0.5 && z <= p.maxZ + 0.5) {
+      return true;
+    }
+  }
+  return false;
+}
+function resetRoomManager() {
+  currentRoomIndex = 0;
+  packIndex = 0;
+  totalKills = 0;
+  roomBudgetTotal = 0;
+  roomCleared = false;
+  spawnCooldownTimer = 0;
+  finalWaveAnnounced = false;
+  restRoomTimer = 0;
+  activeTelegraphs2 = [];
+  removeDoor();
+}
+function showAnnounce(text) {
+  if (!announceEl) return;
+  announceEl.textContent = text;
+  announceEl.classList.add("visible");
+}
+function hideAnnounce() {
+  if (!announceEl) return;
+  announceEl.classList.remove("visible");
+}
+
+// src/engine/bulletTime.ts
+var BULLET_TIME = {
+  timeScale: 0.25,
+  // how slow the world runs (0.25 = 25% speed)
+  maxResource: 3e3,
+  // ms of bullet time available at full bar
+  drainRate: 1e3,
+  // resource drained per real second while active
+  killRefill: 600,
+  // resource refilled per enemy kill
+  activationMinimum: 300,
+  // minimum resource required to activate
+  infinite: 1
+  // 1 = infinite resource (skip drain), 0 = normal drain
+};
+var resource = BULLET_TIME.maxResource;
+var active = false;
+var initialized = false;
+function initBulletTime() {
+  if (initialized) return;
+  initialized = true;
+  on("enemyDied", () => {
+    refillBulletTime(BULLET_TIME.killRefill);
+  });
+}
+function activateBulletTime() {
+  if (active) return;
+  if (resource >= BULLET_TIME.activationMinimum) {
+    active = true;
+    emit({ type: "bulletTimeActivated" });
+  }
+}
+function toggleBulletTime() {
+  if (active) {
+    active = false;
+    emit({ type: "bulletTimeDeactivated" });
+  } else {
+    activateBulletTime();
+  }
+}
+function updateBulletTime(realDt) {
+  if (!active) return;
+  if (BULLET_TIME.infinite >= 1) return;
+  resource -= BULLET_TIME.drainRate * realDt;
+  if (resource <= 0) {
+    resource = 0;
+    active = false;
+    emit({ type: "bulletTimeDeactivated" });
+  }
+}
+function getBulletTimeScale() {
+  return active ? BULLET_TIME.timeScale : 1;
+}
+function refillBulletTime(amount) {
+  resource = Math.min(resource + amount, BULLET_TIME.maxResource);
+}
+function resetBulletTime() {
+  resource = BULLET_TIME.maxResource;
+  active = false;
+}
+function isBulletTimeActive() {
+  return active;
+}
+function getBulletTimeResource() {
+  return resource;
+}
+function getBulletTimeMax() {
+  return BULLET_TIME.maxResource;
 }
 
 // src/ui/hud.ts
@@ -4323,6 +7829,11 @@ var healthText;
 var waveIndicator;
 var currencyCount;
 var abilityBar;
+var bulletTimeMeter;
+var bulletTimeFill;
+var btVignette;
+var btCeremony;
+var btCeremonyTimeout = null;
 var mobileBtnDash;
 var mobileBtnUlt;
 function initHUD() {
@@ -4342,6 +7853,93 @@ function initHUD() {
   if (hasTouch) {
     initMobileButtons();
   }
+  bulletTimeMeter = document.createElement("div");
+  bulletTimeMeter.id = "bullet-time-meter";
+  bulletTimeMeter.style.cssText = `
+    position: fixed;
+    top: 44px;
+    left: 20px;
+    width: 220px;
+    height: 6px;
+    background: rgba(20, 20, 40, 0.7);
+    border: 1px solid rgba(100, 140, 255, 0.3);
+    border-radius: 3px;
+    z-index: 50;
+    overflow: hidden;
+  `;
+  bulletTimeFill = document.createElement("div");
+  bulletTimeFill.style.cssText = `
+    width: 100%;
+    height: 100%;
+    background: #6688ff;
+    border-radius: 2px;
+    transition: background-color 0.15s ease;
+  `;
+  bulletTimeMeter.appendChild(bulletTimeFill);
+  const btLabel = document.createElement("div");
+  btLabel.style.cssText = `
+    position: absolute;
+    top: -1px;
+    right: -50px;
+    font-size: 8px;
+    color: rgba(100, 140, 255, 0.6);
+    letter-spacing: 1px;
+    font-family: 'Courier New', monospace;
+    pointer-events: none;
+  `;
+  btLabel.textContent = "Q \u2014 SLOW";
+  bulletTimeMeter.appendChild(btLabel);
+  document.body.appendChild(bulletTimeMeter);
+  btVignette = document.createElement("div");
+  btVignette.id = "bt-vignette";
+  btVignette.style.cssText = `
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    z-index: 40;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    background: radial-gradient(ellipse at center, transparent 50%, rgba(100, 140, 255, 0.15) 100%);
+    box-shadow: inset 0 0 80px rgba(100, 140, 255, 0.2);
+  `;
+  document.body.appendChild(btVignette);
+  btCeremony = document.createElement("div");
+  btCeremony.id = "bt-ceremony";
+  btCeremony.style.cssText = `
+    position: fixed;
+    top: 18%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 14px;
+    font-family: 'Courier New', monospace;
+    color: rgba(100, 160, 255, 0.9);
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    text-shadow: 0 0 12px rgba(100, 140, 255, 0.6), 0 0 30px rgba(100, 140, 255, 0.3);
+    pointer-events: none;
+    z-index: 55;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  `;
+  document.body.appendChild(btCeremony);
+  on("bulletTimeActivated", () => {
+    if (btVignette) btVignette.style.opacity = "1";
+    showBTCeremony("BULLET TIME ENGAGED", 1200);
+  });
+  on("bulletTimeDeactivated", () => {
+    if (btVignette) btVignette.style.opacity = "0";
+    showBTCeremony("BULLET TIME ENDED", 800);
+  });
+}
+function showBTCeremony(text, durationMs) {
+  if (!btCeremony) return;
+  if (btCeremonyTimeout) clearTimeout(btCeremonyTimeout);
+  btCeremony.textContent = text;
+  btCeremony.style.opacity = "1";
+  btCeremonyTimeout = setTimeout(() => {
+    btCeremony.style.opacity = "0";
+    btCeremonyTimeout = null;
+  }, durationMs);
 }
 var DRAG_THRESHOLD = 15;
 var DRAG_MAX_RADIUS = 80;
@@ -4452,6 +8050,15 @@ function updateHUD(gameState2) {
   healthText.textContent = Math.ceil(gameState2.playerHealth) + " / " + gameState2.playerMaxHealth;
   waveIndicator.textContent = "Wave " + gameState2.currentWave;
   currencyCount.textContent = gameState2.currency;
+  if (bulletTimeFill) {
+    const btPct = getBulletTimeResource() / getBulletTimeMax();
+    bulletTimeFill.style.width = btPct * 100 + "%";
+    const btActive = isBulletTimeActive();
+    bulletTimeFill.style.backgroundColor = btActive ? "#ffcc44" : "#6688ff";
+    if (bulletTimeMeter) {
+      bulletTimeMeter.style.borderColor = btActive ? "rgba(255, 204, 68, 0.6)" : "rgba(100, 140, 255, 0.3)";
+    }
+  }
   for (const [key, state] of Object.entries(gameState2.abilities)) {
     if (!ABILITIES[key]) continue;
     const cfg = ABILITIES[key];
@@ -4569,20 +8176,43 @@ var AUDIO_CONFIG = {
   chargeVolume: 0.35,
   waveClearVolume: 0.4,
   playerHitVolume: 0.5,
+  meleeSwingVolume: 0.3,
+  meleeHitVolume: 0.45,
+  wallSlamVolume: 0.5,
+  enemyImpactVolume: 0.4,
+  // Vertical combat
+  jumpVolume: 0.25,
+  landVolume: 0.3,
+  launchVolume: 0.4,
+  aerialStrikeVolume: 0.45,
+  slamVolume: 0.5,
+  dunkGrabVolume: 0.35,
+  dunkImpactVolume: 0.55,
   enabled: true
 };
 var ctx2 = null;
 var masterGain = null;
-var initialized = false;
+var initialized2 = false;
 function initAudio() {
-  if (initialized) return;
+  if (initialized2) return;
   try {
     ctx2 = new (window.AudioContext || window.webkitAudioContext)();
     masterGain = ctx2.createGain();
     masterGain.gain.value = AUDIO_CONFIG.masterVolume;
     masterGain.connect(ctx2.destination);
-    initialized = true;
-    wireEventBus();
+    initialized2 = true;
+    wireEventBus2();
+    const muteBtn = document.getElementById("mute-btn");
+    if (muteBtn) {
+      muteBtn.addEventListener("click", () => {
+        AUDIO_CONFIG.enabled = !AUDIO_CONFIG.enabled;
+        if (masterGain) {
+          masterGain.gain.value = AUDIO_CONFIG.enabled ? AUDIO_CONFIG.masterVolume : 0;
+        }
+        muteBtn.textContent = AUDIO_CONFIG.enabled ? "\u{1F50A}" : "\u{1F507}";
+        muteBtn.classList.toggle("muted", !AUDIO_CONFIG.enabled);
+      });
+    }
   } catch (e) {
     console.warn("[audio] Web Audio API not available:", e);
   }
@@ -4782,7 +8412,336 @@ function playPlayerHit() {
   noise.start(now);
   noise.stop(now + duration);
 }
-function wireEventBus() {
+function playMeleeSwing() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.12;
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "highpass";
+  filter.frequency.setValueAtTime(1500, now);
+  filter.frequency.exponentialRampToValueAtTime(5e3, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.meleeSwingVolume, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playMeleeHit() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.08;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(120, now);
+  osc.frequency.exponentialRampToValueAtTime(50, now + duration);
+  const oscGain = ctx2.createGain();
+  oscGain.gain.setValueAtTime(AUDIO_CONFIG.meleeHitVolume * 0.5, now);
+  oscGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = 3e3;
+  filter.Q.value = 3;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.meleeHitVolume * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.6);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playWallSlam(intensity = 1) {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.15;
+  const vol = AUDIO_CONFIG.wallSlamVolume * Math.min(intensity, 2);
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(80, now);
+  osc.frequency.exponentialRampToValueAtTime(30, now + duration);
+  const oscGain = ctx2.createGain();
+  oscGain.gain.setValueAtTime(vol * 0.6, now);
+  oscGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.5);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 2e3;
+  filter.Q.value = 2;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(vol * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.5);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playEnemyImpact(intensity = 1) {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.1;
+  const vol = AUDIO_CONFIG.enemyImpactVolume * Math.min(intensity, 2);
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(150, now);
+  osc.frequency.exponentialRampToValueAtTime(60, now + duration);
+  const oscGain = ctx2.createGain();
+  oscGain.gain.setValueAtTime(vol * 0.5, now);
+  oscGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.4);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = 1500;
+  filter.Q.value = 3;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(vol * 0.3, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.4);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playDoorUnlock() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const notes = [392, 523, 659, 784];
+  const noteLen = 0.18;
+  notes.forEach((freq, i) => {
+    const osc = ctx2.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    const gain = ctx2.createGain();
+    const start = now + i * 0.1;
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(AUDIO_CONFIG.waveClearVolume * 0.35, start + 0.01);
+    gain.gain.exponentialRampToValueAtTime(1e-3, start + noteLen);
+    osc.connect(gain);
+    gain.connect(masterGain);
+    osc.start(start);
+    osc.stop(start + noteLen);
+  });
+}
+function playHeal() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(330, now);
+  osc.frequency.linearRampToValueAtTime(660, now + 0.4);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(0.2, now + 0.05);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + 0.5);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + 0.5);
+}
+function playJump() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.1;
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(600, now);
+  filter.frequency.exponentialRampToValueAtTime(2500, now + duration);
+  filter.Q.value = 2;
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.jumpVolume, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playLand(fallSpeed) {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const intensity = Math.min(fallSpeed / 15, 1.5);
+  const duration = 0.08 + intensity * 0.04;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(60 + intensity * 30, now);
+  osc.frequency.exponentialRampToValueAtTime(25, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.landVolume * intensity, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+}
+function playLaunch() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.15;
+  const osc = ctx2.createOscillator();
+  osc.type = "square";
+  osc.frequency.setValueAtTime(120, now);
+  osc.frequency.exponentialRampToValueAtTime(600, now + duration * 0.7);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.launchVolume * 0.3, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.5);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "highpass";
+  filter.frequency.value = 2e3;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.launchVolume * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.5);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playAerialStrike() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.1;
+  const osc = ctx2.createOscillator();
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(500, now);
+  osc.frequency.exponentialRampToValueAtTime(100, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.aerialStrikeVolume * 0.4, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = 4e3;
+  filter.Q.value = 4;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.aerialStrikeVolume * 0.5, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.6);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playSlam(fallSpeed) {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const intensity = Math.min(fallSpeed / 20, 1.5);
+  const duration = 0.2 + intensity * 0.05;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(50 + intensity * 20, now);
+  osc.frequency.exponentialRampToValueAtTime(20, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.slamVolume * (0.4 + intensity * 0.3), now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.7);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 1500;
+  filter.Q.value = 2;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.slamVolume * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.7);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playDunkGrab() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.1;
+  const osc = ctx2.createOscillator();
+  osc.type = "triangle";
+  osc.frequency.value = 1200;
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.dunkGrabVolume * 0.4, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+}
+function playDunkImpact() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.25;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(40, now);
+  osc.frequency.exponentialRampToValueAtTime(15, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.dunkImpactVolume * 0.6, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 2e3;
+  filter.Q.value = 3;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.dunkImpactVolume * 0.5, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.6);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+  const sub = ctx2.createOscillator();
+  sub.type = "sine";
+  sub.frequency.value = 25;
+  const subGain = ctx2.createGain();
+  subGain.gain.setValueAtTime(AUDIO_CONFIG.dunkImpactVolume * 0.3, now);
+  subGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  sub.connect(subGain);
+  subGain.connect(masterGain);
+  sub.start(now);
+  sub.stop(now + duration);
+}
+function wireEventBus2() {
   on("enemyHit", (e) => {
     if (e.type === "enemyHit") playHit(e.damage / 15);
   });
@@ -4794,6 +8753,28 @@ function wireEventBus() {
     if (e.type === "chargeFired") playChargeFire(e.chargeT);
   });
   on("waveCleared", () => playWaveClear());
+  on("roomCleared", () => playWaveClear());
+  on("roomClearComplete", () => playDoorUnlock());
+  on("playerHealed", () => playHeal());
+  on("meleeSwing", () => playMeleeSwing());
+  on("meleeHit", () => playMeleeHit());
+  on("wallSlam", (e) => {
+    if (e.type === "wallSlam") playWallSlam(e.speed / 5);
+  });
+  on("enemyImpact", (e) => {
+    if (e.type === "enemyImpact") playEnemyImpact(e.speed / 5);
+  });
+  on("playerJump", () => playJump());
+  on("playerLand", (e) => {
+    if (e.type === "playerLand") playLand(e.fallSpeed);
+  });
+  on("enemyLaunched", () => playLaunch());
+  on("aerialStrike", () => playAerialStrike());
+  on("playerSlam", (e) => {
+    if (e.type === "playerSlam") playSlam(e.fallSpeed);
+  });
+  on("dunkGrab", () => playDunkGrab());
+  on("dunkImpact", () => playDunkImpact());
 }
 
 // src/config/boss.ts
@@ -4965,18 +8946,153 @@ var SECTIONS = [
     ]
   },
   {
-    section: "Enemies",
+    section: "Melee",
+    collapsed: true,
+    items: [
+      {
+        label: "Damage",
+        config: () => MELEE,
+        key: "damage",
+        min: 5,
+        max: 60,
+        step: 1,
+        unit: "",
+        tip: "Melee swing damage per hit."
+      },
+      {
+        label: "Range",
+        config: () => MELEE,
+        key: "range",
+        min: 1,
+        max: 4,
+        step: 0.2,
+        unit: "u",
+        tip: "How far the swing reaches from player center."
+      },
+      {
+        label: "Arc",
+        config: () => MELEE,
+        key: "arc",
+        min: 1,
+        max: 3.5,
+        step: 0.1,
+        unit: "rad",
+        tip: "Hit cone width in radians (~2.4 = 137\xB0)."
+      },
+      {
+        label: "Cooldown",
+        config: () => MELEE,
+        key: "cooldown",
+        min: 100,
+        max: 800,
+        step: 10,
+        unit: "ms",
+        tip: "Time between swings."
+      },
+      {
+        label: "Knockback",
+        config: () => MELEE,
+        key: "knockback",
+        min: 0,
+        max: 4,
+        step: 0.25,
+        unit: "u",
+        tip: "Distance enemies are pushed on hit."
+      },
+      {
+        label: "Auto Range",
+        config: () => MELEE,
+        key: "autoTargetRange",
+        min: 1,
+        max: 6,
+        step: 0.5,
+        unit: "u",
+        tip: "Radius to search for auto-targeting snap."
+      },
+      {
+        label: "Auto Arc",
+        config: () => MELEE,
+        key: "autoTargetArc",
+        min: 1,
+        max: 3.5,
+        step: 0.1,
+        unit: "rad",
+        tip: "Cone width for auto-targeting snap."
+      },
+      {
+        label: "Shake",
+        config: () => MELEE,
+        key: "screenShake",
+        min: 0,
+        max: 4,
+        step: 0.25,
+        unit: "",
+        tip: "Screen shake intensity on melee hit."
+      },
+      {
+        label: "Hit Pause",
+        config: () => MELEE,
+        key: "hitPause",
+        min: 0,
+        max: 100,
+        step: 5,
+        unit: "ms",
+        tip: "Freeze-frame duration on melee hit (juice)."
+      }
+    ]
+  },
+  {
+    section: "Mob Global",
     items: [
       {
         label: "Speed Mult",
-        config: () => null,
-        key: "enemySpeedMult",
+        config: () => MOB_GLOBAL,
+        key: "speedMult",
         min: 0.2,
-        max: 4,
+        max: 3,
         step: 0.1,
-        custom: "enemySpeed",
         unit: "x",
-        tip: "Global speed multiplier applied to all enemy types. 1x = default."
+        tip: "Global speed multiplier for all enemies."
+      },
+      {
+        label: "Damage Mult",
+        config: () => MOB_GLOBAL,
+        key: "damageMult",
+        min: 0.2,
+        max: 3,
+        step: 0.1,
+        unit: "x",
+        tip: "Global damage multiplier for all enemies."
+      },
+      {
+        label: "Health Mult",
+        config: () => MOB_GLOBAL,
+        key: "healthMult",
+        min: 0.2,
+        max: 3,
+        step: 0.1,
+        unit: "x",
+        tip: "Global health multiplier for all enemies."
+      },
+      {
+        label: "Telegraph Mult",
+        config: () => MOB_GLOBAL,
+        key: "telegraphMult",
+        min: 0.2,
+        max: 3,
+        step: 0.1,
+        unit: "x",
+        tip: "Global telegraph duration multiplier. Higher = more reaction time."
+      },
+      {
+        label: "Recovery Mult",
+        config: () => MOB_GLOBAL,
+        key: "recoveryMult",
+        min: 0.2,
+        max: 3,
+        step: 0.1,
+        unit: "x",
+        tip: "Global recovery duration multiplier. Higher = bigger punish windows."
       }
     ]
   },
@@ -5066,9 +9182,9 @@ var SECTIONS = [
         label: "Cooldown",
         config: () => ABILITIES.ultimate,
         key: "cooldown",
-        min: 1e3,
+        min: 100,
         max: 15e3,
-        step: 500,
+        step: 100,
         unit: "ms",
         tip: "Force push cooldown."
       },
@@ -5141,6 +9257,200 @@ var SECTIONS = [
         step: 0.05,
         unit: "x",
         tip: "Movement speed multiplier while charging."
+      }
+    ]
+  },
+  // ── Bullet Time ──
+  {
+    section: "Bullet Time",
+    collapsed: true,
+    items: [
+      {
+        label: "Time Scale",
+        config: () => BULLET_TIME,
+        key: "timeScale",
+        min: 0.05,
+        max: 0.8,
+        step: 0.05,
+        unit: "x",
+        tip: "How slow the world runs during bullet time (0.25 = 25% speed)."
+      },
+      {
+        label: "Max Resource",
+        config: () => BULLET_TIME,
+        key: "maxResource",
+        min: 500,
+        max: 1e4,
+        step: 500,
+        unit: "ms",
+        tip: "Total bullet time available at full bar."
+      },
+      {
+        label: "Drain Rate",
+        config: () => BULLET_TIME,
+        key: "drainRate",
+        min: 200,
+        max: 3e3,
+        step: 100,
+        unit: "ms/s",
+        tip: "How fast the bar drains per real second."
+      },
+      {
+        label: "Kill Refill",
+        config: () => BULLET_TIME,
+        key: "killRefill",
+        min: 100,
+        max: 2e3,
+        step: 100,
+        unit: "ms",
+        tip: "Resource refilled per enemy kill."
+      },
+      {
+        label: "Min Activate",
+        config: () => BULLET_TIME,
+        key: "activationMinimum",
+        min: 0,
+        max: 1e3,
+        step: 50,
+        unit: "ms",
+        tip: "Minimum resource required to activate bullet time."
+      },
+      {
+        label: "Infinite",
+        config: () => BULLET_TIME,
+        key: "infinite",
+        min: 0,
+        max: 1,
+        step: 1,
+        unit: "",
+        tip: "1 = infinite bullet time (no drain). 0 = normal drain."
+      }
+    ]
+  },
+  // ── Physics ──
+  {
+    section: "Physics",
+    collapsed: true,
+    items: [
+      {
+        label: "Friction",
+        config: () => PHYSICS,
+        key: "friction",
+        min: 2,
+        max: 30,
+        step: 1,
+        unit: "u/s\xB2",
+        tip: "Knockback deceleration. Higher = snappier stop."
+      },
+      {
+        label: "Push Instant %",
+        config: () => PHYSICS,
+        key: "pushInstantRatio",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Fraction of knockback applied as instant offset. 1.0 = old instant feel."
+      },
+      {
+        label: "Wave Block Rad",
+        config: () => PHYSICS,
+        key: "pushWaveBlockRadius",
+        min: 0,
+        max: 2,
+        step: 0.1,
+        unit: "u",
+        tip: "Lateral distance for enemy occlusion. Nearer enemies block push to those behind. 0 = no blocking."
+      },
+      {
+        label: "Slam Min Speed",
+        config: () => PHYSICS,
+        key: "wallSlamMinSpeed",
+        min: 0,
+        max: 10,
+        step: 0.5,
+        unit: "u/s",
+        tip: "Minimum impact speed for wall slam damage."
+      },
+      {
+        label: "Slam Damage",
+        config: () => PHYSICS,
+        key: "wallSlamDamage",
+        min: 1,
+        max: 20,
+        step: 1,
+        unit: "/unit",
+        tip: "Damage per unit of speed above slam threshold."
+      },
+      {
+        label: "Slam Stun",
+        config: () => PHYSICS,
+        key: "wallSlamStun",
+        min: 0,
+        max: 1e3,
+        step: 50,
+        unit: "ms",
+        tip: "Stun duration on wall slam."
+      },
+      {
+        label: "Slam Bounce",
+        config: () => PHYSICS,
+        key: "wallSlamBounce",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Velocity reflection on wall hit. 0 = dead stop, 1 = perfect bounce."
+      },
+      {
+        label: "Slam Shake",
+        config: () => PHYSICS,
+        key: "wallSlamShake",
+        min: 0,
+        max: 8,
+        step: 0.5,
+        unit: "",
+        tip: "Screen shake intensity on wall slam."
+      },
+      {
+        label: "Enemy Bounce",
+        config: () => PHYSICS,
+        key: "enemyBounce",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Enemy-enemy collision restitution. 0 = stick, 1 = full bounce."
+      },
+      {
+        label: "Impact Min Spd",
+        config: () => PHYSICS,
+        key: "impactMinSpeed",
+        min: 0,
+        max: 10,
+        step: 0.5,
+        unit: "u/s",
+        tip: "Minimum relative speed for enemy-enemy impact damage."
+      },
+      {
+        label: "Impact Damage",
+        config: () => PHYSICS,
+        key: "impactDamage",
+        min: 1,
+        max: 20,
+        step: 1,
+        unit: "/unit",
+        tip: "Damage per unit of speed above impact threshold."
+      },
+      {
+        label: "Impact Stun",
+        config: () => PHYSICS,
+        key: "impactStun",
+        min: 0,
+        max: 1e3,
+        step: 50,
+        unit: "ms",
+        tip: "Stun duration when enemies collide at speed."
       }
     ]
   },
@@ -5514,6 +9824,480 @@ var SECTIONS = [
         step: 0.05,
         unit: "",
         tip: "Player damage taken sound volume."
+      },
+      {
+        label: "Melee Swing",
+        config: () => AUDIO_CONFIG,
+        key: "meleeSwingVolume",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Melee swing whoosh volume."
+      },
+      {
+        label: "Melee Hit",
+        config: () => AUDIO_CONFIG,
+        key: "meleeHitVolume",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        unit: "",
+        tip: "Melee hit thump volume."
+      }
+    ]
+  },
+  {
+    section: "Spawn Pacing",
+    collapsed: true,
+    items: [
+      {
+        label: "Telegraph Dur",
+        config: () => SPAWN_CONFIG,
+        key: "telegraphDuration",
+        min: 500,
+        max: 3e3,
+        step: 100,
+        unit: "ms",
+        tip: "How long spawn warnings show before enemies appear."
+      },
+      {
+        label: "Spawn Cooldown",
+        config: () => SPAWN_CONFIG,
+        key: "spawnCooldown",
+        min: 200,
+        max: 2e3,
+        step: 100,
+        unit: "ms",
+        tip: "Minimum delay between consecutive pack dispatches."
+      },
+      {
+        label: "Max Conc. Mult",
+        config: () => SPAWN_CONFIG,
+        key: "maxConcurrentMult",
+        min: 0.5,
+        max: 2,
+        step: 0.1,
+        unit: "",
+        tip: "Multiplier on max concurrent enemies (affects all rooms)."
+      },
+      {
+        label: "Ahead Dist Min",
+        config: () => SPAWN_CONFIG,
+        key: "spawnAheadMin",
+        min: 3,
+        max: 15,
+        step: 1,
+        unit: "u",
+        tip: "Min distance ahead of player to spawn enemies."
+      },
+      {
+        label: "Ahead Dist Max",
+        config: () => SPAWN_CONFIG,
+        key: "spawnAheadMax",
+        min: 8,
+        max: 25,
+        step: 1,
+        unit: "u",
+        tip: "Max distance ahead of player to spawn enemies."
+      }
+    ]
+  },
+  {
+    section: "Door",
+    collapsed: true,
+    items: [
+      {
+        label: "Unlock Duration",
+        config: () => DOOR_CONFIG,
+        key: "unlockDuration",
+        min: 300,
+        max: 2e3,
+        step: 100,
+        unit: "ms",
+        tip: "Door unlock animation duration."
+      },
+      {
+        label: "Interact Radius",
+        config: () => DOOR_CONFIG,
+        key: "interactRadius",
+        min: 1,
+        max: 4,
+        step: 0.5,
+        unit: "u",
+        tip: "How close player must be to enter door."
+      },
+      {
+        label: "Rest Pause",
+        config: () => DOOR_CONFIG,
+        key: "restPause",
+        min: 500,
+        max: 5e3,
+        step: 500,
+        unit: "ms",
+        tip: "How long before rest room door opens."
+      }
+    ]
+  },
+  // ── Vertical Combat ──
+  {
+    section: "Jump / Gravity",
+    collapsed: true,
+    items: [
+      {
+        label: "Jump Velocity",
+        config: () => JUMP,
+        key: "initialVelocity",
+        min: 5,
+        max: 25,
+        step: 0.5,
+        unit: "u/s",
+        tip: "Upward velocity when jumping."
+      },
+      {
+        label: "Gravity",
+        config: () => JUMP,
+        key: "gravity",
+        min: 10,
+        max: 50,
+        step: 1,
+        unit: "u/s\xB2",
+        tip: "Downward acceleration while airborne."
+      },
+      {
+        label: "Air Control",
+        config: () => JUMP,
+        key: "airControlMult",
+        min: 0.2,
+        max: 1.5,
+        step: 0.1,
+        tip: "XZ movement multiplier while airborne."
+      },
+      {
+        label: "Landing Lag",
+        config: () => JUMP,
+        key: "landingLag",
+        min: 0,
+        max: 200,
+        step: 10,
+        unit: "ms",
+        tip: "Lockout time after landing."
+      },
+      {
+        label: "Coyote Time",
+        config: () => JUMP,
+        key: "coyoteTime",
+        min: 0,
+        max: 200,
+        step: 10,
+        unit: "ms",
+        tip: "Grace period after walking off ledge."
+      }
+    ]
+  },
+  {
+    section: "Launch",
+    collapsed: true,
+    items: [
+      {
+        label: "Range",
+        config: () => LAUNCH,
+        key: "range",
+        min: 1,
+        max: 6,
+        step: 0.5,
+        unit: "u",
+        tip: "Max range to target an enemy for launch."
+      },
+      {
+        label: "Enemy Vel Mult",
+        config: () => LAUNCH,
+        key: "enemyVelMult",
+        min: 1,
+        max: 3,
+        step: 0.1,
+        unit: "\xD7",
+        tip: "Enemy launch velocity = jump velocity \xD7 this. Higher = enemy goes higher above player."
+      },
+      {
+        label: "Player Vel Mult",
+        config: () => LAUNCH,
+        key: "playerVelMult",
+        min: 0.5,
+        max: 2,
+        step: 0.1,
+        unit: "\xD7",
+        tip: "Player hop velocity = jump velocity \xD7 this. Lower than enemy = player catches the ball."
+      },
+      {
+        label: "Cooldown",
+        config: () => LAUNCH,
+        key: "cooldown",
+        min: 200,
+        max: 1500,
+        step: 50,
+        unit: "ms",
+        tip: "Time between launches."
+      },
+      {
+        label: "Chip Damage",
+        config: () => LAUNCH,
+        key: "damage",
+        min: 0,
+        max: 20,
+        step: 1,
+        tip: "Damage dealt on launch."
+      }
+    ]
+  },
+  {
+    section: "Aerial Strike",
+    collapsed: true,
+    items: [
+      {
+        label: "Damage",
+        config: () => AERIAL_STRIKE,
+        key: "damage",
+        min: 5,
+        max: 50,
+        step: 1,
+        tip: "Damage dealt by aerial strike."
+      },
+      {
+        label: "Range",
+        config: () => AERIAL_STRIKE,
+        key: "range",
+        min: 1,
+        max: 5,
+        step: 0.5,
+        unit: "u",
+        tip: "Max range to target for aerial strike."
+      },
+      {
+        label: "Slam Velocity",
+        config: () => AERIAL_STRIKE,
+        key: "slamVelocity",
+        min: -30,
+        max: -5,
+        step: 1,
+        unit: "u/s",
+        tip: "Downward velocity applied to hit enemy."
+      },
+      {
+        label: "Screen Shake",
+        config: () => AERIAL_STRIKE,
+        key: "screenShake",
+        min: 0,
+        max: 5,
+        step: 0.5,
+        tip: "Camera shake intensity on hit."
+      },
+      {
+        label: "Cooldown",
+        config: () => AERIAL_STRIKE,
+        key: "cooldown",
+        min: 100,
+        max: 800,
+        step: 50,
+        unit: "ms",
+        tip: "Time between aerial strikes."
+      }
+    ]
+  },
+  {
+    section: "Self-Slam",
+    collapsed: true,
+    items: [
+      {
+        label: "Slam Velocity",
+        config: () => SELF_SLAM,
+        key: "slamVelocity",
+        min: -50,
+        max: -10,
+        step: 1,
+        unit: "u/s",
+        tip: "Downward velocity during slam."
+      },
+      {
+        label: "AoE Damage",
+        config: () => SELF_SLAM,
+        key: "damage",
+        min: 0,
+        max: 40,
+        step: 1,
+        tip: "Damage to enemies in landing radius."
+      },
+      {
+        label: "AoE Radius",
+        config: () => SELF_SLAM,
+        key: "damageRadius",
+        min: 1,
+        max: 6,
+        step: 0.5,
+        unit: "u",
+        tip: "Splash damage radius on landing."
+      },
+      {
+        label: "Knockback",
+        config: () => SELF_SLAM,
+        key: "knockback",
+        min: 1,
+        max: 20,
+        step: 1,
+        unit: "u",
+        tip: "Push force on nearby enemies."
+      },
+      {
+        label: "Landing Lag",
+        config: () => SELF_SLAM,
+        key: "landingLag",
+        min: 50,
+        max: 400,
+        step: 25,
+        unit: "ms",
+        tip: "Lockout after slam landing."
+      },
+      {
+        label: "Screen Shake",
+        config: () => SELF_SLAM,
+        key: "landingShake",
+        min: 0,
+        max: 6,
+        step: 0.5,
+        tip: "Camera shake on slam landing."
+      }
+    ]
+  },
+  {
+    section: "Grab & Dunk",
+    collapsed: true,
+    items: [
+      {
+        label: "Float Duration",
+        config: () => DUNK,
+        key: "floatDuration",
+        min: 100,
+        max: 800,
+        step: 25,
+        unit: "ms",
+        tip: "Zero-gravity hang time \u2014 aim window before dunk."
+      },
+      {
+        label: "Converge Dist",
+        config: () => DUNK,
+        key: "floatConvergeDist",
+        min: 0.5,
+        max: 4,
+        step: 0.25,
+        unit: "u",
+        tip: "Y distance threshold to trigger float phase."
+      },
+      {
+        label: "Float Enemy Y",
+        config: () => DUNK,
+        key: "floatEnemyOffsetY",
+        min: 0.2,
+        max: 2,
+        step: 0.1,
+        unit: "u",
+        tip: "Enemy hovers this far above player during float."
+      },
+      {
+        label: "Float Drift",
+        config: () => DUNK,
+        key: "floatDriftSpeed",
+        min: 1,
+        max: 10,
+        step: 0.5,
+        unit: "u/s",
+        tip: "Speed enemy drifts toward player during float."
+      },
+      {
+        label: "Slam Velocity",
+        config: () => DUNK,
+        key: "slamVelocity",
+        min: -40,
+        max: -10,
+        step: 1,
+        unit: "u/s",
+        tip: "Downward velocity for dunk."
+      },
+      {
+        label: "Damage",
+        config: () => DUNK,
+        key: "damage",
+        min: 10,
+        max: 60,
+        step: 5,
+        tip: "Damage to dunked enemy on landing."
+      },
+      {
+        label: "AoE Radius",
+        config: () => DUNK,
+        key: "aoeRadius",
+        min: 1,
+        max: 6,
+        step: 0.5,
+        unit: "u",
+        tip: "Splash damage radius on dunk landing."
+      },
+      {
+        label: "AoE Damage",
+        config: () => DUNK,
+        key: "aoeDamage",
+        min: 0,
+        max: 30,
+        step: 1,
+        tip: "Splash damage to nearby enemies."
+      },
+      {
+        label: "AoE Knockback",
+        config: () => DUNK,
+        key: "aoeKnockback",
+        min: 1,
+        max: 20,
+        step: 1,
+        unit: "u",
+        tip: "Push force on splash hit enemies."
+      },
+      {
+        label: "Landing Lag",
+        config: () => DUNK,
+        key: "landingLag",
+        min: 50,
+        max: 500,
+        step: 25,
+        unit: "ms",
+        tip: "Lockout after dunk landing."
+      },
+      {
+        label: "Screen Shake",
+        config: () => DUNK,
+        key: "landingShake",
+        min: 0,
+        max: 8,
+        step: 0.5,
+        tip: "Camera shake on dunk landing."
+      },
+      {
+        label: "Target Radius",
+        config: () => DUNK,
+        key: "targetRadius",
+        min: 1,
+        max: 8,
+        step: 0.5,
+        unit: "u",
+        tip: "Landing target circle radius."
+      },
+      {
+        label: "Homing Speed",
+        config: () => DUNK,
+        key: "homing",
+        min: 5,
+        max: 30,
+        step: 1,
+        unit: "u/s",
+        tip: "XZ speed toward landing target."
       }
     ]
   }
@@ -5936,12 +10720,183 @@ function injectStyles() {
   document.head.appendChild(style);
 }
 
+// src/config/waves.ts
+var WAVES = [
+  {
+    wave: 1,
+    message: "Wave 1 \u2014 The dungeon stirs...",
+    groups: [
+      {
+        id: "w1g1",
+        triggerDelay: 0,
+        telegraphDuration: 1500,
+        stagger: 200,
+        spawns: [
+          { type: "goblin", x: 5, z: 2 },
+          { type: "goblin", x: 11, z: 0 },
+          { type: "goblin", x: 0, z: 5 },
+          { type: "iceMortarImp", x: 7, z: -11 },
+          { type: "iceMortarImp", x: -10, z: 9 }
+        ]
+      },
+      {
+        id: "w1g2",
+        triggerDelay: 0,
+        telegraphDuration: 1500,
+        stagger: 200,
+        spawns: [
+          { type: "goblin", x: -2, z: -9 },
+          { type: "goblin", x: -10, z: -3 },
+          { type: "goblin", x: -10, z: 0 }
+        ]
+      }
+    ]
+  },
+  {
+    wave: 2,
+    message: "Wave 2 \u2014 Watch the big ones",
+    groups: [
+      {
+        id: "w2g1",
+        triggerDelay: 0,
+        telegraphDuration: 1500,
+        stagger: 150,
+        spawns: [
+          { type: "goblin", x: 14, z: 0 },
+          { type: "stoneGolem", x: 12, z: 2 },
+          { type: "goblin", x: 12, z: -2 },
+          { type: "goblin", x: -14, z: 0 },
+          { type: "goblin", x: -12, z: 2 },
+          { type: "stoneGolem", x: -12, z: -1 },
+          { type: "goblin", x: 6, z: -7 },
+          { type: "goblin", x: -6, z: 6 }
+        ]
+      },
+      {
+        id: "w2g2",
+        triggerDelay: 3e3,
+        telegraphDuration: 2e3,
+        stagger: 400,
+        spawns: [
+          { type: "skeletonArcher", x: 12, z: 12 },
+          { type: "skeletonArcher", x: -12, z: -12 },
+          { type: "skeletonArcher", x: -12, z: 12 }
+        ]
+      }
+    ]
+  },
+  {
+    wave: 3,
+    message: "Wave 3 \u2014 Final wave?",
+    groups: [
+      {
+        id: "w3g1",
+        triggerDelay: 0,
+        telegraphDuration: 1500,
+        stagger: 100,
+        spawns: [
+          { type: "goblin", x: 15, z: 5 },
+          { type: "goblin", x: 15, z: -5 },
+          { type: "goblin", x: -15, z: 5 },
+          { type: "goblin", x: -15, z: -5 },
+          { type: "goblin", x: 5, z: 15 },
+          { type: "goblin", x: -5, z: 15 }
+        ]
+      },
+      {
+        id: "w3g2",
+        triggerDelay: 2e3,
+        telegraphDuration: 2e3,
+        stagger: 300,
+        spawns: [
+          { type: "skeletonArcher", x: 14, z: 10 },
+          { type: "skeletonArcher", x: -14, z: 10 },
+          { type: "skeletonArcher", x: 0, z: -16 },
+          { type: "skeletonArcher", x: 14, z: -10 }
+        ]
+      },
+      {
+        id: "w3g3",
+        triggerDelay: 6e3,
+        telegraphDuration: 2500,
+        stagger: 500,
+        spawns: [
+          { type: "stoneGolem", x: 0, z: 15 },
+          { type: "stoneGolem", x: -15, z: -5 },
+          { type: "stoneGolem", x: 15, z: -5 }
+        ]
+      },
+      {
+        id: "w3g4",
+        triggerDelay: 7e3,
+        telegraphDuration: 1500,
+        stagger: 200,
+        spawns: [
+          { type: "iceMortarImp", x: -13, z: 0 },
+          { type: "iceMortarImp", x: -3, z: -12 },
+          { type: "iceMortarImp", x: 12, z: 1 },
+          { type: "iceMortarImp", x: -5, z: 11 }
+        ]
+      }
+    ]
+  }
+];
+
+// src/engine/waveRunner.ts
+var waveState = {
+  status: "idle",
+  // 'idle' | 'announce' | 'running' | 'cleared' | 'victory'
+  waveIndex: 0,
+  elapsedMs: 0,
+  // ms since wave entered 'running'
+  announceTimer: 0,
+  clearPauseTimer: 0,
+  groups: []
+  // runtime state per group
+};
+var announceEl2;
+function startWave(index, gameState2) {
+  if (index >= WAVES.length) {
+    waveState.status = "victory";
+    showAnnounce2("VICTORY");
+    return;
+  }
+  waveState.waveIndex = index;
+  waveState.status = "announce";
+  waveState.announceTimer = 2e3;
+  waveState.elapsedMs = 0;
+  waveState.groups = [];
+  gameState2.currentWave = WAVES[index].wave;
+  showAnnounce2(WAVES[index].message);
+}
+function resetWaveRunner() {
+  for (const g of waveState.groups) {
+    for (const t of g.telegraphs) {
+      removeTelegraph2(t);
+    }
+  }
+  waveState.status = "idle";
+  waveState.waveIndex = 0;
+  waveState.elapsedMs = 0;
+  waveState.groups = [];
+  hideAnnounce2();
+}
+function showAnnounce2(text) {
+  if (!announceEl2) return;
+  announceEl2.textContent = text;
+  announceEl2.classList.add("visible");
+}
+function hideAnnounce2() {
+  if (!announceEl2) return;
+  announceEl2.classList.remove("visible");
+}
+
 // src/ui/spawnEditor.ts
 console.log("[spawnEditor] v2 loaded \u2014 tabs enabled");
-var sceneRef7;
+var sceneRef11;
 var gameStateRef;
 var panel2;
-var active = false;
+var active2 = false;
 var previousPhase = "playing";
 var currentTab = "spawn";
 var editorState = {
@@ -6141,7 +11096,7 @@ function setNestedValue2(obj, path, value) {
 }
 var lastBuiltTuningType = null;
 function initSpawnEditor(scene2, gameState2) {
-  sceneRef7 = scene2;
+  sceneRef11 = scene2;
   gameStateRef = gameState2;
   markerGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.8, 8);
   for (const [name, cfg] of Object.entries(ENEMY_TYPES)) {
@@ -6175,7 +11130,7 @@ function checkEditorToggle() {
   }
 }
 function toggleEditor() {
-  if (active) {
+  if (active2) {
     exitEditor();
   } else {
     enterEditor();
@@ -6187,7 +11142,7 @@ function onEditorWheel(e) {
   setZoom(getCurrentFrustum() + delta);
 }
 function enterEditor() {
-  active = true;
+  active2 = true;
   previousPhase = gameStateRef.phase;
   gameStateRef.phase = "editorPaused";
   panel2.classList.remove("hidden");
@@ -6201,7 +11156,7 @@ function enterEditor() {
   refreshUI();
 }
 function exitEditor() {
-  active = false;
+  active2 = false;
   gameStateRef.phase = previousPhase;
   panel2.classList.add("hidden");
   bannerEl.classList.remove("visible");
@@ -6239,10 +11194,11 @@ function mouseToWorld(e) {
   return screenToWorld(ndcX, ndcY);
 }
 function clampToArena(x, z) {
-  const c = ARENA_HALF - 1.5;
+  const cx = ARENA_HALF_X - 1.5;
+  const cz = ARENA_HALF_Z - 1.5;
   return {
-    x: Math.round(Math.max(-c, Math.min(c, x))),
-    z: Math.round(Math.max(-c, Math.min(c, z)))
+    x: Math.round(Math.max(-cx, Math.min(cx, x))),
+    z: Math.round(Math.max(-cz, Math.min(cz, z)))
   };
 }
 function findNearestSpawn(worldX, worldZ, radius) {
@@ -6310,7 +11266,7 @@ function findNearestLevelObject(worldX, worldZ, radius) {
   return { type: bestType, idx: bestIdx };
 }
 function onMouseDown(e) {
-  if (!active) return;
+  if (!active2) return;
   if (e.target.closest("#spawn-editor")) return;
   if (currentTab === "level") {
     onLevelMouseDown(e);
@@ -6410,7 +11366,7 @@ function onLevelMouseDown(e) {
   }
 }
 function onMouseMove(e) {
-  if (!active || !isDragging) return;
+  if (!active2 || !isDragging) return;
   if (currentTab === "level") {
     onLevelMouseMove(e);
     return;
@@ -6459,7 +11415,7 @@ function onLevelMouseMove(e) {
   }
 }
 function onMouseUp(e) {
-  if (!active) return;
+  if (!active2) return;
   if (currentTab === "level") {
     if (isDragging && dragStarted) {
       onArenaChanged();
@@ -6559,7 +11515,7 @@ async function deletePreset(name) {
   }
 }
 function onEditorKey(e) {
-  if (!active) return;
+  if (!active2) return;
   if (e.code === "KeyZ" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
     e.preventDefault();
     popUndo();
@@ -6643,7 +11599,7 @@ function onLevelKey(e) {
 }
 function clearMarkers() {
   for (const m of markers) {
-    sceneRef7.remove(m.mesh);
+    sceneRef11.remove(m.mesh);
     m.mesh.children.forEach((c) => {
       if (c.material && c.material !== markerMats[m.type]) c.material.dispose();
     });
@@ -6672,24 +11628,24 @@ function rebuildMarkers() {
         body.position.y = 0.4;
         mesh.add(body);
         const ringColor = isSelected ? 16777215 : ENEMY_TYPES[spawn.type] ? ENEMY_TYPES[spawn.type].color : 16777215;
-        const ringGeo3 = new THREE.RingGeometry(
+        const ringGeo4 = new THREE.RingGeometry(
           isSelected ? 0.55 : 0.5,
           isSelected ? 0.75 : 0.65,
           16
         );
-        ringGeo3.rotateX(-Math.PI / 2);
-        const ringMat = new THREE.MeshBasicMaterial({
+        ringGeo4.rotateX(-Math.PI / 2);
+        const ringMat2 = new THREE.MeshBasicMaterial({
           color: ringColor,
           transparent: true,
           opacity: isSelected ? 0.9 : isCurrent ? 0.5 : 0.15,
           side: THREE.DoubleSide,
           depthWrite: false
         });
-        const ring = new THREE.Mesh(ringGeo3, ringMat);
+        const ring = new THREE.Mesh(ringGeo4, ringMat2);
         ring.position.y = 0.02;
         mesh.add(ring);
         mesh.position.set(spawn.x, 0, spawn.z);
-        sceneRef7.add(mesh);
+        sceneRef11.add(mesh);
         markers.push({
           mesh,
           type: spawn.type,
@@ -6703,7 +11659,7 @@ function rebuildMarkers() {
 }
 function clearLevelMarkers() {
   for (const m of levelMarkers) {
-    sceneRef7.remove(m.mesh);
+    sceneRef11.remove(m.mesh);
     m.mesh.children.forEach((c) => {
       if (c.material) c.material.dispose();
       if (c.geometry) c.geometry.dispose();
@@ -6728,32 +11684,32 @@ function rebuildLevelMarkers() {
     const wireframe = new THREE.LineSegments(edgesGeo, lineMat);
     wireframe.position.y = o.h / 2;
     group.add(wireframe);
-    const ringGeo3 = new THREE.RingGeometry(
+    const ringGeo4 = new THREE.RingGeometry(
       selected ? 0.6 : 0.5,
       selected ? 0.85 : 0.7,
       16
     );
-    ringGeo3.rotateX(-Math.PI / 2);
-    const ringMat = new THREE.MeshBasicMaterial({
+    ringGeo4.rotateX(-Math.PI / 2);
+    const ringMat2 = new THREE.MeshBasicMaterial({
       color: selected ? 4521864 : 6728447,
       transparent: true,
       opacity: selected ? 0.8 : 0.4,
       side: THREE.DoubleSide,
       depthWrite: false
     });
-    const ring = new THREE.Mesh(ringGeo3, ringMat);
+    const ring = new THREE.Mesh(ringGeo4, ringMat2);
     ring.position.y = 0.03;
     group.add(ring);
     group.position.set(o.x, 0, o.z);
-    sceneRef7.add(group);
+    sceneRef11.add(group);
     levelMarkers.push({ mesh: group, type: "obstacle", idx: i });
   }
   for (let i = 0; i < PITS.length; i++) {
     const p = PITS[i];
     const selected = isPitSelected && levelState.selectedIdx === i;
     const group = new THREE.Group();
-    const planeGeo2 = new THREE.PlaneGeometry(p.w, p.d);
-    const edgesGeo = new THREE.EdgesGeometry(planeGeo2);
+    const planeGeo = new THREE.PlaneGeometry(p.w, p.d);
+    const edgesGeo = new THREE.EdgesGeometry(planeGeo);
     const lineMat = new THREE.LineBasicMaterial({
       color: selected ? 16729258 : 16729190,
       linewidth: 1
@@ -6762,24 +11718,24 @@ function rebuildLevelMarkers() {
     wireframe.rotation.x = -Math.PI / 2;
     wireframe.position.y = 0.1;
     group.add(wireframe);
-    const ringGeo3 = new THREE.RingGeometry(
+    const ringGeo4 = new THREE.RingGeometry(
       selected ? 0.6 : 0.5,
       selected ? 0.85 : 0.7,
       16
     );
-    ringGeo3.rotateX(-Math.PI / 2);
-    const ringMat = new THREE.MeshBasicMaterial({
+    ringGeo4.rotateX(-Math.PI / 2);
+    const ringMat2 = new THREE.MeshBasicMaterial({
       color: selected ? 16729258 : 16729190,
       transparent: true,
       opacity: selected ? 0.8 : 0.4,
       side: THREE.DoubleSide,
       depthWrite: false
     });
-    const ring = new THREE.Mesh(ringGeo3, ringMat);
+    const ring = new THREE.Mesh(ringGeo4, ringMat2);
     ring.position.y = 0.03;
     group.add(ring);
     group.position.set(p.x, 0, p.z);
-    sceneRef7.add(group);
+    sceneRef11.add(group);
     levelMarkers.push({ mesh: group, type: "pit", idx: i });
   }
 }
@@ -7137,7 +12093,7 @@ function wireEvents() {
     saveToFile("config/arena.js", text, document.getElementById("se-save-arena"));
   });
   window.addEventListener("contextmenu", (e) => {
-    if (active) e.preventDefault();
+    if (active2) e.preventDefault();
   });
   const tooltipEl = document.getElementById("se-tooltip");
   let tooltipTarget = null;
@@ -7494,7 +12450,11 @@ function buildEnemyConfigText() {
 function buildArenaConfigText() {
   let text = "// Arena layout \u2014 shared between renderer (meshes) and physics (collision)\n";
   text += "// All obstacles and walls defined here so designer can rearrange the arena\n\n";
-  text += `export const ARENA_HALF = ${ARENA_HALF};
+  text += `export let ARENA_HALF_X = ${ARENA_HALF_X};
+`;
+  text += `export let ARENA_HALF_Z = ${ARENA_HALF_Z};
+`;
+  text += `export let ARENA_HALF = ${ARENA_HALF_X}; // legacy alias
 
 `;
   text += "// Obstacles: x, z = center position; w, d = width/depth on xz plane; h = height (visual only)\n";
@@ -7545,16 +12505,17 @@ export function getCollisionBounds() {
   }
 
   // Walls
-  const h = ARENA_HALF;
+  const hx = ARENA_HALF_X;
+  const hz = ARENA_HALF_Z;
   const t = WALL_THICKNESS;
-  // North wall
-  bounds.push({ minX: -h - t/2, maxX: h + t/2, minZ: h - t/2, maxZ: h + t/2 });
-  // South wall
-  bounds.push({ minX: -h - t/2, maxX: h + t/2, minZ: -h - t/2, maxZ: -h + t/2 });
-  // East wall
-  bounds.push({ minX: h - t/2, maxX: h + t/2, minZ: -h - t/2, maxZ: h + t/2 });
-  // West wall
-  bounds.push({ minX: -h - t/2, maxX: -h + t/2, minZ: -h - t/2, maxZ: h + t/2 });
+  // North wall (far end, +Z)
+  bounds.push({ minX: -hx - t/2, maxX: hx + t/2, minZ: hz - t/2, maxZ: hz + t/2 });
+  // South wall (near end, -Z)
+  bounds.push({ minX: -hx - t/2, maxX: hx + t/2, minZ: -hz - t/2, maxZ: -hz + t/2 });
+  // East wall (+X)
+  bounds.push({ minX: hx - t/2, maxX: hx + t/2, minZ: -hz - t/2, maxZ: hz + t/2 });
+  // West wall (-X)
+  bounds.push({ minX: -hx - t/2, maxX: -hx + t/2, minZ: -hz - t/2, maxZ: hz + t/2 });
 
   return bounds;
 }
@@ -8123,246 +13084,80 @@ function injectStyles2() {
   document.head.appendChild(style);
 }
 
-// src/engine/particles.ts
-var HIT_SPARK = {
-  count: 5,
-  lifetime: 0.25,
-  speed: 6,
-  spread: Math.PI * 0.8,
-  size: 0.06,
-  color: 16777130,
-  fadeOut: true,
-  gravity: 4,
-  shape: "box"
-};
-var DEATH_PUFF = {
-  count: 8,
-  lifetime: 0.4,
-  speed: 3,
-  spread: Math.PI,
-  size: 0.08,
-  color: 16777215,
-  // will be overridden with enemy color
-  fadeOut: true,
-  gravity: 1,
-  shape: "sphere"
-};
-var DASH_TRAIL = {
-  count: 3,
-  lifetime: 0.3,
-  speed: 1.5,
-  spread: Math.PI * 0.3,
-  size: 0.05,
-  color: 4521864,
-  fadeOut: true,
-  gravity: 0,
-  shape: "box"
-};
-var SHIELD_BREAK_BURST = {
-  count: 10,
-  lifetime: 0.35,
-  speed: 8,
-  spread: Math.PI,
-  size: 0.07,
-  color: 8974079,
-  fadeOut: true,
-  gravity: 3,
-  shape: "box"
-};
-var PUSH_BURST = {
-  count: 4,
-  lifetime: 0.2,
-  speed: 5,
-  spread: Math.PI * 0.5,
-  size: 0.05,
-  color: 4521898,
-  fadeOut: true,
-  gravity: 2,
-  shape: "box"
-};
-var CHARGE_BLAST = {
-  count: 12,
-  lifetime: 0.3,
-  speed: 10,
-  spread: Math.PI * 0.4,
-  size: 0.08,
-  color: 4521898,
-  fadeOut: true,
-  gravity: 2,
-  shape: "sphere"
-};
-var POOL_SIZE2 = 80;
-var pool2 = [];
-var sceneRef8 = null;
-var boxGeo = null;
-var sphereGeo = null;
-function initParticles(scene2) {
-  sceneRef8 = scene2;
-  boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  sphereGeo = new THREE.SphereGeometry(0.5, 4, 3);
-  for (let i = 0; i < POOL_SIZE2; i++) {
-    const mat = new THREE.MeshBasicMaterial({
-      color: 16777215,
+// src/engine/groundShadows.ts
+var playerShadow = null;
+var enemyShadows = /* @__PURE__ */ new Map();
+var shadowGeo = null;
+var shadowMat = null;
+function getShadowGeo() {
+  if (!shadowGeo) {
+    shadowGeo = new THREE.CircleGeometry(1, 16);
+  }
+  return shadowGeo;
+}
+function getShadowMat() {
+  if (!shadowMat) {
+    shadowMat = new THREE.MeshBasicMaterial({
+      color: 0,
       transparent: true,
-      opacity: 1,
+      opacity: 0.3,
       depthWrite: false
     });
-    const mesh = new THREE.Mesh(boxGeo, mat);
-    mesh.visible = false;
-    scene2.add(mesh);
-    pool2.push({
-      mesh,
-      active: false,
-      life: 0,
-      maxLife: 1,
-      vx: 0,
-      vy: 0,
-      vz: 0,
-      gravity: 0,
-      fadeOut: true,
-      material: mat,
-      baseScale: 1
-    });
   }
-  wireEventBus2();
+  return shadowMat;
 }
-function burst(position, config, direction) {
-  if (!sceneRef8) return;
-  const y = position.y ?? 0.5;
-  for (let i = 0; i < config.count; i++) {
-    const p = acquireParticle();
-    if (!p) break;
-    p.mesh.geometry = config.shape === "sphere" ? sphereGeo : boxGeo;
-    const s = config.size * (0.7 + Math.random() * 0.6);
-    p.mesh.scale.set(s, s, s);
-    p.baseScale = s;
-    p.material.color.setHex(config.color);
-    p.material.opacity = 1;
-    p.mesh.position.set(
-      position.x + (Math.random() - 0.5) * 0.1,
-      y + (Math.random() - 0.5) * 0.1,
-      position.z + (Math.random() - 0.5) * 0.1
-    );
-    let vx, vy, vz;
-    if (direction) {
-      const angle = Math.atan2(direction.x, direction.z) + (Math.random() - 0.5) * config.spread;
-      const elevAngle = (Math.random() - 0.3) * config.spread * 0.5;
-      vx = Math.sin(angle) * Math.cos(elevAngle);
-      vy = Math.sin(elevAngle) + Math.random() * 0.3;
-      vz = Math.cos(angle) * Math.cos(elevAngle);
-    } else {
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.random() * config.spread;
-      vx = Math.sin(phi) * Math.cos(theta);
-      vy = Math.cos(phi) * 0.5 + Math.random() * 0.5;
-      vz = Math.sin(phi) * Math.sin(theta);
+function createShadowMesh(radius) {
+  const mesh = new THREE.Mesh(getShadowGeo(), getShadowMat().clone());
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.scale.set(radius * 0.8, radius * 0.8, 1);
+  mesh.renderOrder = -1;
+  return mesh;
+}
+function updateShadowForEntity(shadow, posX, posZ, posY, baseRadius) {
+  const groundHeight = getGroundHeight(posX, posZ);
+  const altitude = posY - groundHeight;
+  shadow.position.x = posX;
+  shadow.position.z = posZ;
+  shadow.position.y = groundHeight + 0.01;
+  const scale = Math.max(0.3, 1 - altitude * 0.1) * baseRadius * 0.8;
+  shadow.scale.set(scale, scale, 1);
+  shadow.material.opacity = Math.max(0.1, 0.3 - altitude * 0.03);
+  shadow.visible = altitude > PHYSICS.groundEpsilon || posY > 0;
+}
+function initGroundShadows() {
+  const scene2 = getScene();
+  playerShadow = createShadowMesh(0.35);
+  scene2.add(playerShadow);
+}
+function updateGroundShadows(gameState2) {
+  const scene2 = getScene();
+  if (playerShadow) {
+    const pp = getPlayerPos();
+    updateShadowForEntity(playerShadow, pp.x, pp.z, pp.y, 0.35);
+  }
+  const activeEnemies = /* @__PURE__ */ new Set();
+  for (const enemy of gameState2.enemies) {
+    if (enemy.health <= 0 && !enemyShadows.has(enemy)) continue;
+    activeEnemies.add(enemy);
+    let shadow = enemyShadows.get(enemy);
+    if (!shadow) {
+      shadow = createShadowMesh(enemy.config.size.radius);
+      scene2.add(shadow);
+      enemyShadows.set(enemy, shadow);
     }
-    const speed = config.speed * (0.6 + Math.random() * 0.8);
-    p.vx = vx * speed;
-    p.vy = vy * speed;
-    p.vz = vz * speed;
-    p.gravity = config.gravity;
-    p.fadeOut = config.fadeOut;
-    p.life = 0;
-    p.maxLife = config.lifetime * (0.7 + Math.random() * 0.6);
-    p.active = true;
-    p.mesh.visible = true;
-  }
-}
-function updateParticles(dt) {
-  for (const p of pool2) {
-    if (!p.active) continue;
-    p.life += dt;
-    if (p.life >= p.maxLife) {
-      p.active = false;
-      p.mesh.visible = false;
+    if (enemy.health <= 0 || enemy.fellInPit) {
+      shadow.visible = false;
       continue;
     }
-    p.vy -= p.gravity * dt;
-    p.mesh.position.x += p.vx * dt;
-    p.mesh.position.y += p.vy * dt;
-    p.mesh.position.z += p.vz * dt;
-    if (p.mesh.position.y < 0.02) {
-      p.mesh.position.y = 0.02;
-      p.vy = 0;
-      p.vx *= 0.8;
-      p.vz *= 0.8;
-    }
-    if (p.fadeOut) {
-      const t = p.life / p.maxLife;
-      p.material.opacity = 1 - t * t;
-    }
-    const lifeRatio = p.life / p.maxLife;
-    if (lifeRatio > 0.7) {
-      const shrink = 1 - (lifeRatio - 0.7) / 0.3;
-      p.mesh.scale.setScalar(p.baseScale * shrink);
+    updateShadowForEntity(shadow, enemy.pos.x, enemy.pos.z, enemy.pos.y, enemy.config.size.radius);
+  }
+  for (const [enemy, shadow] of enemyShadows) {
+    if (!activeEnemies.has(enemy)) {
+      scene2.remove(shadow);
+      shadow.material.dispose();
+      enemyShadows.delete(enemy);
     }
   }
-}
-function acquireParticle() {
-  for (const p of pool2) {
-    if (!p.active) return p;
-  }
-  return null;
-}
-function clearParticles() {
-  for (const p of pool2) {
-    p.active = false;
-    p.mesh.visible = false;
-  }
-}
-function wireEventBus2() {
-  on("enemyHit", (e) => {
-    if (e.type === "enemyHit") {
-      burst(
-        { x: e.position.x, y: 0.5, z: e.position.z },
-        HIT_SPARK
-      );
-    }
-  });
-  on("enemyDied", (e) => {
-    if (e.type === "enemyDied") {
-      const color = e.enemy.config?.color ?? DEATH_PUFF.color;
-      burst(
-        { x: e.position.x, y: 0.4, z: e.position.z },
-        { ...DEATH_PUFF, color }
-      );
-    }
-  });
-  on("playerDash", (e) => {
-    if (e.type === "playerDash") {
-      burst(
-        { x: e.position.x, y: 0.4, z: e.position.z },
-        DASH_TRAIL,
-        { x: -e.direction.x, z: -e.direction.z }
-      );
-    }
-  });
-  on("shieldBreak", (e) => {
-    if (e.type === "shieldBreak") {
-      burst(
-        { x: e.position.x, y: 0.6, z: e.position.z },
-        SHIELD_BREAK_BURST
-      );
-    }
-  });
-  on("chargeFired", (e) => {
-    if (e.type === "chargeFired") {
-      burst(
-        { x: e.position.x, y: 0.5, z: e.position.z },
-        { ...CHARGE_BLAST, count: Math.round(6 + e.chargeT * 6) },
-        { x: e.direction.x, z: e.direction.z }
-      );
-    }
-  });
-  on("enemyPushed", (e) => {
-    if (e.type === "enemyPushed") {
-      burst(
-        { x: e.position.x, y: 0.3, z: e.position.z },
-        PUSH_BURST
-      );
-    }
-  });
 }
 
 // src/engine/game.ts
@@ -8379,6 +13174,7 @@ var gameState = {
   }
 };
 var lastTime = 0;
+var hitPauseTimer = 0;
 function gameLoop(timestamp) {
   requestAnimationFrame(gameLoop);
   if (gameState.phase === "waiting") {
@@ -8400,30 +13196,45 @@ function gameLoop(timestamp) {
   lastTime = timestamp;
   dt = Math.min(dt, 0.05);
   if (dt <= 0) return;
+  if (hitPauseTimer > 0) {
+    hitPauseTimer -= dt * 1e3;
+    getRendererInstance().render(getScene(), getCamera());
+    return;
+  }
   updateInput();
   autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
+  if (input.bulletTime) toggleBulletTime();
+  updateBulletTime(dt);
+  const gameDt = dt * getBulletTimeScale();
   updatePlayer(input, dt, gameState);
-  updateProjectiles(dt);
-  updateWaveRunner(dt, gameState);
-  updateEnemies(dt, getPlayerPos(), gameState);
+  input._gameState = gameState;
+  updateAerialVerbs(dt, getPlayerPos(), input);
+  updateCarriers(dt, gameState);
+  updateLaunchPillars(dt);
+  updateProjectiles(gameDt);
+  updateRoomManager(gameDt, gameState);
+  updateEnemies(gameDt, getPlayerPos(), gameState);
   checkCollisions(gameState);
+  applyVelocities(gameDt, gameState);
+  resolveEnemyCollisions(gameState);
   checkPitFalls(gameState);
-  updateEffectGhosts(dt);
-  updateParticles(dt);
-  updateAoeTelegraphs(dt);
-  updatePendingEffects(dt);
-  updateMortarProjectiles(dt);
-  updateIcePatches(dt);
+  updateEffectGhosts(gameDt);
+  updateParticles(gameDt);
+  updateAoeTelegraphs(gameDt);
+  updatePendingEffects(gameDt);
+  updateMortarProjectiles(gameDt);
+  updateIcePatches(gameDt);
   if (gameState.phase === "gameOver") {
     showGameOver(gameState);
   }
   updateCamera(getPlayerPos(), dt);
+  updateGroundShadows(gameState);
   updateHUD(gameState);
   checkEditorToggle();
   consumeInput();
   getRendererInstance().render(getScene(), getCamera());
-  updateDamageNumbers(dt);
+  updateDamageNumbers(gameDt);
 }
 function restart() {
   gameState.phase = "playing";
@@ -8437,17 +13248,15 @@ function restart() {
   gameState.abilities.ultimate.activeRemaining = 0;
   gameState.abilities.ultimate.charging = false;
   gameState.abilities.ultimate.chargeT = 0;
-  clearEnemies(gameState);
-  releaseAllProjectiles();
   resetPlayer();
-  clearDamageNumbers();
-  clearAoeTelegraphs();
-  clearMortarProjectiles();
-  clearIcePatches();
-  clearEffectGhosts();
-  clearParticles();
-  resetWaveRunner();
-  startWave(0, gameState);
+  resetAerialVerbs();
+  clearCarriers();
+  clearLaunchPillars();
+  clearLaunchIndicator();
+  clearAllTags();
+  resetRoomManager();
+  resetBulletTime();
+  loadRoom(0, gameState);
 }
 function init() {
   try {
@@ -8460,9 +13269,20 @@ function init() {
     initEnemySystem(scene2);
     initMortarSystem(scene2);
     initAoeTelegraph(scene2);
-    initWaveRunner(scene2);
+    initRoomManager(scene2);
     initAudio();
     initParticles(scene2);
+    initBulletTime();
+    initAerialVerbs([floatSelectorVerb, dunkVerb, spikeVerb]);
+    initLaunchPillars(scene2);
+    initLaunchIndicator(scene2);
+    initGroundShadows();
+    on("meleeHit", () => {
+      hitPauseTimer = MELEE.hitPause;
+    });
+    on("dunkGrab", () => {
+      hitPauseTimer = DUNK.grabPause;
+    });
     initHUD();
     initDamageNumbers();
     initTuningPanel();
@@ -8471,7 +13291,7 @@ function init() {
       resumeAudio();
       gameState.phase = "playing";
       document.getElementById("hud").style.visibility = "visible";
-      startWave(0, gameState);
+      loadRoom(0, gameState);
       lastTime = performance.now();
     });
     document.getElementById("hud").style.visibility = "hidden";

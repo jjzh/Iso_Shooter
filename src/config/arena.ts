@@ -1,6 +1,10 @@
 import { Obstacle, Pit, AABB } from '../types/index';
+import { HEIGHT_ZONES } from './terrain';
 
-export const ARENA_HALF = 20;
+export let ARENA_HALF_X = 20;
+export let ARENA_HALF_Z = 20;
+// Legacy alias — equals ARENA_HALF_X for backward compat (spawn editor export)
+export let ARENA_HALF = 20;
 
 export const OBSTACLES: Obstacle[] = [
   { x: 5, z: 9, w: 2, h: 1.5, d: 3 },
@@ -24,6 +28,16 @@ export const PITS: Pit[] = [
   { x: 8, z: 0, w: 3, d: 9 },
 ];
 
+export function setArenaConfig(obstacles: Obstacle[], pits: Pit[], arenaHalfX: number, arenaHalfZ?: number) {
+  OBSTACLES.length = 0;
+  obstacles.forEach(o => OBSTACLES.push(o));
+  PITS.length = 0;
+  pits.forEach(p => PITS.push(p));
+  ARENA_HALF_X = arenaHalfX;
+  ARENA_HALF_Z = arenaHalfZ ?? arenaHalfX;
+  ARENA_HALF = ARENA_HALF_X; // legacy alias
+}
+
 export function getPitBounds(): AABB[] {
   return PITS.map(p => ({
     minX: p.x - p.w / 2,
@@ -42,15 +56,32 @@ export function getCollisionBounds(): AABB[] {
       maxX: o.x + o.w / 2,
       minZ: o.z - o.d / 2,
       maxZ: o.z + o.d / 2,
+      maxY: o.h,  // entities above this height can pass over
     });
   }
 
-  const h = ARENA_HALF;
+  // Height zone platforms — act as walls for entities below their surface
+  for (const zone of HEIGHT_ZONES) {
+    bounds.push({
+      minX: zone.x - zone.w / 2,
+      maxX: zone.x + zone.w / 2,
+      minZ: zone.z - zone.d / 2,
+      maxZ: zone.z + zone.d / 2,
+      maxY: zone.y,  // entities above platform height can walk on top
+    });
+  }
+
+  const hx = ARENA_HALF_X;
+  const hz = ARENA_HALF_Z;
   const t = WALL_THICKNESS;
-  bounds.push({ minX: -h - t/2, maxX: h + t/2, minZ: h - t/2, maxZ: h + t/2 });
-  bounds.push({ minX: -h - t/2, maxX: h + t/2, minZ: -h - t/2, maxZ: -h + t/2 });
-  bounds.push({ minX: h - t/2, maxX: h + t/2, minZ: -h - t/2, maxZ: h + t/2 });
-  bounds.push({ minX: -h - t/2, maxX: -h + t/2, minZ: -h - t/2, maxZ: h + t/2 });
+  // North wall (far end, +Z)
+  bounds.push({ minX: -hx - t/2, maxX: hx + t/2, minZ: hz - t/2, maxZ: hz + t/2 });
+  // South wall (near end, -Z)
+  bounds.push({ minX: -hx - t/2, maxX: hx + t/2, minZ: -hz - t/2, maxZ: -hz + t/2 });
+  // East wall (+X)
+  bounds.push({ minX: hx - t/2, maxX: hx + t/2, minZ: -hz - t/2, maxZ: hz + t/2 });
+  // West wall (-X)
+  bounds.push({ minX: -hx - t/2, maxX: -hx + t/2, minZ: -hz - t/2, maxZ: hz + t/2 });
 
   return bounds;
 }
