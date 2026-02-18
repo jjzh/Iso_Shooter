@@ -94,6 +94,17 @@ export function activateVerb(verbName: string, enemy: any): void {
   verb.onClaim(entry);
 }
 
+export function transferClaim(enemy: any, toVerbName: string): void {
+  const verb = verbs.get(toVerbName);
+  if (!verb) return;
+  const entry = launched.find(e => e.enemy === enemy);
+  if (!entry) return;
+  entry.claimedBy = toVerbName;
+  activeVerb = verb;
+  activeEnemy = enemy;
+  verb.onClaim(entry);
+}
+
 export function updateAerialVerbs(dt: number, playerPos?: any, inputState?: any): void {
   if (!activeVerb || !activeEnemy) return;
 

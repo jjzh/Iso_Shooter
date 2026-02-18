@@ -15,6 +15,7 @@ import {
   updateAerialVerbs,
   cancelActiveVerb,
   clearVerbs,
+  transferClaim,
 } from '../src/engine/aerialVerbs';
 
 function makeEnemy(id: number) {
@@ -228,6 +229,35 @@ describe('Verb Registration + Dispatch', () => {
   it('updateAerialVerbs does nothing when no verb is active', () => {
     // Should not throw
     updateAerialVerbs(0.016);
+  });
+
+  it('transferClaim changes active verb and calls new verb onClaim', () => {
+    const verb1 = makeTestVerb('selector');
+    const verb2 = makeTestVerb('dunk');
+    registerVerb(verb1);
+    registerVerb(verb2);
+    const e = makeEnemy(1);
+    registerLaunch(e);
+    claimLaunched(e, 'selector');
+    activateVerb('selector', e);
+    expect(getActiveVerb()).toBe(verb1);
+
+    transferClaim(e, 'dunk');
+    expect(getActiveVerb()).toBe(verb2);
+    expect(getActiveEnemy()).toBe(e);
+    expect(verb2.onClaim).toHaveBeenCalled();
+    expect(getLaunchedEntry(e)?.claimedBy).toBe('dunk');
+  });
+
+  it('transferClaim does nothing for unregistered verb', () => {
+    const verb1 = makeTestVerb('selector');
+    registerVerb(verb1);
+    const e = makeEnemy(1);
+    registerLaunch(e);
+    claimLaunched(e, 'selector');
+    activateVerb('selector', e);
+    transferClaim(e, 'nonexistent');
+    expect(getActiveVerb()).toBe(verb1); // unchanged
   });
 });
 
