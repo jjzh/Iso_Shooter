@@ -1,6 +1,8 @@
-import { PLAYER, MELEE, JUMP, LAUNCH, AERIAL_STRIKE, SELF_SLAM } from '../config/player';
+import { PLAYER, MELEE, JUMP, LAUNCH, AERIAL_STRIKE, SELF_SLAM, SPIKE } from '../config/player';
 import { registerLaunch, claimLaunched, activateVerb } from '../engine/aerialVerbs';
-import { getDunkPhase, getDunkPlayerVelY, getDunkLandingLag, isDunkActive, updateDunkVisuals, initDunkTarget, resetDunk } from '../verbs/dunk';
+import { getDunkPhase, getDunkPlayerVelY, getDunkLandingLag, isDunkActive, updateDunkVisuals, resetDunk } from '../verbs/dunk';
+import { isFloatSelectorActive, getFloatSelectorPlayerVelY, resetFloatSelector } from '../verbs/floatSelector';
+import { getSpikePlayerVelYOverride, getSpikeFastFallActive, resetSpike } from '../verbs/spike';
 import { getGroundHeight } from '../config/terrain';
 import { PHYSICS } from '../config/physics';
 import { ABILITIES } from '../config/abilities';
@@ -206,13 +208,10 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
       // Set cooldown
       launchCooldownTimer = LAUNCH.cooldown;
 
-      // Register with aerial verb framework + activate dunk
+      // Register with aerial verb framework + activate float selector
       registerLaunch(closestEnemy);
-      claimLaunched(closestEnemy, 'dunk');
-      activateVerb('dunk', closestEnemy);
-
-      // Initialize dunk targeting (decal shows while rising)
-      initDunkTarget(closestEnemy.pos.x, closestEnemy.pos.z, inputState.aimWorldPos.x, inputState.aimWorldPos.z);
+      claimLaunched(closestEnemy, 'floatSelector');
+      activateVerb('floatSelector', closestEnemy);
 
       emit({
         type: 'enemyLaunched',
@@ -229,8 +228,8 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     }
   }
 
-  // === SELF-SLAM (E while airborne, no active dunk verb) ===
-  if (inputState.launch && isPlayerAirborne && !isSlamming && !isDunkActive()) {
+  // === SELF-SLAM (E while airborne, no active verb) ===
+  if (inputState.launch && isPlayerAirborne && !isSlamming && !isDunkActive() && !isFloatSelectorActive()) {
     isSlamming = true;
     playerVelY = SELF_SLAM.slamVelocity;
   }
@@ -264,19 +263,26 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
 
   // === PLAYER Y PHYSICS ===
   if (isPlayerAirborne) {
-    const dunkPhase = getDunkPhase();
-    if (dunkPhase === 'float') {
-      // Player frozen in air during float — dunk verb handles aim window
-      playerVelY = 0;
-    } else {
-      // Apply velocity override during slam (verb sets slamVelocity)
-      const velOverride = getDunkPlayerVelY();
-      if (velOverride !== null) {
-        playerVelY = velOverride;
-      }
-      playerVelY -= JUMP.gravity * dt;
-      playerPos.y += playerVelY * dt;
+    // Check all verb velocity overrides (priority: dunk > floatSelector > spike)
+    const dunkVelY = getDunkPlayerVelY();
+    const selectorVelY = getFloatSelectorPlayerVelY();
+    const spikeVelY = getSpikePlayerVelYOverride();
+    if (dunkVelY !== null) {
+      playerVelY = dunkVelY;
+    } else if (selectorVelY !== null) {
+      playerVelY = selectorVelY;
+    } else if (spikeVelY !== null) {
+      playerVelY = spikeVelY;
     }
+
+    playerVelY -= JUMP.gravity * dt;
+
+    // Spike fast fall — enhanced gravity after spike recovery
+    if (getSpikeFastFallActive() && isPlayerAirborne) {
+      playerVelY -= JUMP.gravity * (SPIKE.fastFallGravityMult - 1) * dt;
+    }
+
+    playerPos.y += playerVelY * dt;
 
     const groundHeight = getGroundHeight(playerPos.x, playerPos.z);
     if (playerPos.y <= groundHeight) {
@@ -316,7 +322,7 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
 
         emit({ type: 'playerSlam', position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
         spawnDamageNumber(playerPos.x, playerPos.z, 'SLAM!', '#ff8800');
-      } else if (dunkPhase === 'slam') {
+      } else if (getDunkPhase() === 'slam') {
         // Dunk landing — verb's onComplete handles damage/AoE/effects
         const lag = getDunkLandingLag();
         if (lag > 0) landingLagTimer = lag;
@@ -852,6 +858,8 @@ export function resetPlayer() {
   launchCooldownTimer = 0;
   isSlamming = false;
   resetDunk();
+  resetFloatSelector();
+  resetSpike();
   removeChargeTelegraph();
   restoreDefaultEmissive();
   resetAnimatorState(animState);
