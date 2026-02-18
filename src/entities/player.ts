@@ -1,4 +1,6 @@
-import { PLAYER, MELEE, JUMP, LAUNCH, AERIAL_STRIKE, SELF_SLAM, DUNK } from '../config/player';
+import { PLAYER, MELEE, JUMP, LAUNCH, AERIAL_STRIKE, SELF_SLAM } from '../config/player';
+import { registerLaunch, claimLaunched, activateVerb } from '../engine/aerialVerbs';
+import { getDunkPhase, getDunkPlayerVelY, getDunkLandingLag, isDunkActive, updateDunkVisuals, initDunkTarget, resetDunk } from '../verbs/dunk';
 import { getGroundHeight } from '../config/terrain';
 import { PHYSICS } from '../config/physics';
 import { ABILITIES } from '../config/abilities';
@@ -61,33 +63,6 @@ let launchCooldownTimer = 0;
 
 // Self-slam state
 let isSlamming = false;
-
-// Dunk state
-let isDunking = false;
-let dunkTarget: any = null;
-let dunkPendingTarget: any = null;  // enemy we launched — waiting for convergence
-let isFloating = false;              // true during zero-gravity float phase
-let floatTimer = 0;                  // ms remaining in float phase
-let dunkLandingX = 0;           // target landing position XZ
-let dunkLandingZ = 0;
-let dunkOriginX = 0;            // XZ where grab happened (decal center)
-let dunkOriginZ = 0;
-let dunkDecalGroup: any = null;  // ground circle decal
-let dunkDecalFill: any = null;   // filled circle (crosshair)
-let dunkDecalAge = 0;            // ms since decal created (for expand animation)
-const DECAL_EXPAND_MS = 250;     // ms to expand from 0 → full size
-let dunkDecalRing: any = null;   // outer ring (radius indicator)
-
-// Dunk slam arc state
-let dunkSlamStartY = 0;          // Y position when slam begins (for arc progress)
-let dunkSlamStartX = 0;          // XZ position when slam begins
-let dunkSlamStartZ = 0;
-
-// Dunk trail state
-const DUNK_TRAIL_MAX = 20;
-let dunkTrailLine: any = null;
-let dunkTrailPoints: { x: number; y: number; z: number }[] = [];
-let dunkTrailLife = 0;           // ms remaining for trail fade after landing
 
 // Original emissive colors (used for charge glow reset)
 const DEFAULT_EMISSIVE = 0x22aa66;
@@ -231,21 +206,13 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
       // Set cooldown
       launchCooldownTimer = LAUNCH.cooldown;
 
-      // Begin dunk targeting immediately — decal shows while rising
-      dunkPendingTarget = closestEnemy;
-      dunkOriginX = closestEnemy.pos.x;
-      dunkOriginZ = closestEnemy.pos.z;
-      dunkLandingX = inputState.aimWorldPos.x;
-      dunkLandingZ = inputState.aimWorldPos.z;
-      // Clamp initial target to radius
-      const aimDxL = dunkLandingX - dunkOriginX;
-      const aimDzL = dunkLandingZ - dunkOriginZ;
-      const aimDistL = Math.sqrt(aimDxL * aimDxL + aimDzL * aimDzL) || 0.01;
-      if (aimDistL > DUNK.targetRadius) {
-        dunkLandingX = dunkOriginX + (aimDxL / aimDistL) * DUNK.targetRadius;
-        dunkLandingZ = dunkOriginZ + (aimDzL / aimDistL) * DUNK.targetRadius;
-      }
-      createDunkDecal(dunkOriginX, dunkOriginZ);
+      // Register with aerial verb framework + activate dunk
+      registerLaunch(closestEnemy);
+      claimLaunched(closestEnemy, 'dunk');
+      activateVerb('dunk', closestEnemy);
+
+      // Initialize dunk targeting (decal shows while rising)
+      initDunkTarget(closestEnemy.pos.x, closestEnemy.pos.z, inputState.aimWorldPos.x, inputState.aimWorldPos.z);
 
       emit({
         type: 'enemyLaunched',
@@ -262,124 +229,10 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     }
   }
 
-  // === FLOAT PHASE — zero-gravity hang time for dunk aiming ===
-  // When player + enemy converge mid-air, both freeze in place (gravity = 0).
-  // Player aims the landing target during this window and presses E to dunk.
-  if (isFloating && dunkPendingTarget) {
-    floatTimer -= dt * 1000;
-    const pt = dunkPendingTarget;
-    const ptVel = (pt as any).vel;
-
-    // Kill gravity on both — hold them in place
-    playerVelY = 0;
-    if (ptVel) ptVel.y = 0;
-
-    // Gently drift enemy to hover above player
-    const targetEnemyY = playerPos.y + DUNK.floatEnemyOffsetY;
-    pt.pos.y += (targetEnemyY - pt.pos.y) * Math.min(1, dt * 10);
-
-    // Gently drift XZ together
-    const driftDx = playerPos.x - pt.pos.x;
-    const driftDz = playerPos.z - pt.pos.z;
-    const driftDist = Math.sqrt(driftDx * driftDx + driftDz * driftDz);
-    if (driftDist > 0.05) {
-      const step = Math.min(DUNK.floatDriftSpeed * dt, driftDist);
-      pt.pos.x += (driftDx / driftDist) * step;
-      pt.pos.z += (driftDz / driftDist) * step;
-    }
-
-    // Sync enemy mesh
-    if (pt.mesh) pt.mesh.position.copy(pt.pos);
-
-    // Check if target died/fell during float
-    if (pt.health <= 0 || (pt as any).fellInPit) {
-      isFloating = false;
-      floatTimer = 0;
-      dunkPendingTarget = null;
-      removeDunkDecal();
-    }
-    // MANUAL DUNK — player presses E during float to trigger grab+slam
-    else if (inputState.launch) {
-      inputState.launch = false;
-      isFloating = false;
-      floatTimer = 0;
-      isDunking = true;
-      dunkTarget = pt;
-      dunkPendingTarget = null;
-      playerVelY = DUNK.slamVelocity;
-
-      // Snap enemy to player position (they're already close from drift)
-      pt.pos.x = playerPos.x;
-      pt.pos.z = playerPos.z;
-      pt.pos.y = playerPos.y + DUNK.carryOffsetY;
-
-      // Slam enemy downward too
-      if (ptVel) ptVel.y = DUNK.slamVelocity;
-
-      // Face the landing target
-      const faceDx = dunkLandingX - playerPos.x;
-      const faceDz = dunkLandingZ - playerPos.z;
-      if (faceDx !== 0 || faceDz !== 0) {
-        playerGroup.rotation.y = Math.atan2(-faceDx, -faceDz);
-      }
-
-      // Record slam start for arc + trail
-      dunkSlamStartY = playerPos.y;
-      dunkSlamStartX = playerPos.x;
-      dunkSlamStartZ = playerPos.z;
-      dunkTrailPoints = [{ x: playerPos.x, y: playerPos.y, z: playerPos.z }];
-      createDunkTrail();
-
-      // Grab impact — shake + freeze-frame
-      screenShake(DUNK.grabShake);
-      emit({
-        type: 'dunkGrab',
-        enemy: pt,
-        position: { x: playerPos.x, z: playerPos.z },
-      });
-      spawnDamageNumber(playerPos.x, playerPos.z, 'GRAB!', '#ff44ff');
-    }
-    // Float expired — drop back to normal physics (no dunk)
-    else if (floatTimer <= 0) {
-      isFloating = false;
-      dunkPendingTarget = null;
-      removeDunkDecal();
-    }
-  }
-
-  // === CONVERGENCE CHECK — detect when player & enemy meet, enter float ===
-  // After launch, track the pending target. When the enemy descends within
-  // floatConvergeDist of the player, freeze both in a zero-gravity float.
-  if (dunkPendingTarget && !isFloating && isPlayerAirborne && !isSlamming && !isDunking) {
-    const pt = dunkPendingTarget;
-    const ptVel = (pt as any).vel;
-    const ptRising = ptVel && ptVel.y > 0;
-
-    // Check if pending target is still valid (alive, airborne or still rising)
-    if (pt.health <= 0 || (pt as any).fellInPit || (pt.pos.y <= 0.3 && !ptRising)) {
-      dunkPendingTarget = null;
-      removeDunkDecal();
-    } else {
-      // Enemy must be descending (past apex) and within convergence distance
-      const dy = pt.pos.y - playerPos.y;
-      if (ptVel && ptVel.y <= 0 && dy >= 0 && dy <= DUNK.floatConvergeDist) {
-        // Converged! Enter float phase
-        isFloating = true;
-        floatTimer = DUNK.floatDuration;
-
-        // Small shake to signal the moment
-        screenShake(DUNK.grabShake * 0.5);
-        spawnDamageNumber(playerPos.x, playerPos.z, 'CATCH!', '#ff88ff');
-      }
-    }
-  }
-
-  // === SELF-SLAM (E while airborne, no pending dunk, not floating) ===
-  if (inputState.launch && isPlayerAirborne && !isSlamming && !isDunking && !dunkPendingTarget && !isFloating) {
+  // === SELF-SLAM (E while airborne, no active dunk verb) ===
+  if (inputState.launch && isPlayerAirborne && !isSlamming && !isDunkActive()) {
     isSlamming = true;
     playerVelY = SELF_SLAM.slamVelocity;
-    // Cancel any lingering decal
-    removeDunkDecal();
   }
 
   // === MOVEMENT ===
@@ -411,78 +264,18 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
 
   // === PLAYER Y PHYSICS ===
   if (isPlayerAirborne) {
-    // Skip gravity during float phase — both player and enemy hover
-    if (!isFloating) {
+    const dunkPhase = getDunkPhase();
+    if (dunkPhase === 'float') {
+      // Player frozen in air during float — dunk verb handles aim window
+      playerVelY = 0;
+    } else {
+      // Apply velocity override during slam (verb sets slamVelocity)
+      const velOverride = getDunkPlayerVelY();
+      if (velOverride !== null) {
+        playerVelY = velOverride;
+      }
       playerVelY -= JUMP.gravity * dt;
       playerPos.y += playerVelY * dt;
-    }
-
-    // === DUNK TARGETING — update decal + aim while pending or grabbed ===
-    if (dunkPendingTarget || (isDunking && dunkTarget)) {
-      // Keep the aim origin anchored to the player so the decal follows them
-      dunkOriginX = playerPos.x;
-      dunkOriginZ = playerPos.z;
-
-      // Update landing target from current aim, clamped to radius
-      const aimDx = inputState.aimWorldPos.x - dunkOriginX;
-      const aimDz = inputState.aimWorldPos.z - dunkOriginZ;
-      const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
-      const clampedDist = Math.min(aimDist, DUNK.targetRadius);
-      dunkLandingX = dunkOriginX + (aimDx / aimDist) * clampedDist;
-      dunkLandingZ = dunkOriginZ + (aimDz / aimDist) * clampedDist;
-
-      // Update ground decal (visible during both pending and grabbed phases)
-      updateDunkDecal(dunkLandingX, dunkLandingZ, dt);
-    }
-
-    // XZ homing only after grab (not while pending — player rises freely)
-    if (isDunking && dunkTarget) {
-      // Arc trajectory — ease-in XZ so the slam curves instead of going straight
-      // Progress: 0 = slam start height, 1 = ground level
-      const groundY = getGroundHeight(playerPos.x, playerPos.z);
-      const totalDrop = Math.max(dunkSlamStartY - groundY, 0.1);
-      const dropped = Math.max(dunkSlamStartY - playerPos.y, 0);
-      const progress = Math.min(dropped / totalDrop, 1); // 0→1 as player falls
-      // Ease-in: XZ speed starts slow, accelerates — creates a curved arc
-      // Using sqrt-based blend: starts at 30% speed, ramps to 100%
-      const arcMult = 0.3 + 0.7 * progress;
-
-      // Home player XZ toward landing target with arc-scaled speed
-      const toDx = dunkLandingX - playerPos.x;
-      const toDz = dunkLandingZ - playerPos.z;
-      const toDist = Math.sqrt(toDx * toDx + toDz * toDz);
-      if (toDist > 0.05) {
-        const moveStep = Math.min(DUNK.homing * arcMult * dt, toDist);
-        playerPos.x += (toDx / toDist) * moveStep;
-        playerPos.z += (toDz / toDist) * moveStep;
-      }
-
-      // Add trail point
-      dunkTrailPoints.push({ x: playerPos.x, y: playerPos.y, z: playerPos.z });
-      if (dunkTrailPoints.length > DUNK_TRAIL_MAX) dunkTrailPoints.shift();
-      updateDunkTrail();
-
-      // Carry enemy with offset — slightly below and in front of player
-      // so both models are visible and it reads as "holding"
-      dunkTarget.pos.x = playerPos.x;
-      dunkTarget.pos.z = playerPos.z;
-      dunkTarget.pos.y = playerPos.y + DUNK.carryOffsetY;
-      if (dunkTarget.mesh) {
-        // Visual offset: push enemy mesh forward (toward landing target)
-        const aimAngle = playerGroup.rotation.y;
-        const fwdX = -Math.sin(aimAngle) * DUNK.carryOffsetZ;
-        const fwdZ = -Math.cos(aimAngle) * DUNK.carryOffsetZ;
-        dunkTarget.mesh.position.set(
-          dunkTarget.pos.x + fwdX,
-          dunkTarget.pos.y,
-          dunkTarget.pos.z + fwdZ
-        );
-      }
-
-      // Face landing target
-      if (toDist > 0.1) {
-        playerGroup.rotation.y = Math.atan2(-toDx, -toDz);
-      }
     }
 
     const groundHeight = getGroundHeight(playerPos.x, playerPos.z);
@@ -523,65 +316,14 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
 
         emit({ type: 'playerSlam', position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
         spawnDamageNumber(playerPos.x, playerPos.z, 'SLAM!', '#ff8800');
-      } else if (isDunking && dunkTarget) {
-        // Dunk landing — massive damage to grabbed enemy + AoE splash
-        isDunking = false;
-        removeDunkDecal();
-        landingLagTimer = DUNK.landingLag;
-        screenShake(DUNK.landingShake);
-
-        // Primary damage to dunk target
-        dunkTarget.health -= DUNK.damage;
-        dunkTarget.flashTimer = 150;
-        dunkTarget.pos.y = groundHeight; // slam to ground
-        const tVel = (dunkTarget as any).vel;
-        if (tVel) { tVel.x = 0; tVel.y = 0; tVel.z = 0; }
-        (dunkTarget as any).mesh.position.copy(dunkTarget.pos);
-
-        // AoE splash damage to other nearby enemies
-        const enemies = gameState.enemies;
-        if (enemies) {
-          for (let i = 0; i < enemies.length; i++) {
-            const e = enemies[i];
-            if (e === dunkTarget) continue;
-            if (e.health <= 0 || (e as any).fellInPit) continue;
-            const dx = e.pos.x - playerPos.x;
-            const dz = e.pos.z - playerPos.z;
-            const distSq = dx * dx + dz * dz;
-            if (distSq < DUNK.aoeRadius * DUNK.aoeRadius) {
-              e.health -= DUNK.aoeDamage;
-              e.flashTimer = 100;
-              const dist = Math.sqrt(distSq) || 0.1;
-              const vel = (e as any).vel;
-              if (vel) {
-                vel.x += (dx / dist) * DUNK.aoeKnockback;
-                vel.z += (dz / dist) * DUNK.aoeKnockback;
-              }
-            }
-          }
-        }
-
-        emit({
-          type: 'dunkImpact',
-          enemy: dunkTarget,
-          damage: DUNK.damage,
-          position: { x: playerPos.x, z: playerPos.z },
-        });
-        spawnDamageNumber(playerPos.x, playerPos.z, 'DUNK!', '#ff2244');
-        dunkTarget = null;
-        startDunkTrailFade();
+      } else if (dunkPhase === 'slam') {
+        // Dunk landing — verb's onComplete handles damage/AoE/effects
+        const lag = getDunkLandingLag();
+        if (lag > 0) landingLagTimer = lag;
       } else {
         // Normal landing
         landingLagTimer = JUMP.landingLag;
         emit({ type: 'playerLand', position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
-      }
-
-      // Clean up any pending dunk / float on any landing
-      if (dunkPendingTarget || isFloating) {
-        dunkPendingTarget = null;
-        isFloating = false;
-        floatTimer = 0;
-        removeDunkDecal();
       }
     }
   }
@@ -589,10 +331,8 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     landingLagTimer -= dt * 1000;
   }
 
-  // Tick dunk trail fade (after landing)
-  if (dunkTrailLife > 0) {
-    updateDunkTrailFade(dt * 1000);
-  }
+  // Dunk verb visual updates (trail fade, etc.)
+  updateDunkVisuals(dt);
 
   playerGroup.position.copy(playerPos);
 
@@ -613,7 +353,7 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0,
     isPlayerAirborne,
     playerVelY,
-    isSlamming || isDunking,
+    isSlamming || getDunkPhase() === 'slam',
     isCharging,
     isCharging ? Math.min(chargeTimer / ABILITIES.ultimate.chargeTimeMs, 1) : 0
   );
@@ -1074,167 +814,6 @@ function removeChargeTelegraph() {
   }
 }
 
-// === DUNK TARGET DECAL ===
-
-function createDunkDecal(cx: number, cz: number) {
-  const scene = getScene();
-  const radius = DUNK.targetRadius;
-
-  dunkDecalGroup = new THREE.Group();
-  dunkDecalGroup.position.set(cx, 0.06, cz);
-
-  // Filled circle — semi-transparent magenta
-  const fillGeo = new THREE.CircleGeometry(radius, 32);
-  const fillMat = new THREE.MeshBasicMaterial({
-    color: 0xff44ff,
-    transparent: true,
-    opacity: 0.08,
-    depthWrite: false,
-  });
-  dunkDecalFill = new THREE.Mesh(fillGeo, fillMat);
-  dunkDecalFill.rotation.x = -Math.PI / 2; // lay flat on ground
-  dunkDecalGroup.add(dunkDecalFill);
-
-  // Outer ring — brighter border
-  const ringGeo = new THREE.RingGeometry(radius - 0.06, radius, 48);
-  const ringMat = new THREE.MeshBasicMaterial({
-    color: 0xff66ff,
-    transparent: true,
-    opacity: 0.4,
-    depthWrite: false,
-  });
-  dunkDecalRing = new THREE.Mesh(ringGeo, ringMat);
-  dunkDecalRing.rotation.x = -Math.PI / 2;
-  dunkDecalGroup.add(dunkDecalRing);
-
-  // Crosshair — sized to match AoE splash radius so player sees the impact zone
-  const dotGeo = new THREE.CircleGeometry(DUNK.aoeRadius, 24);
-  const dotMat = new THREE.MeshBasicMaterial({
-    color: 0xff88ff,
-    transparent: true,
-    opacity: 0.15,
-    depthWrite: false,
-  });
-  const dot = new THREE.Mesh(dotGeo, dotMat);
-  dot.rotation.x = -Math.PI / 2;
-  dot.name = 'dunkCrosshair';
-  dunkDecalGroup.add(dot);
-
-  // Start at scale 0 — will expand over DECAL_EXPAND_MS
-  dunkDecalGroup.scale.set(0, 0, 0);
-  dunkDecalAge = 0;
-
-  scene.add(dunkDecalGroup);
-}
-
-function updateDunkDecal(aimX: number, aimZ: number, dt?: number) {
-  if (!dunkDecalGroup) return;
-
-  // Expand animation — ease-out from 0 to 1 over DECAL_EXPAND_MS
-  if (dt && dunkDecalAge < DECAL_EXPAND_MS) {
-    dunkDecalAge += dt * 1000;
-    const t = Math.min(dunkDecalAge / DECAL_EXPAND_MS, 1);
-    const eased = 1 - (1 - t) * (1 - t); // ease-out quadratic
-    dunkDecalGroup.scale.set(eased, eased, eased);
-  } else if (dunkDecalGroup.scale.x < 1) {
-    dunkDecalGroup.scale.set(1, 1, 1);
-  }
-
-  // Decal stays centered on player position
-  dunkDecalGroup.position.set(dunkOriginX, 0.06, dunkOriginZ);
-
-  // Move crosshair dot to show landing target (relative to decal center)
-  const dot = dunkDecalGroup.getObjectByName('dunkCrosshair');
-  if (dot) {
-    const dx = dunkLandingX - dunkOriginX;
-    const dz = dunkLandingZ - dunkOriginZ;
-    dot.position.set(dx, 0, dz); // offset in group-local space (group is not rotated)
-  }
-
-  // Pulse ring opacity for urgency
-  if (dunkDecalRing) {
-    const pulse = 0.3 + 0.15 * Math.sin(Date.now() * 0.008);
-    (dunkDecalRing.material as any).opacity = pulse;
-  }
-}
-
-function removeDunkDecal() {
-  if (!dunkDecalGroup) return;
-  const scene = getScene();
-
-  // Dispose all children
-  dunkDecalGroup.traverse((child: any) => {
-    if (child.geometry) child.geometry.dispose();
-    if (child.material) child.material.dispose();
-  });
-
-  scene.remove(dunkDecalGroup);
-  dunkDecalGroup = null;
-  dunkDecalFill = null;
-  dunkDecalRing = null;
-}
-
-// === DUNK TRAIL ===
-
-function createDunkTrail() {
-  removeDunkTrail();
-  const geo = new THREE.BufferGeometry();
-  // Pre-allocate for max points
-  const positions = new Float32Array(DUNK_TRAIL_MAX * 3);
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setDrawRange(0, 0);
-
-  const mat = new THREE.LineBasicMaterial({
-    color: 0xff66ff,
-    transparent: true,
-    opacity: 0.7,
-    linewidth: 1,
-  });
-  dunkTrailLine = new THREE.Line(geo, mat);
-  dunkTrailLine.frustumCulled = false;
-  getScene().add(dunkTrailLine);
-  dunkTrailLife = 0;
-}
-
-function updateDunkTrail() {
-  if (!dunkTrailLine) return;
-  const posAttr = dunkTrailLine.geometry.getAttribute('position');
-  const arr = posAttr.array;
-  for (let i = 0; i < dunkTrailPoints.length; i++) {
-    const p = dunkTrailPoints[i];
-    arr[i * 3] = p.x;
-    arr[i * 3 + 1] = p.y;
-    arr[i * 3 + 2] = p.z;
-  }
-  posAttr.needsUpdate = true;
-  dunkTrailLine.geometry.setDrawRange(0, dunkTrailPoints.length);
-}
-
-function startDunkTrailFade() {
-  dunkTrailLife = 300; // ms to fade out after landing
-}
-
-function updateDunkTrailFade(dtMs: number) {
-  if (!dunkTrailLine || dunkTrailLife <= 0) return;
-  dunkTrailLife -= dtMs;
-  const opacity = Math.max(0, dunkTrailLife / 300) * 0.7;
-  (dunkTrailLine.material as any).opacity = opacity;
-  if (dunkTrailLife <= 0) {
-    removeDunkTrail();
-  }
-}
-
-function removeDunkTrail() {
-  if (!dunkTrailLine) return;
-  const scene = getScene();
-  scene.remove(dunkTrailLine);
-  if (dunkTrailLine.geometry) dunkTrailLine.geometry.dispose();
-  if (dunkTrailLine.material) dunkTrailLine.material.dispose();
-  dunkTrailLine = null;
-  dunkTrailPoints = [];
-  dunkTrailLife = 0;
-}
-
 // === MELEE PUBLIC API ===
 export function isMeleeSwinging() { return meleeSwinging; }
 export function getMeleeSwingDir() { return meleeSwingDir; }
@@ -1247,8 +826,6 @@ export function isPlayerInvincible() { return isInvincible; }
 export function isPlayerDashing() { return isDashing; }
 export function getIsPlayerAirborne() { return isPlayerAirborne; }
 export function getPlayerVelY() { return playerVelY; }
-export function getDunkPendingTarget() { return dunkPendingTarget; }
-export function getIsFloating() { return isFloating; }
 export function consumePushEvent() {
   const evt = pushEvent;
   pushEvent = null;
@@ -1274,13 +851,7 @@ export function resetPlayer() {
   landingLagTimer = 0;
   launchCooldownTimer = 0;
   isSlamming = false;
-  isDunking = false;
-  dunkTarget = null;
-  dunkPendingTarget = null;
-  isFloating = false;
-  floatTimer = 0;
-  removeDunkDecal();
-  removeDunkTrail();
+  resetDunk();
   removeChargeTelegraph();
   restoreDefaultEmissive();
   resetAnimatorState(animState);

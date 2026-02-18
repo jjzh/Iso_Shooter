@@ -122,6 +122,19 @@ export function updateAerialVerbs(dt: number, playerPos?: any, inputState?: any)
   }
 }
 
+export function initAerialVerbs(verbsToRegister?: AerialVerb[]): void {
+  if (verbsToRegister) {
+    for (const verb of verbsToRegister) {
+      registerVerb(verb);
+    }
+  }
+}
+
+export function resetAerialVerbs(): void {
+  cancelActiveVerb();
+  clearLaunched();
+}
+
 export function cancelActiveVerb(): void {
   if (!activeVerb || !activeEnemy) return;
   const entry = launched.find(e => e.enemy === activeEnemy);

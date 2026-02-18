@@ -15,6 +15,8 @@ import { initSpawnEditor, checkEditorToggle, updateSpawnEditor, isEditorActive }
 import { initAudio, resumeAudio } from './audio';
 import { initParticles, updateParticles } from './particles';
 import { initBulletTime, toggleBulletTime, updateBulletTime, getBulletTimeScale, resetBulletTime } from './bulletTime';
+import { initAerialVerbs, updateAerialVerbs, resetAerialVerbs } from './aerialVerbs';
+import { dunkVerb } from '../verbs/dunk';
 import { initGroundShadows, updateGroundShadows } from './groundShadows';
 import { PLAYER, MELEE, DUNK } from '../config/player';
 import { on } from './events';
@@ -83,6 +85,11 @@ function gameLoop(timestamp: number): void {
 
   // 2. Player (uses real dt — player moves at normal speed)
   updatePlayer(input, dt, gameState);
+
+  // 2b. Aerial verbs (dunk, spike, etc.) — uses real dt like player
+  // Attach gameState to input so verb onComplete can access enemies for AoE
+  (input as any)._gameState = gameState;
+  updateAerialVerbs(dt, getPlayerPos(), input);
 
   // 3. Projectiles (slowed)
   updateProjectiles(gameDt);
@@ -162,6 +169,7 @@ function restart(): void {
   gameState.abilities.ultimate.chargeT = 0;
 
   resetPlayer();
+  resetAerialVerbs();
   resetRoomManager();
   resetBulletTime();
   loadRoom(0, gameState);
@@ -184,6 +192,7 @@ function init(): void {
     initAudio();
     initParticles(scene);
     initBulletTime();
+    initAerialVerbs([dunkVerb]);
     initGroundShadows();
 
     // Hit pause — subscribe to impact events
