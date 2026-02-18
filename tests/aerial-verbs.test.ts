@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   registerLaunch,
   claimLaunched,
@@ -8,6 +8,13 @@ import {
   getLaunchedEntry,
   clearLaunched,
   setGravityOverride,
+  registerVerb,
+  getActiveVerb,
+  getActiveEnemy,
+  activateVerb,
+  updateAerialVerbs,
+  cancelActiveVerb,
+  clearVerbs,
 } from '../src/engine/aerialVerbs';
 
 function makeEnemy(id: number) {
@@ -92,5 +99,134 @@ describe('Aerial Verb Registry', () => {
     registerLaunch(makeEnemy(2));
     clearLaunched();
     expect(getLaunched()).toHaveLength(0);
+  });
+});
+
+// --------------- Verb Registration + Dispatch ---------------
+
+function makeTestVerb(name: string, canClaimResult = true) {
+  return {
+    name,
+    interruptible: true,
+    canClaim: () => canClaimResult,
+    onClaim: vi.fn(),
+    update: vi.fn().mockReturnValue('active' as const),
+    onCancel: vi.fn(),
+    onComplete: vi.fn(),
+  };
+}
+
+describe('Verb Registration + Dispatch', () => {
+  beforeEach(() => {
+    clearLaunched();
+    clearVerbs();
+  });
+
+  it('registerVerb stores verb for later dispatch', () => {
+    const verb = makeTestVerb('testVerb');
+    registerVerb(verb);
+    // No error — just verifying it doesn't throw
+  });
+
+  it('getActiveVerb returns null when no verb is active', () => {
+    expect(getActiveVerb()).toBeNull();
+  });
+
+  it('getActiveEnemy returns null when no verb is active', () => {
+    expect(getActiveEnemy()).toBeNull();
+  });
+
+  it('activateVerb sets active verb and calls onClaim', () => {
+    const verb = makeTestVerb('dunk');
+    registerVerb(verb);
+    const e = makeEnemy(1);
+    registerLaunch(e);
+    claimLaunched(e, 'dunk');
+    activateVerb('dunk', e);
+    expect(getActiveVerb()).toBe(verb);
+    expect(getActiveEnemy()).toBe(e);
+    expect(verb.onClaim).toHaveBeenCalled();
+  });
+
+  it('updateAerialVerbs calls update on active verb', () => {
+    const verb = makeTestVerb('dunk');
+    registerVerb(verb);
+    const e = makeEnemy(1);
+    registerLaunch(e);
+    claimLaunched(e, 'dunk');
+    activateVerb('dunk', e);
+    updateAerialVerbs(0.016);
+    expect(verb.update).toHaveBeenCalled();
+  });
+
+  it('updateAerialVerbs handles complete return', () => {
+    const verb = makeTestVerb('dunk');
+    verb.update = vi.fn().mockReturnValue('complete');
+    registerVerb(verb);
+    const e = makeEnemy(1);
+    registerLaunch(e);
+    claimLaunched(e, 'dunk');
+    activateVerb('dunk', e);
+    updateAerialVerbs(0.016);
+    expect(verb.onComplete).toHaveBeenCalled();
+    expect(getActiveVerb()).toBeNull();
+    expect(getLaunched()).toHaveLength(0); // released
+  });
+
+  it('updateAerialVerbs handles cancel return', () => {
+    const verb = makeTestVerb('dunk');
+    verb.update = vi.fn().mockReturnValue('cancel');
+    registerVerb(verb);
+    const e = makeEnemy(1);
+    registerLaunch(e);
+    claimLaunched(e, 'dunk');
+    activateVerb('dunk', e);
+    updateAerialVerbs(0.016);
+    expect(verb.onCancel).toHaveBeenCalled();
+    expect(getActiveVerb()).toBeNull();
+  });
+
+  it('updateAerialVerbs auto-cancels on enemy death', () => {
+    const verb = makeTestVerb('dunk');
+    registerVerb(verb);
+    const e = makeEnemy(1);
+    registerLaunch(e);
+    claimLaunched(e, 'dunk');
+    activateVerb('dunk', e);
+    e.health = 0; // enemy died
+    updateAerialVerbs(0.016);
+    expect(verb.onCancel).toHaveBeenCalled();
+    expect(getActiveVerb()).toBeNull();
+  });
+
+  it('updateAerialVerbs auto-cancels on pit fall', () => {
+    const verb = makeTestVerb('dunk');
+    registerVerb(verb);
+    const e = makeEnemy(1);
+    registerLaunch(e);
+    claimLaunched(e, 'dunk');
+    activateVerb('dunk', e);
+    e.fellInPit = true;
+    updateAerialVerbs(0.016);
+    expect(verb.onCancel).toHaveBeenCalled();
+    expect(getActiveVerb()).toBeNull();
+  });
+
+  it('cancelActiveVerb calls onCancel and clears state', () => {
+    const verb = makeTestVerb('dunk');
+    registerVerb(verb);
+    const e = makeEnemy(1);
+    registerLaunch(e);
+    claimLaunched(e, 'dunk');
+    activateVerb('dunk', e);
+    cancelActiveVerb();
+    expect(verb.onCancel).toHaveBeenCalled();
+    expect(getActiveVerb()).toBeNull();
+    expect(getActiveEnemy()).toBeNull();
+  });
+
+  it('updateAerialVerbs does nothing when no verb is active', () => {
+    // Should not throw
+    updateAerialVerbs(0.016);
   });
 });
