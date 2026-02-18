@@ -1,12 +1,13 @@
 // Dunk Verb Module — extracted from player.ts
-// State machine: float -> grab -> slam
+// State machine: grab -> slam
 //
-// Float: zero-gravity hang time while player aims the landing target
+// The float selector verb owns rising + float phases (convergence, aiming).
+// When the selector resolves to dunk (hold LMB past threshold), it transfers
+// claim to dunk via onClaim. At that point player and enemy are already
+// floating together.
+//
 // Grab: snap enemy to player, begin slam descent
 // Slam: arc trajectory toward landing target, enemy carried below player
-//
-// Uses exponential lerp for XZ drift (drift fix) — converges ~95% in 250ms
-// regardless of player movement speed.
 
 import { DUNK } from '../config/player';
 import { getGroundHeight } from '../config/terrain';
@@ -18,7 +19,7 @@ import { spawnDamageNumber } from '../ui/damageNumbers';
 
 // --------------- Internal State ---------------
 
-type DunkPhase = 'none' | 'rising' | 'float' | 'grab' | 'slam';
+type DunkPhase = 'none' | 'grab' | 'slam';
 
 let phase: DunkPhase = 'none';
 let target: any = null;        // enemy being dunked
@@ -208,7 +209,7 @@ function removeTrail(): void {
   trailLife = 0;
 }
 
-// --------------- Targeting (shared between float + slam) ---------------
+// --------------- Targeting (used during slam) ---------------
 
 function updateTargeting(playerPos: any, inputState: any): void {
   // Keep the aim origin anchored to the player
@@ -238,32 +239,37 @@ export const dunkVerb: AerialVerb = {
   },
 
   onClaim(entry: LaunchedEnemy): void {
-    // Enter rising phase — both entities rise naturally under normal gravity.
-    // Float triggers later when the enemy descends within convergence distance.
-    phase = 'rising';
+    // Selector already handled rising + float + convergence.
+    // Player and enemy are floating together — go straight to grab.
+    phase = 'grab';
     target = entry.enemy;
     floatTimer = 0;
-    playerVelYOverride = null; // no override during rising — normal gravity
+    playerVelYOverride = null;
     landingLagMs = 0;
-
-    // Normal gravity during rising — enemy launched upward by player.ts
-    // (gravity override stays at default 1.0)
-
-    // Decal is already created by initDunkTarget (called at launch time)
-    if (!decalGroup) {
-      createDecal(originX, originZ);
-    }
   },
 
   update(dt: number, entry: LaunchedEnemy, playerPos: any, inputState: any): 'active' | 'complete' | 'cancel' {
     const enemy = entry.enemy;
     _gameState = inputState._gameState; // sneak gameState through inputState for AoE
 
-    if (phase === 'rising') {
-      return updateRising(dt, enemy, playerPos, inputState);
-    } else if (phase === 'float') {
-      return updateFloat(dt, enemy, playerPos, inputState);
-    } else if (phase === 'grab' || phase === 'slam') {
+    if (phase === 'grab') {
+      // Initialize the landing target from current aim position
+      originX = playerPos.x;
+      originZ = playerPos.z;
+      const aimDx = inputState.aimWorldPos.x - originX;
+      const aimDz = inputState.aimWorldPos.z - originZ;
+      const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
+      const clampedDist = Math.min(aimDist, DUNK.targetRadius);
+      landingX = originX + (aimDx / aimDist) * clampedDist;
+      landingZ = originZ + (aimDz / aimDist) * clampedDist;
+
+      transitionToGrab(enemy, playerPos);
+      phase = 'slam';
+      // Fall through to slam update on next frame
+      return 'active';
+    }
+
+    if (phase === 'slam') {
       return updateSlam(dt, enemy, playerPos, inputState);
     }
 
@@ -342,86 +348,6 @@ export const dunkVerb: AerialVerb = {
     playerVelYOverride = null;
   },
 };
-
-// --------------- Rising Phase Update ---------------
-// Both player and enemy rise under normal gravity after launch.
-// Transition to float when enemy descends within convergence distance of player.
-
-function updateRising(dt: number, enemy: any, playerPos: any, inputState: any): 'active' | 'complete' | 'cancel' {
-  const ptVel = (enemy as any).vel;
-  const ptRising = ptVel && ptVel.y > 0;
-
-  // Update targeting decal while rising
-  updateTargeting(playerPos, inputState);
-  updateDecal(landingX, landingZ, dt);
-
-  // Check if target is still valid (alive, still airborne or rising)
-  if (enemy.health <= 0 || enemy.fellInPit || (enemy.pos.y <= 0.3 && !ptRising)) {
-    return 'cancel';
-  }
-
-  // Convergence check: enemy must be descending (past apex) and within Y distance of player
-  if (ptVel && ptVel.y <= 0) {
-    const dy = enemy.pos.y - playerPos.y;
-    if (dy >= 0 && dy <= DUNK.floatConvergeDist) {
-      // Converged! Transition to float phase
-      phase = 'float';
-      floatTimer = DUNK.floatDuration;
-      playerVelYOverride = 0;
-      setGravityOverride(enemy, 0);
-
-      screenShake(DUNK.grabShake * 0.5);
-      spawnDamageNumber(playerPos.x, playerPos.z, 'CATCH!', '#ff88ff');
-      return 'active';
-    }
-  }
-
-  return 'active';
-}
-
-// --------------- Float Phase Update ---------------
-
-function updateFloat(dt: number, enemy: any, playerPos: any, inputState: any): 'active' | 'complete' | 'cancel' {
-  floatTimer -= dt * 1000;
-  const ptVel = (enemy as any).vel;
-
-  // Kill gravity on both -- hold them in place
-  playerVelYOverride = 0;
-  if (ptVel) ptVel.y = 0;
-
-  // Gently drift enemy Y to hover above player
-  const targetEnemyY = playerPos.y + DUNK.floatEnemyOffsetY;
-  enemy.pos.y += (targetEnemyY - enemy.pos.y) * Math.min(1, dt * 10);
-
-  // DRIFT FIX: Exponential lerp for XZ convergence
-  // Converges ~95% in 250ms regardless of player movement speed
-  const driftDx = playerPos.x - enemy.pos.x;
-  const driftDz = playerPos.z - enemy.pos.z;
-  const lerpFactor = 1 - Math.exp(-12 * dt);
-  enemy.pos.x += driftDx * lerpFactor;
-  enemy.pos.z += driftDz * lerpFactor;
-
-  // Sync enemy mesh
-  if (enemy.mesh) enemy.mesh.position.copy(enemy.pos);
-
-  // Update targeting (decal + aim)
-  updateTargeting(playerPos, inputState);
-  updateDecal(landingX, landingZ, dt);
-
-  // MANUAL DUNK -- player presses E during float to trigger grab+slam
-  if (inputState.launch) {
-    inputState.launch = false;
-    transitionToGrab(enemy, playerPos);
-    return 'active';
-  }
-
-  // Float expired -- cancel (drop back to normal physics)
-  if (floatTimer <= 0) {
-    return 'cancel';
-  }
-
-  return 'active';
-}
 
 // --------------- Grab Transition ---------------
 
