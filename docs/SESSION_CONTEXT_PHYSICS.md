@@ -479,3 +479,117 @@ Both modes are essential. A prototype session often starts in exploration mode a
 ---
 
 *Appended from explore/hades design exploration session, February 2026*
+
+---
+---
+
+# Part 3: Physics-First as a Sandbox Design Principle
+
+> Extends the "Physics as First-Class System" moment from Part 1 with a
+> concrete instance from the vertical combat prototype. The principle
+> is maturing from "don't use teleport" into a general design heuristic.
+
+---
+
+## The Arc Launch Moment
+
+### Context
+
+After building the aerial verb system (launch → float → dunk/spike),
+playtesting revealed a "vacuum" problem: after launching an enemy
+straight up, the player could drift away on XZ during the rising phase.
+When the float phase started, the enemy was aggressively lerped toward
+the player — visually jarring, like a magnet pulling across the room.
+
+### Claude's initial framing: three options
+
+1. **Leash during rising** — softly tether enemy XZ toward player
+2. **XZ distance gate** — cancel if player drifts too far (positioning skill)
+3. **Arc the launch** — give the enemy XZ velocity toward the player at
+   launch time, so they naturally arrive nearby
+
+Options 1 and 2 are corrections layered on top of a straight-up launch.
+Option 3 changes the launch itself so the problem doesn't exist.
+
+### Jeff's response
+
+Jeff chose option 3 and added a visual element: a **rock pillar** that
+emerges from the terrain to communicate the launch force. Then he said
+this should be documented as a reference for how physics should be
+treated as a first-class system — preferring physical solutions over
+one-offs.
+
+### What this reveals (extending Part 1's principle)
+
+In Part 1, the principle was: "don't use teleport when velocity works."
+That was about removing a workaround. This instance is broader — it's
+about **reaching for physics first when designing new behaviors**:
+
+| Approach | What it is | Why Jeff rejects it |
+|----------|-----------|---------------------|
+| Leash/tether | Correction force applied during verb | It's a special-case system that only exists to fix the launch's shortcoming |
+| Distance gate | Cancellation rule | Adds complexity (what's the right distance? what if the player is barely over?) |
+| Arc trajectory | Change the launch physics | The problem dissolves — enemy arrives naturally, no correction needed |
+
+The pattern: **if a behavior needs a correction system, the underlying
+physics probably aren't right.** Fix the physics, and the correction
+becomes unnecessary.
+
+### The rock pillar as visual contract
+
+Jeff's addition of the rock pillar isn't just cosmetic juice. It serves
+a design function: it communicates to the player *why* the enemy is
+arcing toward them. The pillar is the "thing that hit the enemy." Without
+it, an arcing launch could look like the enemy is magnetically attracted
+to the player (the same vacuum feel, just at launch time instead of float
+time). The pillar makes the arc physically legible.
+
+**Broader lesson:** When physics drives behavior, invest in visual
+metaphors that make the physics readable. Players accept physics they
+can see the cause of. They reject physics that looks like invisible
+forces.
+
+---
+
+## The Principle, Refined
+
+From Part 1 (explore/hades):
+> "If we want physics to be a first-class system, using teleport to
+> simulate some of the effects cheaply actually isn't the correct
+> direction."
+
+Extended (explore/vertical):
+> **In a physics sandbox, new behaviors should emerge from physical
+> forces, not from correction systems layered on top of insufficient
+> physics. When you need a correction, that's a signal the underlying
+> force model is wrong. Fix the force, make it visually readable, and
+> the correction becomes unnecessary.**
+
+### How this applies going forward
+
+When designing a new mechanic or fixing a feel problem, apply this
+checklist:
+
+1. **Can the desired behavior emerge from forces?** (velocity, gravity,
+   friction, collision) If yes, use forces.
+2. **If not, is the force model incomplete?** Often the answer is "we
+   didn't give the object the right initial conditions." Arc launch is
+   a perfect example — the enemy just needed XZ velocity at launch time.
+3. **If a correction system is proposed, ask: what physics change would
+   make this correction unnecessary?** The correction is the symptom.
+   The missing force is the cause.
+4. **Make the force visually readable.** Players accept physical
+   behaviors they can see the cause of. Add visual metaphors (rock
+   pillar, impact sparks, wind lines) that communicate the force.
+
+### Anti-pattern for Claude
+
+When Jeff reports something that "doesn't look right" (vacuum, teleport,
+snap, magnet feel), Claude's instinct should NOT be to add a damping
+system, a distance check, or a lerp correction. The instinct should be:
+**what force is missing or wrong that would make this look natural if
+it were correct?**
+
+---
+
+*Added from explore/vertical aerial verb session, February 2026*
