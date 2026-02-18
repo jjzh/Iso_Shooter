@@ -60,6 +60,9 @@ export const DUNK = {
   floatConvergeDist: 3.5,  // Y distance threshold to trigger float (enemy descends within this of player)
   floatEnemyOffsetY: 0.6,  // enemy hovers this far above player during float
   floatDriftSpeed: 3,      // XZ drift speed toward each other during float (units/sec)
+  // Arc rise — upward boost after grab before slam descent
+  arcRiseVelocity: 8,      // upward velocity at grab start (creates wind-up arc)
+  arcXzFraction: 0.3,      // fraction of XZ distance to landing covered during rise phase
 };
 
 // Self-slam config — E while airborne, no enemy nearby
@@ -80,12 +83,26 @@ export const LAUNCH = {
   playerVelMult: 1.15,    // player hop velocity = JUMP.initialVelocity × this (slightly higher to stay airborne for catch)
   cooldown: 600,          // ms cooldown between launches
   damage: 5,              // small chip damage on launch
+  arcFraction: 0.7,       // fraction of XZ distance covered by arc velocity at launch
+  // Rock pillar visual
+  pillarDuration: 500,    // total animation time ms
+  pillarRiseTime: 150,    // ms to emerge from ground
+  pillarHoldTime: 100,    // ms at peak before sinking
+  pillarHeight: 1.2,      // rise height above ground
+  pillarRadius: 0.3,      // cylinder radius
+  pillarColor: 0x887766,  // stone gray-brown
+  // Launch telegraph
+  windupDuration: 120,         // ms delay between E press and launch execution
+  indicatorColor: 0xffaa00,    // ring + emissive color (matches "LAUNCH!" text)
+  indicatorRingRadius: 0.6,    // outer radius of ground ring
+  indicatorOpacity: 0.4,       // base ring opacity (passive mode)
 };
 
 // Float selector config — shared aerial verb selection window
 export const FLOAT_SELECTOR = {
   holdThreshold: 180,        // ms to differentiate tap (spike) vs hold (dunk)
   chargeVisualDelay: 50,     // ms before charge ring starts filling
+  floatDriftRate: 6,         // exponential decay rate for XZ drift during float
 };
 
 // Spike verb config — volleyball spike, enemy becomes projectile

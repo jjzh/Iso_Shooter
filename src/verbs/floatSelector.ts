@@ -36,6 +36,10 @@ let resolved = false;          // transfer already issued
 // Velocity override — player.ts checks this each frame
 let playerVelYOverride: number | null = null;
 
+// Player position tracking — used to mirror air control onto launched enemy
+let prevPlayerX = 0;
+let prevPlayerZ = 0;
+
 // Landing target position (aim decal)
 let landingX = 0;
 let landingZ = 0;
@@ -196,6 +200,7 @@ export const floatSelectorVerb: AerialVerb = {
     lmbHoldTimer = 0;
     resolved = false;
     playerVelYOverride = null;
+    prevPlayerX = NaN; // sentinel — first rising frame will initialize
 
     if (!decalGroup) {
       createDecal(0, 0);
@@ -246,6 +251,26 @@ function updateRising(dt: number, enemy: any, playerPos: any, inputState: any): 
   const vel = enemy.vel;
   const isRising = vel && vel.y > 0;
 
+  // Mirror player air control onto enemy — keeps arc in the player's reference frame.
+  // Without this, arc velocity aims at the player's launch-time position and the
+  // player drifts away via air control, creating a gap at float.
+  if (isNaN(prevPlayerX)) {
+    // First frame after claim — initialize, no delta to apply
+    prevPlayerX = playerPos.x;
+    prevPlayerZ = playerPos.z;
+  } else {
+    const deltaX = playerPos.x - prevPlayerX;
+    const deltaZ = playerPos.z - prevPlayerZ;
+    enemy.pos.x += deltaX;
+    enemy.pos.z += deltaZ;
+    if (enemy.mesh) {
+      enemy.mesh.position.x = enemy.pos.x;
+      enemy.mesh.position.z = enemy.pos.z;
+    }
+    prevPlayerX = playerPos.x;
+    prevPlayerZ = playerPos.z;
+  }
+
   // Update targeting decal while rising
   updateTargeting(playerPos, inputState);
   updateDecal(playerPos.x, playerPos.z, dt);
@@ -291,7 +316,7 @@ function updateFloat(dt: number, enemy: any, playerPos: any, inputState: any): '
   // Drift enemy XZ toward player (exponential lerp — drift fix)
   const driftDx = playerPos.x - enemy.pos.x;
   const driftDz = playerPos.z - enemy.pos.z;
-  const lerpFactor = 1 - Math.exp(-12 * dt);
+  const lerpFactor = 1 - Math.exp(-FLOAT_SELECTOR.floatDriftRate * dt);
   enemy.pos.x += driftDx * lerpFactor;
   enemy.pos.z += driftDz * lerpFactor;
 

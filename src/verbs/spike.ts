@@ -153,7 +153,7 @@ function executeStrike(enemy: any, playerPos: any): void {
   });
 
   // Damage number
-  spawnDamageNumber(enemy.pos.x, enemy.pos.z, 'SPIKE!', '#ff4488');
+  spawnDamageNumber(enemy.pos.x, enemy.pos.z, `SPIKE! ${SPIKE.damage}`, '#ff4488');
 
   // Transition to recovery
   phase = 'recovery';

@@ -22,6 +22,8 @@ import { floatSelectorVerb } from '../verbs/floatSelector';
 import { spikeVerb } from '../verbs/spike';
 import { updateCarriers, clearCarriers } from './entityCarrier';
 import { initGroundShadows, updateGroundShadows } from './groundShadows';
+import { initLaunchPillars, updateLaunchPillars, clearLaunchPillars } from '../effects/launchPillar';
+import { initLaunchIndicator, clearLaunchIndicator } from '../effects/launchIndicator';
 import { PLAYER, MELEE, DUNK } from '../config/player';
 import { on } from './events';
 import { applyUrlParams, snapshotDefaults } from './urlParams';
@@ -97,6 +99,9 @@ function gameLoop(timestamp: number): void {
 
   // 2c. Entity carriers (spiked enemies as projectiles) — real dt like player
   updateCarriers(dt, gameState);
+
+  // 2d. Launch pillars (visual only, real dt)
+  updateLaunchPillars(dt);
 
   // 3. Projectiles (slowed)
   updateProjectiles(gameDt);
@@ -178,6 +183,8 @@ function restart(): void {
   resetPlayer();
   resetAerialVerbs();
   clearCarriers();
+  clearLaunchPillars();
+  clearLaunchIndicator();
   clearAllTags();
   resetRoomManager();
   resetBulletTime();
@@ -202,6 +209,8 @@ function init(): void {
     initParticles(scene);
     initBulletTime();
     initAerialVerbs([floatSelectorVerb, dunkVerb, spikeVerb]);
+    initLaunchPillars(scene);
+    initLaunchIndicator(scene);
     initGroundShadows();
 
     // Hit pause — subscribe to impact events

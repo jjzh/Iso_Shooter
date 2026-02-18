@@ -13,6 +13,8 @@ import { getAbilityDirOverride, clearAbilityDirOverride } from '../engine/input'
 import { getIceEffects } from './mortarProjectile';
 import { emit } from '../engine/events';
 import { spawnDamageNumber } from '../ui/damageNumbers';
+import { spawnLaunchPillar } from '../effects/launchPillar';
+import { findLaunchTarget, updateLaunchIndicator, clearLaunchIndicator } from '../effects/launchIndicator';
 import { createPlayerRig, getGhostGeometries } from './playerRig';
 import type { PlayerRig } from './playerRig';
 import { createAnimatorState, updateAnimation, resetAnimatorState } from './playerAnimator';
@@ -65,6 +67,8 @@ const ACTION_LOCKOUT_MS = 300; // duration after dunk/slam landings
 
 // Launch verb state
 let launchCooldownTimer = 0;
+let launchWindupTimer = 0;
+let launchWindupTarget: any = null;
 
 // Self-slam state
 let isSlamming = false;
@@ -172,38 +176,52 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     launchCooldownTimer -= dt * 1000;
   }
 
-  // === LAUNCH VERB (E while grounded) ===
-  if (inputState.launch && !isPlayerAirborne && !isDashing && launchCooldownTimer <= 0) {
-    // Find closest enemy within range (360° — no arc restriction)
-    const enemies = gameState.enemies;
-    let closestEnemy: any = null;
-    let closestDistSq = LAUNCH.range * LAUNCH.range;
-    if (enemies) {
-      for (let i = 0; i < enemies.length; i++) {
-        const e = enemies[i];
-        if (e.health <= 0 || (e as any).fellInPit) continue;
-        const dx = e.pos.x - playerPos.x;
-        const dz = e.pos.z - playerPos.z;
-        const distSq = dx * dx + dz * dz;
-        if (distSq < closestDistSq) {
-          closestDistSq = distSq;
-          closestEnemy = e;
+  // === LAUNCH VERB (E while grounded) — state machine: idle → windup → fire ===
+
+  // Cancel windup if player starts dashing or target dies
+  if (launchWindupTimer > 0) {
+    if (isDashing || !launchWindupTarget || launchWindupTarget.health <= 0 || launchWindupTarget.fellInPit) {
+      updateLaunchIndicator(null, -1);
+      launchWindupTimer = 0;
+      launchWindupTarget = null;
+    }
+  }
+
+  if (launchWindupTimer > 0) {
+    // --- WINDING UP: tick timer, intensify visuals, fire when done ---
+    launchWindupTimer -= dt * 1000;
+    const progress = 1 - Math.max(0, launchWindupTimer) / LAUNCH.windupDuration;
+    updateLaunchIndicator(launchWindupTarget, progress);
+
+    if (launchWindupTimer <= 0) {
+      // --- FIRE: execute the actual launch ---
+      const closestEnemy = launchWindupTarget;
+      launchWindupTarget = null;
+      updateLaunchIndicator(null, -1);
+
+      const vel = (closestEnemy as any).vel;
+      const launchVelY = JUMP.initialVelocity * LAUNCH.enemyVelMult;
+      if (vel) {
+        vel.y = launchVelY;
+
+        // Arc velocity — give enemy XZ velocity toward player so they naturally
+        // converge mid-air without needing aggressive float drift correction
+        const arcDx = playerPos.x - closestEnemy.pos.x;
+        const arcDz = playerPos.z - closestEnemy.pos.z;
+        const arcDist = Math.sqrt(arcDx * arcDx + arcDz * arcDz);
+        if (arcDist > 0.1) {
+          const convergenceTime = launchVelY / PHYSICS.gravity;
+          const arcSpeed = (arcDist * LAUNCH.arcFraction) / convergenceTime;
+          vel.x = (arcDx / arcDist) * arcSpeed;
+          vel.z = (arcDz / arcDist) * arcSpeed;
         }
       }
-    }
 
-    if (closestEnemy) {
-      // Launch the enemy upward — velocity derived from player's jump velocity
-      const vel = (closestEnemy as any).vel;
-      if (vel) vel.y = JUMP.initialVelocity * LAUNCH.enemyVelMult;
+      // Rock pillar visual at launch point
+      spawnLaunchPillar(closestEnemy.pos.x, closestEnemy.pos.z);
 
       // Chip damage
       closestEnemy.health -= LAUNCH.damage;
-
-      // Face the target
-      const dx = closestEnemy.pos.x - playerPos.x;
-      const dz = closestEnemy.pos.z - playerPos.z;
-      playerGroup.rotation.y = Math.atan2(-dx, -dz);
 
       // Player hops up to follow — derived from jump velocity
       playerVelY = JUMP.initialVelocity * LAUNCH.playerVelMult;
@@ -223,13 +241,31 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
         position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z },
         velocity: JUMP.initialVelocity * LAUNCH.enemyVelMult,
       });
-      spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, 'LAUNCH!', '#ffaa00');
-
-      // Consume the launch input so the grab/slam block below doesn't
-      // also fire on the same frame (launch sets isPlayerAirborne = true,
-      // which would immediately trigger self-slam otherwise)
+      spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, `LAUNCH! ${LAUNCH.damage}`, '#ffaa00');
       inputState.launch = false;
     }
+  } else if (inputState.launch && !isPlayerAirborne && !isDashing && launchCooldownTimer <= 0) {
+    // --- IDLE → start windup if target found ---
+    const closestEnemy = findLaunchTarget(gameState.enemies || [], playerPos);
+
+    if (closestEnemy) {
+      launchWindupTarget = closestEnemy;
+      launchWindupTimer = LAUNCH.windupDuration;
+
+      // Face the target immediately on windup start
+      const dx = closestEnemy.pos.x - playerPos.x;
+      const dz = closestEnemy.pos.z - playerPos.z;
+      playerGroup.rotation.y = Math.atan2(-dx, -dz);
+
+      inputState.launch = false;
+    }
+  } else if (!isPlayerAirborne && !isDashing && launchCooldownTimer <= 0 && launchWindupTimer <= 0) {
+    // --- PASSIVE: show indicator on closest enemy in range ---
+    const candidate = findLaunchTarget(gameState.enemies || [], playerPos);
+    updateLaunchIndicator(candidate, -1);
+  } else if (launchWindupTimer <= 0) {
+    // --- No indicator: player is airborne, dashing, or on cooldown ---
+    updateLaunchIndicator(null, -1);
   }
 
   // === SELF-SLAM (E while airborne, no active verb) ===
@@ -870,6 +906,9 @@ export function resetPlayer() {
   isPlayerAirborne = false;
   landingLagTimer = 0;
   launchCooldownTimer = 0;
+  launchWindupTimer = 0;
+  launchWindupTarget = null;
+  clearLaunchIndicator();
   isSlamming = false;
   actionLockoutTimer = 0;
   resetDunk();

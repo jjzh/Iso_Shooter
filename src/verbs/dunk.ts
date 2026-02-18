@@ -9,7 +9,7 @@
 // Grab: snap enemy to player, begin slam descent
 // Slam: arc trajectory toward landing target, enemy carried below player
 
-import { DUNK } from '../config/player';
+import { DUNK, JUMP } from '../config/player';
 import { getGroundHeight } from '../config/terrain';
 import { setGravityOverride } from '../engine/aerialVerbs';
 import type { AerialVerb, LaunchedEnemy } from '../engine/aerialVerbs';
@@ -20,7 +20,7 @@ import { TAG } from '../engine/tags';
 
 // --------------- Internal State ---------------
 
-type DunkPhase = 'none' | 'grab' | 'slam';
+type DunkPhase = 'none' | 'grab' | 'wind' | 'slam';
 
 let phase: DunkPhase = 'none';
 let target: any = null;        // enemy being dunked
@@ -266,9 +266,12 @@ export const dunkVerb: AerialVerb = {
       landingZ = originZ + (aimDz / aimDist) * clampedDist;
 
       transitionToGrab(enemy, playerPos);
-      phase = 'slam';
-      // Fall through to slam update on next frame
+      // transitionToGrab sets phase to 'wind' (arc rise before slam)
       return 'active';
+    }
+
+    if (phase === 'wind') {
+      return updateWind(dt, enemy, playerPos, inputState);
     }
 
     if (phase === 'slam') {
@@ -335,7 +338,7 @@ export const dunkVerb: AerialVerb = {
       damage: DUNK.damage,
       position: { x: enemy.pos.x, z: enemy.pos.z },
     });
-    spawnDamageNumber(enemy.pos.x, enemy.pos.z, 'DUNK!', '#ff2244');
+    spawnDamageNumber(enemy.pos.x, enemy.pos.z, `DUNK! ${DUNK.damage}`, '#ff2244');
 
     // Visual cleanup
     removeDecal();
@@ -354,7 +357,7 @@ export const dunkVerb: AerialVerb = {
 // --------------- Grab Transition ---------------
 
 function transitionToGrab(enemy: any, playerPos: any): void {
-  phase = 'slam'; // go directly to slam phase (grab is instantaneous)
+  phase = 'wind'; // rise arc before slam descent
   target = enemy;
   const ptVel = (enemy as any).vel;
 
@@ -363,9 +366,9 @@ function transitionToGrab(enemy: any, playerPos: any): void {
   enemy.pos.z = playerPos.z;
   enemy.pos.y = playerPos.y + DUNK.carryOffsetY;
 
-  // Set slam velocity for both
-  playerVelYOverride = DUNK.slamVelocity;
-  if (ptVel) ptVel.y = DUNK.slamVelocity;
+  // Start with upward velocity — arc rises before slamming down
+  playerVelYOverride = DUNK.arcRiseVelocity;
+  if (ptVel) ptVel.y = DUNK.arcRiseVelocity;
 
   // Face the landing target
   const faceDx = landingX - playerPos.x;
@@ -387,6 +390,64 @@ function transitionToGrab(enemy: any, playerPos: any): void {
     position: { x: playerPos.x, z: playerPos.z },
   });
   spawnDamageNumber(playerPos.x, playerPos.z, 'GRAB!', '#ff44ff');
+}
+
+// --------------- Wind Phase Update (upward arc before slam) ---------------
+
+function updateWind(dt: number, enemy: any, playerPos: any, inputState: any): 'active' | 'complete' | 'cancel' {
+  // Update targeting (decal follows during wind too)
+  updateTargeting(playerPos, inputState);
+  updateDecal(landingX, landingZ, dt);
+
+  // Apply gravity to decelerate the upward velocity
+  playerVelYOverride! -= JUMP.gravity * dt;
+  const ptVel = (enemy as any).vel;
+  if (ptVel) ptVel.y = playerVelYOverride!;
+
+  // Gentle XZ movement toward landing target during rise
+  const toDx = landingX - playerPos.x;
+  const toDz = landingZ - playerPos.z;
+  const toDist = Math.sqrt(toDx * toDx + toDz * toDz);
+  if (toDist > 0.05) {
+    // Cover arcXzFraction of the total distance during the wind phase
+    // Rise time ≈ arcRiseVelocity / gravity, so speed = fraction * dist / riseTime
+    const riseTime = DUNK.arcRiseVelocity / JUMP.gravity;
+    const windSpeed = (toDist * DUNK.arcXzFraction) / riseTime;
+    const moveStep = Math.min(windSpeed * dt, toDist);
+    playerPos.x += (toDx / toDist) * moveStep;
+    playerPos.z += (toDz / toDist) * moveStep;
+  }
+
+  // Carry enemy with offset
+  enemy.pos.x = playerPos.x;
+  enemy.pos.z = playerPos.z;
+  enemy.pos.y = playerPos.y + DUNK.carryOffsetY;
+  if (enemy.mesh) {
+    const faceDx = landingX - playerPos.x;
+    const faceDz = landingZ - playerPos.z;
+    const faceDist = Math.sqrt(faceDx * faceDx + faceDz * faceDz) || 0.01;
+    const fwdX = (faceDx / faceDist) * DUNK.carryOffsetZ;
+    const fwdZ = (faceDz / faceDist) * DUNK.carryOffsetZ;
+    enemy.mesh.position.set(enemy.pos.x + fwdX, enemy.pos.y, enemy.pos.z + fwdZ);
+  }
+
+  // Add trail point
+  trailPoints.push({ x: playerPos.x, y: playerPos.y, z: playerPos.z });
+  if (trailPoints.length > TRAIL_MAX) trailPoints.shift();
+  updateTrailGeometry();
+
+  // Transition to slam at apex (velocity crosses zero)
+  if (playerVelYOverride! <= 0) {
+    playerVelYOverride = DUNK.slamVelocity;
+    if (ptVel) ptVel.y = DUNK.slamVelocity;
+    // Update slam start to current (higher) position — makes slam more dramatic
+    slamStartY = playerPos.y;
+    slamStartX = playerPos.x;
+    slamStartZ = playerPos.z;
+    phase = 'slam';
+  }
+
+  return 'active';
 }
 
 // --------------- Slam Phase Update ---------------

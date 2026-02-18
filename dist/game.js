@@ -535,8 +535,13 @@ var DUNK = {
   // Y distance threshold to trigger float (enemy descends within this of player)
   floatEnemyOffsetY: 0.6,
   // enemy hovers this far above player during float
-  floatDriftSpeed: 3
+  floatDriftSpeed: 3,
   // XZ drift speed toward each other during float (units/sec)
+  // Arc rise — upward boost after grab before slam descent
+  arcRiseVelocity: 8,
+  // upward velocity at grab start (creates wind-up arc)
+  arcXzFraction: 0.3
+  // fraction of XZ distance to landing covered during rise phase
 };
 var SELF_SLAM = {
   slamVelocity: -30,
@@ -561,14 +566,40 @@ var LAUNCH = {
   // player hop velocity = JUMP.initialVelocity × this (slightly higher to stay airborne for catch)
   cooldown: 600,
   // ms cooldown between launches
-  damage: 5
+  damage: 5,
   // small chip damage on launch
+  arcFraction: 0.7,
+  // fraction of XZ distance covered by arc velocity at launch
+  // Rock pillar visual
+  pillarDuration: 500,
+  // total animation time ms
+  pillarRiseTime: 150,
+  // ms to emerge from ground
+  pillarHoldTime: 100,
+  // ms at peak before sinking
+  pillarHeight: 1.2,
+  // rise height above ground
+  pillarRadius: 0.3,
+  // cylinder radius
+  pillarColor: 8943462,
+  // stone gray-brown
+  // Launch telegraph
+  windupDuration: 120,
+  // ms delay between E press and launch execution
+  indicatorColor: 16755200,
+  // ring + emissive color (matches "LAUNCH!" text)
+  indicatorRingRadius: 0.6,
+  // outer radius of ground ring
+  indicatorOpacity: 0.4
+  // base ring opacity (passive mode)
 };
 var FLOAT_SELECTOR = {
   holdThreshold: 180,
   // ms to differentiate tap (spike) vs hold (dunk)
-  chargeVisualDelay: 50
+  chargeVisualDelay: 50,
   // ms before charge ring starts filling
+  floatDriftRate: 6
+  // exponential decay rate for XZ drift during float
 };
 var SPIKE = {
   damage: 15,
@@ -1040,8 +1071,10 @@ var dunkVerb = {
       landingX = originX + aimDx / aimDist * clampedDist;
       landingZ = originZ + aimDz / aimDist * clampedDist;
       transitionToGrab(enemy, playerPos2);
-      phase = "slam";
       return "active";
+    }
+    if (phase === "wind") {
+      return updateWind(dt, enemy, playerPos2, inputState2);
     }
     if (phase === "slam") {
       return updateSlam(dt, enemy, playerPos2, inputState2);
@@ -1098,7 +1131,7 @@ var dunkVerb = {
       damage: DUNK.damage,
       position: { x: enemy.pos.x, z: enemy.pos.z }
     });
-    spawnDamageNumber(enemy.pos.x, enemy.pos.z, "DUNK!", "#ff2244");
+    spawnDamageNumber(enemy.pos.x, enemy.pos.z, `DUNK! ${DUNK.damage}`, "#ff2244");
     removeDecal();
     startTrailFade();
     landingLagMs = DUNK.landingLag;
@@ -1108,14 +1141,14 @@ var dunkVerb = {
   }
 };
 function transitionToGrab(enemy, playerPos2) {
-  phase = "slam";
+  phase = "wind";
   target = enemy;
   const ptVel = enemy.vel;
   enemy.pos.x = playerPos2.x;
   enemy.pos.z = playerPos2.z;
   enemy.pos.y = playerPos2.y + DUNK.carryOffsetY;
-  playerVelYOverride = DUNK.slamVelocity;
-  if (ptVel) ptVel.y = DUNK.slamVelocity;
+  playerVelYOverride = DUNK.arcRiseVelocity;
+  if (ptVel) ptVel.y = DUNK.arcRiseVelocity;
   const faceDx = landingX - playerPos2.x;
   const faceDz = landingZ - playerPos2.z;
   slamStartY = playerPos2.y;
@@ -1130,6 +1163,46 @@ function transitionToGrab(enemy, playerPos2) {
     position: { x: playerPos2.x, z: playerPos2.z }
   });
   spawnDamageNumber(playerPos2.x, playerPos2.z, "GRAB!", "#ff44ff");
+}
+function updateWind(dt, enemy, playerPos2, inputState2) {
+  updateTargeting(playerPos2, inputState2);
+  updateDecal(landingX, landingZ, dt);
+  playerVelYOverride -= JUMP.gravity * dt;
+  const ptVel = enemy.vel;
+  if (ptVel) ptVel.y = playerVelYOverride;
+  const toDx = landingX - playerPos2.x;
+  const toDz = landingZ - playerPos2.z;
+  const toDist = Math.sqrt(toDx * toDx + toDz * toDz);
+  if (toDist > 0.05) {
+    const riseTime = DUNK.arcRiseVelocity / JUMP.gravity;
+    const windSpeed = toDist * DUNK.arcXzFraction / riseTime;
+    const moveStep = Math.min(windSpeed * dt, toDist);
+    playerPos2.x += toDx / toDist * moveStep;
+    playerPos2.z += toDz / toDist * moveStep;
+  }
+  enemy.pos.x = playerPos2.x;
+  enemy.pos.z = playerPos2.z;
+  enemy.pos.y = playerPos2.y + DUNK.carryOffsetY;
+  if (enemy.mesh) {
+    const faceDx = landingX - playerPos2.x;
+    const faceDz = landingZ - playerPos2.z;
+    const faceDist = Math.sqrt(faceDx * faceDx + faceDz * faceDz) || 0.01;
+    const fwdX = faceDx / faceDist * DUNK.carryOffsetZ;
+    const fwdZ = faceDz / faceDist * DUNK.carryOffsetZ;
+    enemy.mesh.position.set(enemy.pos.x + fwdX, enemy.pos.y, enemy.pos.z + fwdZ);
+  }
+  trailPoints.push({ x: playerPos2.x, y: playerPos2.y, z: playerPos2.z });
+  if (trailPoints.length > TRAIL_MAX) trailPoints.shift();
+  updateTrailGeometry();
+  if (playerVelYOverride <= 0) {
+    playerVelYOverride = DUNK.slamVelocity;
+    if (ptVel) ptVel.y = DUNK.slamVelocity;
+    slamStartY = playerPos2.y;
+    slamStartX = playerPos2.x;
+    slamStartZ = playerPos2.z;
+    phase = "slam";
+  }
+  return "active";
 }
 function updateSlam(dt, enemy, playerPos2, inputState2) {
   updateTargeting(playerPos2, inputState2);
@@ -1219,6 +1292,8 @@ var lmbPressed = false;
 var lmbHoldTimer = 0;
 var resolved = false;
 var playerVelYOverride2 = null;
+var prevPlayerX = 0;
+var prevPlayerZ = 0;
 var landingX2 = 0;
 var landingZ2 = 0;
 var decalGroup2 = null;
@@ -1243,14 +1318,14 @@ function createDecal(cx, cz) {
   decalFill2 = new THREE.Mesh(fillGeo2, fillMat);
   decalFill2.rotation.x = -Math.PI / 2;
   decalGroup2.add(decalFill2);
-  const ringGeo3 = new THREE.RingGeometry(radius - 0.06, radius, 48);
-  const ringMat = new THREE.MeshBasicMaterial({
+  const ringGeo4 = new THREE.RingGeometry(radius - 0.06, radius, 48);
+  const ringMat2 = new THREE.MeshBasicMaterial({
     color: 16755268,
     transparent: true,
     opacity: 0.3,
     depthWrite: false
   });
-  decalRing2 = new THREE.Mesh(ringGeo3, ringMat);
+  decalRing2 = new THREE.Mesh(ringGeo4, ringMat2);
   decalRing2.rotation.x = -Math.PI / 2;
   decalGroup2.add(decalRing2);
   decalGroup2.scale.set(0, 0, 0);
@@ -1341,6 +1416,7 @@ var floatSelectorVerb = {
     lmbHoldTimer = 0;
     resolved = false;
     playerVelYOverride2 = null;
+    prevPlayerX = NaN;
     if (!decalGroup2) {
       createDecal(0, 0);
     }
@@ -1379,6 +1455,21 @@ var floatSelectorVerb = {
 function updateRising(dt, enemy, playerPos2, inputState2) {
   const vel = enemy.vel;
   const isRising = vel && vel.y > 0;
+  if (isNaN(prevPlayerX)) {
+    prevPlayerX = playerPos2.x;
+    prevPlayerZ = playerPos2.z;
+  } else {
+    const deltaX = playerPos2.x - prevPlayerX;
+    const deltaZ = playerPos2.z - prevPlayerZ;
+    enemy.pos.x += deltaX;
+    enemy.pos.z += deltaZ;
+    if (enemy.mesh) {
+      enemy.mesh.position.x = enemy.pos.x;
+      enemy.mesh.position.z = enemy.pos.z;
+    }
+    prevPlayerX = playerPos2.x;
+    prevPlayerZ = playerPos2.z;
+  }
   updateTargeting2(playerPos2, inputState2);
   updateDecal2(playerPos2.x, playerPos2.z, dt);
   if (enemy.health <= 0 || enemy.fellInPit || enemy.pos.y <= 0.3 && !isRising) {
@@ -1407,7 +1498,7 @@ function updateFloat(dt, enemy, playerPos2, inputState2) {
   enemy.pos.y += (targetEnemyY - enemy.pos.y) * Math.min(1, dt * 10);
   const driftDx = playerPos2.x - enemy.pos.x;
   const driftDz = playerPos2.z - enemy.pos.z;
-  const lerpFactor = 1 - Math.exp(-12 * dt);
+  const lerpFactor = 1 - Math.exp(-FLOAT_SELECTOR.floatDriftRate * dt);
   enemy.pos.x += driftDx * lerpFactor;
   enemy.pos.z += driftDz * lerpFactor;
   if (enemy.mesh) enemy.mesh.position.copy(enemy.pos);
@@ -1649,7 +1740,7 @@ function executeStrike(enemy, playerPos2) {
     damage: SPIKE.damage,
     position: { x: enemy.pos.x, z: enemy.pos.z }
   });
-  spawnDamageNumber(enemy.pos.x, enemy.pos.z, "SPIKE!", "#ff4488");
+  spawnDamageNumber(enemy.pos.x, enemy.pos.z, `SPIKE! ${SPIKE.damage}`, "#ff4488");
   phase3 = "recovery";
   phaseTimer = 0;
   playerVelYOverride3 = 0;
@@ -3264,14 +3355,14 @@ function createMortarGroundCircle(enemy) {
     _circleGeo = new THREE.RingGeometry(0.85, 1, 32);
     _circleGeo.rotateX(-Math.PI / 2);
   }
-  const ringMat = new THREE.MeshBasicMaterial({
+  const ringMat2 = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
     opacity: 0.3,
     side: THREE.DoubleSide,
     depthWrite: false
   });
-  const ringMesh = new THREE.Mesh(_circleGeo, ringMat);
+  const ringMesh2 = new THREE.Mesh(_circleGeo, ringMat2);
   if (!_mortarFillGeoShared) {
     _mortarFillGeoShared = new THREE.CircleGeometry(1, 32);
     _mortarFillGeoShared.rotateX(-Math.PI / 2);
@@ -3285,7 +3376,7 @@ function createMortarGroundCircle(enemy) {
   });
   const fillMesh = new THREE.Mesh(_mortarFillGeoShared, fillMat);
   const group = new THREE.Group();
-  group.add(ringMesh);
+  group.add(ringMesh2);
   group.add(fillMesh);
   group.position.set(enemy.mortarTarget.x, 0.05, enemy.mortarTarget.z);
   const circleStartScale = mortar.circleStartScale || 0.25;
@@ -3294,7 +3385,7 @@ function createMortarGroundCircle(enemy) {
   sceneRef3.add(group);
   enemy.mortarGroundCircle = {
     group,
-    ringMat,
+    ringMat: ringMat2,
     fillMat,
     color,
     targetRadius: radius,
@@ -3323,14 +3414,14 @@ function createDeathTelegraph(enemy) {
     _deathCircleGeo = new THREE.RingGeometry(0.85, 1, 32);
     _deathCircleGeo.rotateX(-Math.PI / 2);
   }
-  const ringMat = new THREE.MeshBasicMaterial({
+  const ringMat2 = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
     opacity: 0.5,
     side: THREE.DoubleSide,
     depthWrite: false
   });
-  const ringMesh = new THREE.Mesh(_deathCircleGeo, ringMat);
+  const ringMesh2 = new THREE.Mesh(_deathCircleGeo, ringMat2);
   if (!_deathFillGeoShared) {
     _deathFillGeoShared = new THREE.CircleGeometry(1, 32);
     _deathFillGeoShared.rotateX(-Math.PI / 2);
@@ -3344,14 +3435,14 @@ function createDeathTelegraph(enemy) {
   });
   const fillMesh = new THREE.Mesh(_deathFillGeoShared, fillMat);
   const group = new THREE.Group();
-  group.add(ringMesh);
+  group.add(ringMesh2);
   group.add(fillMesh);
   group.position.set(enemy.pos.x, 0.05, enemy.pos.z);
   group.scale.set(0.1, 0.1, 0.1);
   sceneRef3.add(group);
   enemy.deathTelegraph = {
     group,
-    ringMat,
+    ringMat: ringMat2,
     fillMat,
     targetRadius: radius
   };
@@ -3756,6 +3847,196 @@ function clearIcePatches() {
   activeIcePatches.length = 0;
 }
 
+// src/effects/launchPillar.ts
+var sceneRef5;
+var activePillars = [];
+var pillarGeo;
+function initLaunchPillars(scene2) {
+  sceneRef5 = scene2;
+}
+function spawnLaunchPillar(x, z) {
+  if (!sceneRef5) return;
+  if (!pillarGeo) {
+    pillarGeo = new THREE.CylinderGeometry(
+      LAUNCH.pillarRadius * 0.7,
+      // top radius (tapered)
+      LAUNCH.pillarRadius,
+      // bottom radius
+      LAUNCH.pillarHeight,
+      6
+      // 6 sides — hexagonal for rocky look
+    );
+  }
+  const mat = new THREE.MeshStandardMaterial({
+    color: LAUNCH.pillarColor,
+    flatShading: true,
+    transparent: true,
+    opacity: 1
+  });
+  const mesh = new THREE.Mesh(pillarGeo, mat);
+  mesh.position.set(x, -LAUNCH.pillarHeight, z);
+  mesh.rotation.y = Math.random() * Math.PI * 2;
+  sceneRef5.add(mesh);
+  activePillars.push({
+    mesh,
+    material: mat,
+    elapsed: 0
+  });
+}
+function easeOutQuad2(t) {
+  return t * (2 - t);
+}
+function easeInQuad(t) {
+  return t * t;
+}
+function updateLaunchPillars(dt) {
+  const dtMs = dt * 1e3;
+  for (let i = activePillars.length - 1; i >= 0; i--) {
+    const p = activePillars[i];
+    p.elapsed += dtMs;
+    const { pillarRiseTime, pillarHoldTime, pillarDuration, pillarHeight } = LAUNCH;
+    const sinkStart = pillarRiseTime + pillarHoldTime;
+    const sinkDuration = pillarDuration - sinkStart;
+    if (p.elapsed < pillarRiseTime) {
+      const t = easeOutQuad2(p.elapsed / pillarRiseTime);
+      p.mesh.position.y = -pillarHeight + t * (pillarHeight * 0.5 + pillarHeight);
+    } else if (p.elapsed < sinkStart) {
+      p.mesh.position.y = pillarHeight * 0.5;
+    } else if (p.elapsed < pillarDuration) {
+      const sinkT = easeInQuad((p.elapsed - sinkStart) / sinkDuration);
+      p.mesh.position.y = pillarHeight * 0.5 - sinkT * (pillarHeight * 0.5 + pillarHeight);
+      p.material.opacity = 1 - sinkT;
+    } else {
+      p.material.dispose();
+      sceneRef5.remove(p.mesh);
+      activePillars.splice(i, 1);
+    }
+  }
+}
+function clearLaunchPillars() {
+  for (const p of activePillars) {
+    p.material.dispose();
+    sceneRef5.remove(p.mesh);
+  }
+  activePillars.length = 0;
+}
+
+// src/effects/launchIndicator.ts
+var sceneRef6;
+var ringGeo2;
+var ringMat;
+var ringMesh;
+var previousTarget = null;
+function initLaunchIndicator(scene2) {
+  sceneRef6 = scene2;
+}
+function findLaunchTarget(enemies, playerPos2) {
+  let closestEnemy = null;
+  let closestDistSq = LAUNCH.range * LAUNCH.range;
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
+    if (e.health <= 0 || e.fellInPit) continue;
+    const dx = e.pos.x - playerPos2.x;
+    const dz = e.pos.z - playerPos2.z;
+    const distSq = dx * dx + dz * dz;
+    if (distSq < closestDistSq) {
+      closestDistSq = distSq;
+      closestEnemy = e;
+    }
+  }
+  return closestEnemy;
+}
+function ensureRing() {
+  if (ringMesh) return;
+  if (!sceneRef6) return;
+  const innerRadius = LAUNCH.indicatorRingRadius * 0.65;
+  ringGeo2 = new THREE.RingGeometry(innerRadius, LAUNCH.indicatorRingRadius, 24);
+  ringGeo2.rotateX(-Math.PI / 2);
+  ringMat = new THREE.MeshBasicMaterial({
+    color: LAUNCH.indicatorColor,
+    transparent: true,
+    opacity: LAUNCH.indicatorOpacity,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  ringMesh = new THREE.Mesh(ringGeo2, ringMat);
+  ringMesh.renderOrder = -1;
+  ringMesh.visible = false;
+  sceneRef6.add(ringMesh);
+}
+function setTargetHighlight(enemy, intensity) {
+  if (!enemy || !enemy.bodyMesh) return;
+  enemy.bodyMesh.material.emissive.setHex(LAUNCH.indicatorColor);
+  enemy.bodyMesh.material.emissiveIntensity = intensity;
+  if (enemy.headMesh) {
+    enemy.headMesh.material.emissive.setHex(LAUNCH.indicatorColor);
+    enemy.headMesh.material.emissiveIntensity = intensity;
+  }
+}
+function restoreTargetEmissive(enemy) {
+  if (!enemy || !enemy.bodyMesh || !enemy.config) return;
+  enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
+  enemy.bodyMesh.material.emissiveIntensity = enemy.config.emissiveIntensity || 0.3;
+  if (enemy.headMesh) {
+    enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
+    enemy.headMesh.material.emissiveIntensity = enemy.config.emissiveIntensity || 0.3;
+  }
+}
+function updateLaunchIndicator(target4, windupProgress) {
+  ensureRing();
+  if (previousTarget && previousTarget !== target4) {
+    restoreTargetEmissive(previousTarget);
+  }
+  previousTarget = target4;
+  if (!target4) {
+    if (ringMesh) ringMesh.visible = false;
+    return;
+  }
+  if (ringMesh) {
+    ringMesh.position.set(target4.pos.x, 0.04, target4.pos.z);
+    ringMesh.visible = true;
+  }
+  if (windupProgress < 0) {
+    const pulse = 0.3 + 0.1 * Math.sin(performance.now() * 4e-3);
+    if (ringMat) {
+      ringMat.opacity = LAUNCH.indicatorOpacity * pulse / 0.3;
+    }
+    if (ringMesh) {
+      ringMesh.scale.setScalar(1);
+    }
+    setTargetHighlight(target4, 0.5);
+  } else {
+    const t = Math.min(windupProgress, 1);
+    const pulse = 0.8 + 0.2 * Math.sin(performance.now() * 0.015);
+    if (ringMat) {
+      ringMat.opacity = (LAUNCH.indicatorOpacity + (0.8 - LAUNCH.indicatorOpacity) * t) * pulse;
+    }
+    if (ringMesh) {
+      const scalePulse = 1 + 0.15 * Math.sin(performance.now() * 0.02) * t;
+      ringMesh.scale.setScalar(scalePulse);
+    }
+    setTargetHighlight(target4, 0.5 + 0.5 * t);
+  }
+}
+function clearLaunchIndicator() {
+  if (previousTarget) {
+    restoreTargetEmissive(previousTarget);
+    previousTarget = null;
+  }
+  if (ringMesh && sceneRef6) {
+    sceneRef6.remove(ringMesh);
+    ringMesh = null;
+  }
+  if (ringMat) {
+    ringMat.dispose();
+    ringMat = null;
+  }
+  if (ringGeo2) {
+    ringGeo2.dispose();
+    ringGeo2 = null;
+  }
+}
+
 // src/entities/playerRig.ts
 var P = {
   // Overall scale reference
@@ -4045,7 +4326,7 @@ function easeOutBack(t) {
   const c3 = c1 + 1;
   return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
 }
-function easeOutQuad2(t) {
+function easeOutQuad3(t) {
   return 1 - (1 - t) * (1 - t);
 }
 function clamp(v, min, max) {
@@ -4235,7 +4516,7 @@ function applyDash(joints, anim) {
   const t = anim.dashT;
   if (t < 0.15) {
     const subT = t / 0.15;
-    const ease = easeOutQuad2(subT);
+    const ease = easeOutQuad3(subT);
     joints.rigRoot.scale.set(
       1 + (C.squashScaleXZ - 1) * ease,
       1 + (C.squashScaleY - 1) * ease,
@@ -4249,7 +4530,7 @@ function applyDash(joints, anim) {
     joints.upperArmR.rotation.x = C.dashArmSweep * ease * 0.5;
   } else if (t < 0.85) {
     const subT = (t - 0.15) / 0.7;
-    const ease = easeOutQuad2(subT);
+    const ease = easeOutQuad3(subT);
     joints.rigRoot.scale.set(
       C.stretchScaleXZ,
       C.stretchScaleY,
@@ -4280,17 +4561,17 @@ function applyDash(joints, anim) {
 }
 function getDashLean(t) {
   if (t < 0.15) {
-    return C.dashLeanAngle * easeOutQuad2(t / 0.15);
+    return C.dashLeanAngle * easeOutQuad3(t / 0.15);
   } else if (t < 0.85) {
     return C.dashLeanAngle;
   } else {
     const subT = (t - 0.85) / 0.15;
-    return C.dashLeanAngle * (1 - easeOutQuad2(subT));
+    return C.dashLeanAngle * (1 - easeOutQuad3(subT));
   }
 }
 function applyEndLag(joints, anim) {
   const t = Math.min(anim.stateTimer / 0.05, 1);
-  const ease = easeOutQuad2(t);
+  const ease = easeOutQuad3(t);
   const scaleY = 1 + (1.05 - 1) * (1 - ease);
   joints.rigRoot.scale.set(1, scaleY, 1);
   joints.rigRoot.rotation.x = -0.06 * (1 - ease);
@@ -4316,7 +4597,7 @@ function applySwing(joints, anim) {
   const rearShin = isLeft ? joints.shinR : joints.shinL;
   if (t < 0.25) {
     const subT = t / 0.25;
-    const ease = easeOutQuad2(subT);
+    const ease = easeOutQuad3(subT);
     punchUpper.rotation.x = 0.35 * ease;
     punchLower.rotation.x = -0.9 * ease;
     guardUpper.rotation.x = -0.35 * ease;
@@ -4331,21 +4612,21 @@ function applySwing(joints, anim) {
     joints.hip.rotation.z = -0.03 * torsoTwistSign * ease;
   } else {
     const subT = (t - 0.25) / 0.75;
-    const ease = easeOutQuad2(subT);
+    const ease = easeOutQuad3(subT);
     punchUpper.rotation.x = 0.35 + (-1.3 - 0.35) * ease;
     punchLower.rotation.x = -0.9 + (0.9 - 0.12) * ease;
     guardUpper.rotation.x = -0.35;
     guardLower.rotation.x = -0.75;
     joints.torso.rotation.y = (-0.25 + (0.4 + 0.25) * ease) * torsoTwistSign;
-    const leanCurve = subT < 0.35 ? easeOutQuad2(subT / 0.35) : 1 - 0.4 * easeOutQuad2((subT - 0.35) / 0.65);
+    const leanCurve = subT < 0.35 ? easeOutQuad3(subT / 0.35) : 1 - 0.4 * easeOutQuad3((subT - 0.35) / 0.65);
     joints.rigRoot.rotation.x = 0.04 + 0.16 * leanCurve;
-    const hipDrop = subT < 0.3 ? easeOutQuad2(subT / 0.3) : 1 - 0.5 * easeOutQuad2((subT - 0.3) / 0.7);
+    const hipDrop = subT < 0.3 ? easeOutQuad3(subT / 0.3) : 1 - 0.5 * easeOutQuad3((subT - 0.3) / 0.7);
     joints.hip.position.y = 0.5 - 0.02 - 0.025 * hipDrop;
     joints.hip.rotation.z = (-0.03 + 0.08 * ease) * torsoTwistSign;
-    const stepCurve = subT < 0.4 ? easeOutQuad2(subT / 0.4) : 1 - 0.3 * easeOutQuad2((subT - 0.4) / 0.6);
+    const stepCurve = subT < 0.4 ? easeOutQuad3(subT / 0.4) : 1 - 0.3 * easeOutQuad3((subT - 0.4) / 0.6);
     leadThigh.rotation.x = 0.08 + 0.35 * stepCurve;
     leadShin.rotation.x = -0.05 - 0.25 * stepCurve;
-    const pushCurve = subT < 0.5 ? easeOutQuad2(subT / 0.5) : 1 - 0.2 * easeOutQuad2((subT - 0.5) / 0.5);
+    const pushCurve = subT < 0.5 ? easeOutQuad3(subT / 0.5) : 1 - 0.2 * easeOutQuad3((subT - 0.5) / 0.5);
     rearThigh.rotation.x = -0.12 - 0.2 * pushCurve;
     rearShin.rotation.x = -0.2 - 0.15 * pushCurve;
   }
@@ -4353,7 +4634,7 @@ function applySwing(joints, anim) {
 function applyCharge(joints, anim) {
   const chargeT = clamp(anim.chargeT, 0, 1);
   const blendIn = clamp(anim.stateTimer / 0.15, 0, 1);
-  const ease = easeOutQuad2(blendIn);
+  const ease = easeOutQuad3(blendIn);
   const loopRate = 3.5;
   const sway = Math.sin(anim.time * loopRate * Math.PI * 2);
   const swaySmall = Math.sin(anim.time * loopRate * 0.7 * Math.PI * 2);
@@ -4389,7 +4670,7 @@ function applyChargeRelease(joints, anim) {
   const t = clamp(anim.chargeReleaseTimer / 0.25, 0, 1);
   if (t < 0.35) {
     const subT = t / 0.35;
-    const ease = easeOutQuad2(subT);
+    const ease = easeOutQuad3(subT);
     joints.upperArmL.rotation.x = 0.5 + (-1.4 - 0.5) * ease;
     joints.upperArmR.rotation.x = 0.5 + (-1.4 - 0.5) * ease;
     joints.lowerArmL.rotation.x = -0.6 + (0.6 - 0.1) * ease;
@@ -4405,7 +4686,7 @@ function applyChargeRelease(joints, anim) {
     joints.torso.rotation.x = 0.06 * ease;
   } else {
     const subT = (t - 0.35) / 0.65;
-    const ease = easeOutQuad2(subT);
+    const ease = easeOutQuad3(subT);
     const armRetract = 1 - ease;
     joints.upperArmL.rotation.x = -1.4 * armRetract;
     joints.upperArmR.rotation.x = -1.4 * armRetract;
@@ -4424,7 +4705,7 @@ function applyChargeRelease(joints, anim) {
 }
 function applyJump(joints, anim) {
   const t = clamp(anim.stateTimer / 0.15, 0, 1);
-  const ease = easeOutQuad2(t);
+  const ease = easeOutQuad3(t);
   joints.rigRoot.scale.set(
     1 + (C.airSquashXZ - 1) * ease,
     1 + (C.airSquashY - 1) * ease,
@@ -4444,7 +4725,7 @@ function applyJump(joints, anim) {
 }
 function applyFall(joints, anim) {
   const t = clamp(anim.stateTimer / 0.2, 0, 1);
-  const ease = easeOutQuad2(t);
+  const ease = easeOutQuad3(t);
   joints.rigRoot.scale.set(1, 1, 1);
   joints.thighL.rotation.x = C.fallSpreadAngle * ease;
   joints.thighR.rotation.x = -C.fallSpreadAngle * 0.5 * ease;
@@ -4460,7 +4741,7 @@ function applyFall(joints, anim) {
 }
 function applySlam(joints, anim) {
   const t = clamp(anim.stateTimer / 0.1, 0, 1);
-  const ease = easeOutQuad2(t);
+  const ease = easeOutQuad3(t);
   joints.rigRoot.scale.set(
     1 + (C.slamStretchXZ - 1) * ease,
     1 + (C.slamStretchY - 1) * ease,
@@ -4514,6 +4795,8 @@ var landingLagTimer = 0;
 var actionLockoutTimer = 0;
 var ACTION_LOCKOUT_MS = 300;
 var launchCooldownTimer = 0;
+var launchWindupTimer = 0;
+var launchWindupTarget = null;
 var isSlamming = false;
 var DEFAULT_EMISSIVE = 2271846;
 var DEFAULT_EMISSIVE_INTENSITY = 0.4;
@@ -4600,30 +4883,37 @@ function updatePlayer(inputState2, dt, gameState2) {
   if (launchCooldownTimer > 0) {
     launchCooldownTimer -= dt * 1e3;
   }
-  if (inputState2.launch && !isPlayerAirborne && !isDashing && launchCooldownTimer <= 0) {
-    const enemies = gameState2.enemies;
-    let closestEnemy = null;
-    let closestDistSq = LAUNCH.range * LAUNCH.range;
-    if (enemies) {
-      for (let i = 0; i < enemies.length; i++) {
-        const e = enemies[i];
-        if (e.health <= 0 || e.fellInPit) continue;
-        const dx = e.pos.x - playerPos.x;
-        const dz = e.pos.z - playerPos.z;
-        const distSq = dx * dx + dz * dz;
-        if (distSq < closestDistSq) {
-          closestDistSq = distSq;
-          closestEnemy = e;
+  if (launchWindupTimer > 0) {
+    if (isDashing || !launchWindupTarget || launchWindupTarget.health <= 0 || launchWindupTarget.fellInPit) {
+      updateLaunchIndicator(null, -1);
+      launchWindupTimer = 0;
+      launchWindupTarget = null;
+    }
+  }
+  if (launchWindupTimer > 0) {
+    launchWindupTimer -= dt * 1e3;
+    const progress = 1 - Math.max(0, launchWindupTimer) / LAUNCH.windupDuration;
+    updateLaunchIndicator(launchWindupTarget, progress);
+    if (launchWindupTimer <= 0) {
+      const closestEnemy = launchWindupTarget;
+      launchWindupTarget = null;
+      updateLaunchIndicator(null, -1);
+      const vel = closestEnemy.vel;
+      const launchVelY = JUMP.initialVelocity * LAUNCH.enemyVelMult;
+      if (vel) {
+        vel.y = launchVelY;
+        const arcDx = playerPos.x - closestEnemy.pos.x;
+        const arcDz = playerPos.z - closestEnemy.pos.z;
+        const arcDist = Math.sqrt(arcDx * arcDx + arcDz * arcDz);
+        if (arcDist > 0.1) {
+          const convergenceTime = launchVelY / PHYSICS.gravity;
+          const arcSpeed = arcDist * LAUNCH.arcFraction / convergenceTime;
+          vel.x = arcDx / arcDist * arcSpeed;
+          vel.z = arcDz / arcDist * arcSpeed;
         }
       }
-    }
-    if (closestEnemy) {
-      const vel = closestEnemy.vel;
-      if (vel) vel.y = JUMP.initialVelocity * LAUNCH.enemyVelMult;
+      spawnLaunchPillar(closestEnemy.pos.x, closestEnemy.pos.z);
       closestEnemy.health -= LAUNCH.damage;
-      const dx = closestEnemy.pos.x - playerPos.x;
-      const dz = closestEnemy.pos.z - playerPos.z;
-      playerGroup.rotation.y = Math.atan2(-dx, -dz);
       playerVelY = JUMP.initialVelocity * LAUNCH.playerVelMult;
       isPlayerAirborne = true;
       launchCooldownTimer = LAUNCH.cooldown;
@@ -4636,9 +4926,24 @@ function updatePlayer(inputState2, dt, gameState2) {
         position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z },
         velocity: JUMP.initialVelocity * LAUNCH.enemyVelMult
       });
-      spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, "LAUNCH!", "#ffaa00");
+      spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, `LAUNCH! ${LAUNCH.damage}`, "#ffaa00");
       inputState2.launch = false;
     }
+  } else if (inputState2.launch && !isPlayerAirborne && !isDashing && launchCooldownTimer <= 0) {
+    const closestEnemy = findLaunchTarget(gameState2.enemies || [], playerPos);
+    if (closestEnemy) {
+      launchWindupTarget = closestEnemy;
+      launchWindupTimer = LAUNCH.windupDuration;
+      const dx = closestEnemy.pos.x - playerPos.x;
+      const dz = closestEnemy.pos.z - playerPos.z;
+      playerGroup.rotation.y = Math.atan2(-dx, -dz);
+      inputState2.launch = false;
+    }
+  } else if (!isPlayerAirborne && !isDashing && launchCooldownTimer <= 0 && launchWindupTimer <= 0) {
+    const candidate = findLaunchTarget(gameState2.enemies || [], playerPos);
+    updateLaunchIndicator(candidate, -1);
+  } else if (launchWindupTimer <= 0) {
+    updateLaunchIndicator(null, -1);
   }
   if (inputState2.launch && isPlayerAirborne && !isSlamming && !playerHasTag(TAG.AERIAL)) {
     isSlamming = true;
@@ -5141,6 +5446,9 @@ function resetPlayer() {
   isPlayerAirborne = false;
   landingLagTimer = 0;
   launchCooldownTimer = 0;
+  launchWindupTimer = 0;
+  launchWindupTarget = null;
+  clearLaunchIndicator();
   isSlamming = false;
   actionLockoutTimer = 0;
   resetDunk();
@@ -6508,11 +6816,11 @@ var DUNK_IMPACT_BURST = {
 };
 var POOL_SIZE2 = 80;
 var pool2 = [];
-var sceneRef5 = null;
+var sceneRef7 = null;
 var boxGeo = null;
 var sphereGeo = null;
 function initParticles(scene2) {
-  sceneRef5 = scene2;
+  sceneRef7 = scene2;
   boxGeo = new THREE.BoxGeometry(1, 1, 1);
   sphereGeo = new THREE.SphereGeometry(0.5, 4, 3);
   for (let i = 0; i < POOL_SIZE2; i++) {
@@ -6672,7 +6980,7 @@ function clearEnemyArcDecals() {
   }
 }
 function burst(position, config, direction) {
-  if (!sceneRef5) return;
+  if (!sceneRef7) return;
   const y = position.y ?? 0.5;
   for (let i = 0; i < config.count; i++) {
     const p = acquireParticle();
@@ -6912,14 +7220,14 @@ function wireEventBus() {
 }
 
 // src/engine/telegraph.ts
-var sceneRef6;
-var ringGeo2;
+var sceneRef8;
+var ringGeo3;
 var fillGeo;
 var typeGeos = {};
 function initTelegraph(scene2) {
-  sceneRef6 = scene2;
-  ringGeo2 = new THREE.RingGeometry(0.6, 0.8, 24);
-  ringGeo2.rotateX(-Math.PI / 2);
+  sceneRef8 = scene2;
+  ringGeo3 = new THREE.RingGeometry(0.6, 0.8, 24);
+  ringGeo3.rotateX(-Math.PI / 2);
   fillGeo = new THREE.CircleGeometry(0.6, 24);
   fillGeo.rotateX(-Math.PI / 2);
   typeGeos.goblin = new THREE.ConeGeometry(0.2, 0.4, 3);
@@ -6931,14 +7239,14 @@ function createTelegraph(x, z, typeName) {
   const color = ENEMY_TYPES[typeName] ? ENEMY_TYPES[typeName].color : 16777215;
   const group = new THREE.Group();
   group.position.set(x, 0, z);
-  const ringMat = new THREE.MeshBasicMaterial({
+  const ringMat2 = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
     opacity: 0.6,
     side: THREE.DoubleSide,
     depthWrite: false
   });
-  const ring = new THREE.Mesh(ringGeo2, ringMat);
+  const ring = new THREE.Mesh(ringGeo3, ringMat2);
   ring.position.y = 0.03;
   group.add(ring);
   const fillMat = new THREE.MeshBasicMaterial({
@@ -6965,11 +7273,11 @@ function createTelegraph(x, z, typeName) {
     typeIndicator.rotation.y = Math.PI / 4;
   }
   group.add(typeIndicator);
-  sceneRef6.add(group);
+  sceneRef8.add(group);
   return {
     group,
     ring,
-    ringMat,
+    ringMat: ringMat2,
     fill,
     fillMat,
     typeIndicator,
@@ -6996,7 +7304,7 @@ function updateTelegraph(telegraph, progress, dt) {
 }
 function removeTelegraph2(telegraph) {
   if (telegraph.group.parent) {
-    sceneRef6.remove(telegraph.group);
+    sceneRef8.remove(telegraph.group);
   }
   telegraph.ringMat.dispose();
   telegraph.fillMat.dispose();
@@ -7022,13 +7330,13 @@ var doorPanelMesh = null;
 var doorGlowMesh = null;
 var doorAnimTimer = 0;
 var doorRoomIndex = 0;
-var sceneRef7 = null;
+var sceneRef9 = null;
 var doorX = 0;
 var doorZ = 0;
 var promptEl = null;
 var promptVisible = false;
 function initDoor(scene2) {
-  sceneRef7 = scene2;
+  sceneRef9 = scene2;
   promptEl = document.getElementById("door-prompt");
   if (!promptEl) {
     promptEl = document.createElement("div");
@@ -7113,7 +7421,7 @@ function createDoor(arenaHalfX, arenaHalfZ, roomIndex) {
   );
   doorGlowMesh.position.set(0, 1.8, 0.2);
   doorGroup.add(doorGlowMesh);
-  sceneRef7.add(doorGroup);
+  sceneRef9.add(doorGroup);
 }
 function unlockDoor() {
   if (doorState !== "locked") return;
@@ -7178,8 +7486,8 @@ function hidePrompt() {
 }
 function removeDoor() {
   hidePrompt();
-  if (doorGroup && sceneRef7) {
-    sceneRef7.remove(doorGroup);
+  if (doorGroup && sceneRef9) {
+    sceneRef9.remove(doorGroup);
     doorGroup.traverse((child) => {
       if (child.geometry) child.geometry.dispose();
       if (child.material) child.material.dispose();
@@ -7203,9 +7511,9 @@ var finalWaveAnnounced = false;
 var restRoomTimer = 0;
 var activeTelegraphs2 = [];
 var announceEl = null;
-var sceneRef8 = null;
+var sceneRef10 = null;
 function initRoomManager(scene2) {
-  sceneRef8 = scene2;
+  sceneRef10 = scene2;
   announceEl = document.getElementById("wave-announce");
   initTelegraph(scene2);
   initDoor(scene2);
@@ -10585,7 +10893,7 @@ function hideAnnounce2() {
 
 // src/ui/spawnEditor.ts
 console.log("[spawnEditor] v2 loaded \u2014 tabs enabled");
-var sceneRef9;
+var sceneRef11;
 var gameStateRef;
 var panel2;
 var active2 = false;
@@ -10788,7 +11096,7 @@ function setNestedValue2(obj, path, value) {
 }
 var lastBuiltTuningType = null;
 function initSpawnEditor(scene2, gameState2) {
-  sceneRef9 = scene2;
+  sceneRef11 = scene2;
   gameStateRef = gameState2;
   markerGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.8, 8);
   for (const [name, cfg] of Object.entries(ENEMY_TYPES)) {
@@ -11291,7 +11599,7 @@ function onLevelKey(e) {
 }
 function clearMarkers() {
   for (const m of markers) {
-    sceneRef9.remove(m.mesh);
+    sceneRef11.remove(m.mesh);
     m.mesh.children.forEach((c) => {
       if (c.material && c.material !== markerMats[m.type]) c.material.dispose();
     });
@@ -11320,24 +11628,24 @@ function rebuildMarkers() {
         body.position.y = 0.4;
         mesh.add(body);
         const ringColor = isSelected ? 16777215 : ENEMY_TYPES[spawn.type] ? ENEMY_TYPES[spawn.type].color : 16777215;
-        const ringGeo3 = new THREE.RingGeometry(
+        const ringGeo4 = new THREE.RingGeometry(
           isSelected ? 0.55 : 0.5,
           isSelected ? 0.75 : 0.65,
           16
         );
-        ringGeo3.rotateX(-Math.PI / 2);
-        const ringMat = new THREE.MeshBasicMaterial({
+        ringGeo4.rotateX(-Math.PI / 2);
+        const ringMat2 = new THREE.MeshBasicMaterial({
           color: ringColor,
           transparent: true,
           opacity: isSelected ? 0.9 : isCurrent ? 0.5 : 0.15,
           side: THREE.DoubleSide,
           depthWrite: false
         });
-        const ring = new THREE.Mesh(ringGeo3, ringMat);
+        const ring = new THREE.Mesh(ringGeo4, ringMat2);
         ring.position.y = 0.02;
         mesh.add(ring);
         mesh.position.set(spawn.x, 0, spawn.z);
-        sceneRef9.add(mesh);
+        sceneRef11.add(mesh);
         markers.push({
           mesh,
           type: spawn.type,
@@ -11351,7 +11659,7 @@ function rebuildMarkers() {
 }
 function clearLevelMarkers() {
   for (const m of levelMarkers) {
-    sceneRef9.remove(m.mesh);
+    sceneRef11.remove(m.mesh);
     m.mesh.children.forEach((c) => {
       if (c.material) c.material.dispose();
       if (c.geometry) c.geometry.dispose();
@@ -11376,24 +11684,24 @@ function rebuildLevelMarkers() {
     const wireframe = new THREE.LineSegments(edgesGeo, lineMat);
     wireframe.position.y = o.h / 2;
     group.add(wireframe);
-    const ringGeo3 = new THREE.RingGeometry(
+    const ringGeo4 = new THREE.RingGeometry(
       selected ? 0.6 : 0.5,
       selected ? 0.85 : 0.7,
       16
     );
-    ringGeo3.rotateX(-Math.PI / 2);
-    const ringMat = new THREE.MeshBasicMaterial({
+    ringGeo4.rotateX(-Math.PI / 2);
+    const ringMat2 = new THREE.MeshBasicMaterial({
       color: selected ? 4521864 : 6728447,
       transparent: true,
       opacity: selected ? 0.8 : 0.4,
       side: THREE.DoubleSide,
       depthWrite: false
     });
-    const ring = new THREE.Mesh(ringGeo3, ringMat);
+    const ring = new THREE.Mesh(ringGeo4, ringMat2);
     ring.position.y = 0.03;
     group.add(ring);
     group.position.set(o.x, 0, o.z);
-    sceneRef9.add(group);
+    sceneRef11.add(group);
     levelMarkers.push({ mesh: group, type: "obstacle", idx: i });
   }
   for (let i = 0; i < PITS.length; i++) {
@@ -11410,24 +11718,24 @@ function rebuildLevelMarkers() {
     wireframe.rotation.x = -Math.PI / 2;
     wireframe.position.y = 0.1;
     group.add(wireframe);
-    const ringGeo3 = new THREE.RingGeometry(
+    const ringGeo4 = new THREE.RingGeometry(
       selected ? 0.6 : 0.5,
       selected ? 0.85 : 0.7,
       16
     );
-    ringGeo3.rotateX(-Math.PI / 2);
-    const ringMat = new THREE.MeshBasicMaterial({
+    ringGeo4.rotateX(-Math.PI / 2);
+    const ringMat2 = new THREE.MeshBasicMaterial({
       color: selected ? 16729258 : 16729190,
       transparent: true,
       opacity: selected ? 0.8 : 0.4,
       side: THREE.DoubleSide,
       depthWrite: false
     });
-    const ring = new THREE.Mesh(ringGeo3, ringMat);
+    const ring = new THREE.Mesh(ringGeo4, ringMat2);
     ring.position.y = 0.03;
     group.add(ring);
     group.position.set(p.x, 0, p.z);
-    sceneRef9.add(group);
+    sceneRef11.add(group);
     levelMarkers.push({ mesh: group, type: "pit", idx: i });
   }
 }
@@ -12903,6 +13211,7 @@ function gameLoop(timestamp) {
   input._gameState = gameState;
   updateAerialVerbs(dt, getPlayerPos(), input);
   updateCarriers(dt, gameState);
+  updateLaunchPillars(dt);
   updateProjectiles(gameDt);
   updateRoomManager(gameDt, gameState);
   updateEnemies(gameDt, getPlayerPos(), gameState);
@@ -12942,6 +13251,8 @@ function restart() {
   resetPlayer();
   resetAerialVerbs();
   clearCarriers();
+  clearLaunchPillars();
+  clearLaunchIndicator();
   clearAllTags();
   resetRoomManager();
   resetBulletTime();
@@ -12963,6 +13274,8 @@ function init() {
     initParticles(scene2);
     initBulletTime();
     initAerialVerbs([floatSelectorVerb, dunkVerb, spikeVerb]);
+    initLaunchPillars(scene2);
+    initLaunchIndicator(scene2);
     initGroundShadows();
     on("meleeHit", () => {
       hitPauseTimer = MELEE.hitPause;

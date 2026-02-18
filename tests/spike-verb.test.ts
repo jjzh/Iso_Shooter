@@ -283,7 +283,7 @@ describe('Spike Behavior', () => {
     expect(spawnDamageNumber).toHaveBeenCalledWith(
       expect.any(Number),
       expect.any(Number),
-      'SPIKE!',
+      `SPIKE! ${SPIKE.damage}`,
       expect.any(String),
     );
   });
