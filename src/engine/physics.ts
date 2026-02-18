@@ -266,6 +266,7 @@ export function applyVelocities(dt: number, gameState: GameState): void {
   for (const enemy of gameState.enemies) {
     if (enemy.health <= 0) continue;
     if ((enemy as any).isLeaping) continue;
+    if ((enemy as any).isCarrierPayload) continue;
 
     const vel = (enemy as any).vel;
     if (!vel) continue;
@@ -396,6 +397,7 @@ export function resolveEnemyCollisions(gameState: GameState): void {
     const a = enemies[i];
     if (a.health <= 0) continue;
     if ((a as any).isLeaping) continue;
+    if ((a as any).isCarrierPayload) continue;
 
     for (let j = i + 1; j < len; j++) {
       const b = enemies[j];

@@ -57,6 +57,9 @@ export function createCarrier(
   const hitSet = new Set<any>();
   hitSet.add(payload);
 
+  // Mark payload as carried — enemy AI and physics should skip this entity
+  payload.isCarrierPayload = true;
+
   carriers.push({
     payload,
     vel: {
@@ -163,10 +166,11 @@ export function updateCarriers(dt: number, gameState: any): void {
         }
       }
 
-      // Stop payload velocity
+      // Stop payload velocity and release from carrier
       payload.vel.x = 0;
       payload.vel.y = 0;
       payload.vel.z = 0;
+      payload.isCarrierPayload = false;
 
       // Sync mesh to final position
       if (payload.mesh && payload.mesh.position) {
@@ -204,5 +208,8 @@ export function getActiveCarriers(): readonly Carrier[] {
  * Clear all carriers (for game reset).
  */
 export function clearCarriers(): void {
+  for (const c of carriers) {
+    c.payload.isCarrierPayload = false;
+  }
   carriers.length = 0;
 }

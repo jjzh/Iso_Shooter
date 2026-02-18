@@ -279,6 +279,9 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
   for (let i = gameState.enemies.length - 1; i >= 0; i--) {
     const enemy = gameState.enemies[i];
 
+    // Skip enemies that are carrier payloads (being spiked as projectiles)
+    if (enemy.isCarrierPayload) continue;
+
     // Pit leap update — runs independently of stun (can't stun mid-air)
     if (enemy.isLeaping) {
       updateLeap(enemy, dt);

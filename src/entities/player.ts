@@ -152,7 +152,8 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   }
 
   // Trigger charge (start) — LMB hold (chargeStarted) or E key (ultimate) both work
-  if ((inputState.chargeStarted || inputState.ultimate) && gameState.abilities.ultimate.cooldownRemaining <= 0 && !isCharging) {
+  // Skip during float selector — LMB is used for spike/dunk selection
+  if ((inputState.chargeStarted || inputState.ultimate) && gameState.abilities.ultimate.cooldownRemaining <= 0 && !isCharging && !isFloatSelectorActive()) {
     startCharge(inputState, gameState);
   }
 
@@ -379,7 +380,7 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   }
 
   // === MELEE ATTACK (left click) ===
-  if (inputState.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging) {
+  if (inputState.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging && !isFloatSelectorActive()) {
 
     if (isPlayerAirborne) {
       // ─── AERIAL STRIKE — downward spike on nearby enemy ───
