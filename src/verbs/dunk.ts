@@ -18,7 +18,7 @@ import { spawnDamageNumber } from '../ui/damageNumbers';
 
 // --------------- Internal State ---------------
 
-type DunkPhase = 'none' | 'float' | 'grab' | 'slam';
+type DunkPhase = 'none' | 'rising' | 'float' | 'grab' | 'slam';
 
 let phase: DunkPhase = 'none';
 let target: any = null;        // enemy being dunked
@@ -238,33 +238,30 @@ export const dunkVerb: AerialVerb = {
   },
 
   onClaim(entry: LaunchedEnemy): void {
-    // Enter float phase — zero gravity for the enemy, waiting for player input
-    phase = 'float';
+    // Enter rising phase — both entities rise naturally under normal gravity.
+    // Float triggers later when the enemy descends within convergence distance.
+    phase = 'rising';
     target = entry.enemy;
-    floatTimer = DUNK.floatDuration;
-    playerVelYOverride = 0; // kill player Y velocity during float
+    floatTimer = 0;
+    playerVelYOverride = null; // no override during rising — normal gravity
     landingLagMs = 0;
 
-    // Zero gravity for the launched enemy
-    setGravityOverride(entry.enemy, 0);
+    // Normal gravity during rising — enemy launched upward by player.ts
+    // (gravity override stays at default 1.0)
 
-    // Decal is already created by the launch code in player.ts
-    // (createDunkDecal is called at launch time so the target appears immediately)
-    // If no decal exists yet, create one
+    // Decal is already created by initDunkTarget (called at launch time)
     if (!decalGroup) {
       createDecal(originX, originZ);
     }
-
-    // Small shake to signal the catch moment
-    screenShake(DUNK.grabShake * 0.5);
-    spawnDamageNumber(target.pos.x, target.pos.z, 'CATCH!', '#ff88ff');
   },
 
   update(dt: number, entry: LaunchedEnemy, playerPos: any, inputState: any): 'active' | 'complete' | 'cancel' {
     const enemy = entry.enemy;
     _gameState = inputState._gameState; // sneak gameState through inputState for AoE
 
-    if (phase === 'float') {
+    if (phase === 'rising') {
+      return updateRising(dt, enemy, playerPos, inputState);
+    } else if (phase === 'float') {
       return updateFloat(dt, enemy, playerPos, inputState);
     } else if (phase === 'grab' || phase === 'slam') {
       return updateSlam(dt, enemy, playerPos, inputState);
@@ -345,6 +342,42 @@ export const dunkVerb: AerialVerb = {
     playerVelYOverride = null;
   },
 };
+
+// --------------- Rising Phase Update ---------------
+// Both player and enemy rise under normal gravity after launch.
+// Transition to float when enemy descends within convergence distance of player.
+
+function updateRising(dt: number, enemy: any, playerPos: any, inputState: any): 'active' | 'complete' | 'cancel' {
+  const ptVel = (enemy as any).vel;
+  const ptRising = ptVel && ptVel.y > 0;
+
+  // Update targeting decal while rising
+  updateTargeting(playerPos, inputState);
+  updateDecal(landingX, landingZ, dt);
+
+  // Check if target is still valid (alive, still airborne or rising)
+  if (enemy.health <= 0 || enemy.fellInPit || (enemy.pos.y <= 0.3 && !ptRising)) {
+    return 'cancel';
+  }
+
+  // Convergence check: enemy must be descending (past apex) and within Y distance of player
+  if (ptVel && ptVel.y <= 0) {
+    const dy = enemy.pos.y - playerPos.y;
+    if (dy >= 0 && dy <= DUNK.floatConvergeDist) {
+      // Converged! Transition to float phase
+      phase = 'float';
+      floatTimer = DUNK.floatDuration;
+      playerVelYOverride = 0;
+      setGravityOverride(enemy, 0);
+
+      screenShake(DUNK.grabShake * 0.5);
+      spawnDamageNumber(playerPos.x, playerPos.z, 'CATCH!', '#ff88ff');
+      return 'active';
+    }
+  }
+
+  return 'active';
+}
 
 // --------------- Float Phase Update ---------------
 
