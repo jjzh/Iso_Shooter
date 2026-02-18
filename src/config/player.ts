@@ -81,3 +81,26 @@ export const LAUNCH = {
   cooldown: 600,          // ms cooldown between launches
   damage: 5,              // small chip damage on launch
 };
+
+// Float selector config — shared aerial verb selection window
+export const FLOAT_SELECTOR = {
+  holdThreshold: 180,        // ms to differentiate tap (spike) vs hold (dunk)
+  chargeVisualDelay: 50,     // ms before charge ring starts filling
+};
+
+// Spike verb config — volleyball spike, enemy becomes projectile
+export const SPIKE = {
+  damage: 15,                // hit damage to spiked enemy on strike
+  projectileSpeed: 25,       // enemy flight speed (units/sec)
+  projectileAngle: 35,       // degrees below horizontal toward aim point
+  throughDamage: 20,         // damage to enemies hit along flight path
+  throughKnockback: 8,       // knockback to path-hit enemies
+  impactDamage: 15,          // AoE damage on ground impact
+  impactRadius: 2.0,         // AoE radius on ground impact
+  impactKnockback: 10,       // knockback on ground impact
+  windupDuration: 80,        // ms windup before strike
+  hangDuration: 150,         // ms hang after strike (follow-through)
+  fastFallGravityMult: 2.5,  // enhanced gravity during post-spike fall
+  screenShake: 3.0,          // shake on spike strike
+  impactShake: 2.5,          // shake on enemy ground impact
+};
