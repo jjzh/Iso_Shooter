@@ -10,6 +10,7 @@ const inputState = {
   mouseNDC: { x: 0, y: 0 },
   dash: false,
   attack: false,
+  attackHeld: false,       // continuous: true while LMB is down
   ultimate: false,
   ultimateHeld: false,
   interact: false,
@@ -79,6 +80,7 @@ export function initInput() {
   window.addEventListener('mousedown', (e) => {
     if (e.button === 0) { // left click
       inputState.attack = true;
+      inputState.attackHeld = true;
       mouseDownTime = performance.now();
       mouseIsDown = true;
       usingGamepad = false;
@@ -88,6 +90,7 @@ export function initInput() {
   window.addEventListener('mouseup', (e) => {
     if (e.button === 0) {
       mouseIsDown = false;
+      inputState.attackHeld = false;
     }
   });
 
