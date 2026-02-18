@@ -16,6 +16,7 @@ import { initAudio, resumeAudio } from './audio';
 import { initParticles, updateParticles } from './particles';
 import { initBulletTime, toggleBulletTime, updateBulletTime, getBulletTimeScale, resetBulletTime } from './bulletTime';
 import { initAerialVerbs, updateAerialVerbs, resetAerialVerbs } from './aerialVerbs';
+import { clearAllTags } from './tags';
 import { dunkVerb } from '../verbs/dunk';
 import { floatSelectorVerb } from '../verbs/floatSelector';
 import { spikeVerb } from '../verbs/spike';
@@ -177,6 +178,7 @@ function restart(): void {
   resetPlayer();
   resetAerialVerbs();
   clearCarriers();
+  clearAllTags();
   resetRoomManager();
   resetBulletTime();
   loadRoom(0, gameState);

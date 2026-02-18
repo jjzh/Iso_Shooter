@@ -1,3 +1,5 @@
+import { addPlayerTag, removePlayerTagsMatching, addTag, removeTag, TAG } from './tags';
+
 export interface LaunchedEnemy {
   enemy: any;
   launchTime: number;
@@ -54,6 +56,7 @@ export function clearLaunched(): void {
 
 export interface AerialVerb {
   name: string;
+  tag?: string;          // Gameplay tag added when this verb is active
   interruptible: boolean;
   canClaim(entry: LaunchedEnemy, playerPos: any, inputState: any): boolean;
   onClaim(entry: LaunchedEnemy): void;
@@ -84,6 +87,11 @@ export function getActiveEnemy(): any | null {
   return activeEnemy;
 }
 
+/** Unified check: is ANY aerial verb currently active? */
+export function isAnyAerialVerbActive(): boolean {
+  return activeVerb !== null;
+}
+
 export function activateVerb(verbName: string, enemy: any): void {
   const verb = verbs.get(verbName);
   if (!verb) return;
@@ -91,6 +99,12 @@ export function activateVerb(verbName: string, enemy: any): void {
   if (!entry) return;
   activeVerb = verb;
   activeEnemy = enemy;
+
+  // Add gameplay tags — player state + enemy stunned
+  addPlayerTag(TAG.AERIAL);
+  if (verb.tag) addPlayerTag(verb.tag);
+  addTag(enemy, TAG.STUNNED);
+
   verb.onClaim(entry);
 }
 
@@ -99,10 +113,27 @@ export function transferClaim(enemy: any, toVerbName: string): void {
   if (!verb) return;
   const entry = launched.find(e => e.enemy === enemy);
   if (!entry) return;
+
+  // Remove old verb's specific tag (keep State.Aerial — still in aerial state)
+  if (activeVerb && activeVerb.tag) {
+    // Just remove old subtag; removePlayerTagsMatching would be too aggressive
+    removePlayerTagsMatching(activeVerb.tag);
+  }
+
   entry.claimedBy = toVerbName;
   activeVerb = verb;
   activeEnemy = enemy;
+
+  // Add new verb's tag
+  if (verb.tag) addPlayerTag(verb.tag);
+
   verb.onClaim(entry);
+}
+
+/** Remove all aerial gameplay tags and enemy stun (called on verb end) */
+function cleanupVerbTags(enemy?: any): void {
+  removePlayerTagsMatching(TAG.AERIAL);
+  if (enemy) removeTag(enemy, TAG.STUNNED);
 }
 
 export function updateAerialVerbs(dt: number, playerPos?: any, inputState?: any): void {
@@ -112,24 +143,51 @@ export function updateAerialVerbs(dt: number, playerPos?: any, inputState?: any)
 
   // Auto-cancel on enemy death or pit fall
   if (!entry || activeEnemy.health <= 0 || activeEnemy.fellInPit) {
+    const enemyRef = activeEnemy;
     activeVerb.onCancel(entry ?? { enemy: activeEnemy, launchTime: 0, claimedBy: null, gravityMult: 1 });
     if (entry) releaseLaunched(activeEnemy);
     activeVerb = null;
     activeEnemy = null;
+    cleanupVerbTags(enemyRef);
     return;
   }
 
-  const result = activeVerb.update(dt, entry, playerPos, inputState);
+  // Capture verb reference before update — verb may call transferClaim during update,
+  // which changes activeVerb. We need to know if a transfer happened.
+  const verbBeforeUpdate = activeVerb;
+
+  const result = verbBeforeUpdate.update(dt, entry, playerPos, inputState);
+
+  // Did a transfer happen during the update?
+  const transferred = activeVerb !== verbBeforeUpdate;
+
   if (result === 'complete') {
-    activeVerb.onComplete(entry);
-    releaseLaunched(activeEnemy);
-    activeVerb = null;
-    activeEnemy = null;
+    if (transferred) {
+      // Transfer happened — the old verb returned 'complete' to signal it's done.
+      // Call the OLD verb's onComplete for cleanup. Don't touch framework state
+      // (transferClaim already set activeVerb/activeEnemy to the new verb).
+      verbBeforeUpdate.onComplete(entry);
+    } else {
+      // Normal completion — no transfer
+      const enemyRef = activeEnemy;
+      activeVerb.onComplete(entry);
+      releaseLaunched(activeEnemy);
+      activeVerb = null;
+      activeEnemy = null;
+      cleanupVerbTags(enemyRef);
+    }
   } else if (result === 'cancel') {
-    activeVerb.onCancel(entry);
-    releaseLaunched(activeEnemy);
-    activeVerb = null;
-    activeEnemy = null;
+    if (transferred) {
+      // Transfer + cancel is unusual but handle it: cancel the old verb, keep new verb
+      verbBeforeUpdate.onCancel(entry);
+    } else {
+      const enemyRef = activeEnemy;
+      activeVerb.onCancel(entry);
+      releaseLaunched(activeEnemy);
+      activeVerb = null;
+      activeEnemy = null;
+      cleanupVerbTags(enemyRef);
+    }
   }
 }
 
@@ -148,9 +206,11 @@ export function resetAerialVerbs(): void {
 
 export function cancelActiveVerb(): void {
   if (!activeVerb || !activeEnemy) return;
+  const enemyRef = activeEnemy;
   const entry = launched.find(e => e.enemy === activeEnemy);
   activeVerb.onCancel(entry ?? { enemy: activeEnemy, launchTime: 0, claimedBy: null, gravityMult: 1 });
   if (entry) releaseLaunched(activeEnemy);
   activeVerb = null;
   activeEnemy = null;
+  cleanupVerbTags(enemyRef);
 }

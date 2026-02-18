@@ -9,6 +9,7 @@ import { fireMortarProjectile, getIceEffects } from './mortarProjectile';
 import { fireProjectile } from './projectile';
 import { buildEnemyModel, createHitReaction, triggerHitReaction, updateHitReaction } from './enemyRig';
 import { emit } from '../engine/events';
+import { hasTag, TAG } from '../engine/tags';
 
 let sceneRef: any;
 
@@ -286,9 +287,10 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
     if (enemy.isLeaping) {
       updateLeap(enemy, dt);
       // Skip normal behavior/movement but still check death below
-    } else if (enemy.stunTimer > 0) {
+    } else if (enemy.stunTimer > 0 || hasTag(enemy, TAG.STUNNED)) {
       // Stun check — stunned enemies cannot move or attack
-      enemy.stunTimer -= dt * 1000;
+      // Sources: stunTimer (legacy timed stun), State.Stunned tag (aerial verb grab, effects)
+      if (enemy.stunTimer > 0) enemy.stunTimer -= dt * 1000;
     } else {
       // Behavior dispatch (only when not stunned)
       switch (enemy.behavior) {

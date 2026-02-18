@@ -16,6 +16,7 @@ import type { AerialVerb, LaunchedEnemy } from '../engine/aerialVerbs';
 import { screenShake, getScene } from '../engine/renderer';
 import { emit } from '../engine/events';
 import { spawnDamageNumber } from '../ui/damageNumbers';
+import { TAG } from '../engine/tags';
 
 // --------------- Internal State ---------------
 
@@ -229,6 +230,7 @@ function updateTargeting(playerPos: any, inputState: any): void {
 
 export const dunkVerb: AerialVerb = {
   name: 'dunk',
+  tag: TAG.AERIAL_DUNK,
   interruptible: false,
 
   canClaim(entry: LaunchedEnemy, playerPos: any, _inputState: any): boolean {

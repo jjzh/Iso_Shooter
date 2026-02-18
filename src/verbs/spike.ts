@@ -14,6 +14,7 @@ import { createCarrier } from '../engine/entityCarrier';
 import { screenShake } from '../engine/renderer';
 import { emit } from '../engine/events';
 import { spawnDamageNumber } from '../ui/damageNumbers';
+import { TAG } from '../engine/tags';
 
 // --------------- Internal State ---------------
 
@@ -37,6 +38,7 @@ let fastFallActive = false;
 
 export const spikeVerb: AerialVerb = {
   name: 'spike',
+  tag: TAG.AERIAL_SPIKE,
   interruptible: false,
 
   canClaim(_entry: LaunchedEnemy, _playerPos: any, _inputState: any): boolean {

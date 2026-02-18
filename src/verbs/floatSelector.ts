@@ -18,6 +18,7 @@ import { setGravityOverride, transferClaim } from '../engine/aerialVerbs';
 import type { AerialVerb, LaunchedEnemy } from '../engine/aerialVerbs';
 import { screenShake, getScene } from '../engine/renderer';
 import { spawnDamageNumber } from '../ui/damageNumbers';
+import { TAG } from '../engine/tags';
 
 // --------------- Internal State ---------------
 
@@ -180,6 +181,7 @@ function updateTargeting(playerPos: any, inputState: any): void {
 
 export const floatSelectorVerb: AerialVerb = {
   name: 'floatSelector',
+  tag: TAG.AERIAL_FLOAT,
   interruptible: true,
 
   canClaim(_entry: LaunchedEnemy, _playerPos: any, _inputState: any): boolean {
@@ -301,8 +303,10 @@ function updateFloat(dt: number, enemy: any, playerPos: any, inputState: any): '
   updateDecal(playerPos.x, playerPos.z, dt);
 
   // --- LMB Input Tracking ---
-  if (!lmbPressed && inputState.attack) {
-    // LMB just pressed this frame
+  // Check both edge trigger (attack) and continuous flag (attackHeld).
+  // If the player held LMB before float started, the edge was consumed during
+  // rising — attackHeld detects the pre-held state so the hold still registers.
+  if (!lmbPressed && (inputState.attack || inputState.attackHeld)) {
     lmbPressed = true;
     lmbHoldTimer = 0;
     createChargeRing(playerPos);

@@ -1,7 +1,8 @@
 import { PLAYER, MELEE, JUMP, LAUNCH, AERIAL_STRIKE, SELF_SLAM, SPIKE } from '../config/player';
 import { registerLaunch, claimLaunched, activateVerb } from '../engine/aerialVerbs';
-import { getDunkPhase, getDunkPlayerVelY, getDunkLandingLag, isDunkActive, updateDunkVisuals, resetDunk } from '../verbs/dunk';
-import { isFloatSelectorActive, getFloatSelectorPlayerVelY, resetFloatSelector } from '../verbs/floatSelector';
+import { playerHasTag, clearPlayerTags, TAG } from '../engine/tags';
+import { getDunkPhase, getDunkPlayerVelY, getDunkLandingLag, updateDunkVisuals, resetDunk } from '../verbs/dunk';
+import { getFloatSelectorPlayerVelY, resetFloatSelector } from '../verbs/floatSelector';
 import { getSpikePlayerVelYOverride, getSpikeFastFallActive, resetSpike } from '../verbs/spike';
 import { getGroundHeight } from '../config/terrain';
 import { PHYSICS } from '../config/physics';
@@ -59,6 +60,8 @@ let chargeBorderGeo: any = null;
 let playerVelY = 0;
 let isPlayerAirborne = false;
 let landingLagTimer = 0;
+let actionLockoutTimer = 0;  // ms — blocks offensive actions (charge, melee) after verb landings
+const ACTION_LOCKOUT_MS = 300; // duration after dunk/slam landings
 
 // Launch verb state
 let launchCooldownTimer = 0;
@@ -152,8 +155,8 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   }
 
   // Trigger charge (start) — LMB hold (chargeStarted) or E key (ultimate) both work
-  // Skip during float selector — LMB is used for spike/dunk selection
-  if ((inputState.chargeStarted || inputState.ultimate) && gameState.abilities.ultimate.cooldownRemaining <= 0 && !isCharging && !isFloatSelectorActive()) {
+  // Block while airborne, during aerial verbs, or during post-verb action lockout
+  if ((inputState.chargeStarted || inputState.ultimate) && gameState.abilities.ultimate.cooldownRemaining <= 0 && !isCharging && !isPlayerAirborne && !playerHasTag(TAG.AERIAL) && actionLockoutTimer <= 0) {
     startCharge(inputState, gameState);
   }
 
@@ -230,7 +233,7 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   }
 
   // === SELF-SLAM (E while airborne, no active verb) ===
-  if (inputState.launch && isPlayerAirborne && !isSlamming && !isDunkActive() && !isFloatSelectorActive()) {
+  if (inputState.launch && isPlayerAirborne && !isSlamming && !playerHasTag(TAG.AERIAL)) {
     isSlamming = true;
     playerVelY = SELF_SLAM.slamVelocity;
   }
@@ -268,19 +271,25 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     const dunkVelY = getDunkPlayerVelY();
     const selectorVelY = getFloatSelectorPlayerVelY();
     const spikeVelY = getSpikePlayerVelYOverride();
-    if (dunkVelY !== null) {
-      playerVelY = dunkVelY;
-    } else if (selectorVelY !== null) {
-      playerVelY = selectorVelY;
-    } else if (spikeVelY !== null) {
-      playerVelY = spikeVelY;
-    }
+    const hasVerbOverride = dunkVelY !== null || selectorVelY !== null || spikeVelY !== null;
 
-    playerVelY -= JUMP.gravity * dt;
+    if (hasVerbOverride) {
+      // Verb owns Y velocity — skip gravity entirely
+      if (dunkVelY !== null) {
+        playerVelY = dunkVelY;
+      } else if (selectorVelY !== null) {
+        playerVelY = selectorVelY;
+      } else if (spikeVelY !== null) {
+        playerVelY = spikeVelY;
+      }
+    } else {
+      // Normal gravity
+      playerVelY -= JUMP.gravity * dt;
 
-    // Spike fast fall — enhanced gravity after spike recovery
-    if (getSpikeFastFallActive() && isPlayerAirborne) {
-      playerVelY -= JUMP.gravity * (SPIKE.fastFallGravityMult - 1) * dt;
+      // Spike fast fall — enhanced gravity after spike recovery
+      if (getSpikeFastFallActive()) {
+        playerVelY -= JUMP.gravity * (SPIKE.fastFallGravityMult - 1) * dt;
+      }
     }
 
     playerPos.y += playerVelY * dt;
@@ -327,6 +336,7 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
         // Dunk landing — verb's onComplete handles damage/AoE/effects
         const lag = getDunkLandingLag();
         if (lag > 0) landingLagTimer = lag;
+        actionLockoutTimer = ACTION_LOCKOUT_MS;
       } else {
         // Normal landing
         landingLagTimer = JUMP.landingLag;
@@ -336,6 +346,9 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   }
   if (landingLagTimer > 0) {
     landingLagTimer -= dt * 1000;
+  }
+  if (actionLockoutTimer > 0) {
+    actionLockoutTimer -= dt * 1000;
   }
 
   // Dunk verb visual updates (trail fade, etc.)
@@ -380,7 +393,7 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   }
 
   // === MELEE ATTACK (left click) ===
-  if (inputState.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging && !isFloatSelectorActive()) {
+  if (inputState.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging && !playerHasTag(TAG.AERIAL) && actionLockoutTimer <= 0) {
 
     if (isPlayerAirborne) {
       // ─── AERIAL STRIKE — downward spike on nearby enemy ───
@@ -858,9 +871,11 @@ export function resetPlayer() {
   landingLagTimer = 0;
   launchCooldownTimer = 0;
   isSlamming = false;
+  actionLockoutTimer = 0;
   resetDunk();
   resetFloatSelector();
   resetSpike();
+  clearPlayerTags();
   removeChargeTelegraph();
   restoreDefaultEmissive();
   resetAnimatorState(animState);
