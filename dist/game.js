@@ -1043,29 +1043,25 @@ function clearDamageNumbers() {
   if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
-// src/verbs/dunk.ts
+// src/verbs/floatSelector.ts
 var phase = "none";
 var target = null;
 var floatTimer = 0;
+var lmbPressed = false;
+var lmbHoldTimer = 0;
+var resolved = false;
+var playerVelYOverride = null;
+var prevPlayerX = 0;
+var prevPlayerZ = 0;
 var landingX = 0;
 var landingZ = 0;
-var originX = 0;
-var originZ = 0;
-var slamStartY = 0;
-var slamStartX = 0;
-var slamStartZ = 0;
-var playerVelYOverride = null;
-var landingLagMs = 0;
-var _gameState = null;
 var decalGroup = null;
 var decalFill = null;
 var decalRing = null;
 var decalAge = 0;
 var DECAL_EXPAND_MS = 250;
-var TRAIL_MAX = 20;
-var trailLine = null;
-var trailPoints = [];
-var trailLife = 0;
+var chargeRing = null;
+var chargeRingMat = null;
 function createDecal(cx, cz) {
   const scene2 = getScene();
   const radius = DUNK.targetRadius;
@@ -1073,9 +1069,9 @@ function createDecal(cx, cz) {
   decalGroup.position.set(cx, 0.06, cz);
   const fillGeo2 = new THREE.CircleGeometry(radius, 32);
   const fillMat = new THREE.MeshBasicMaterial({
-    color: 16729343,
+    color: 16755268,
     transparent: true,
-    opacity: 0.08,
+    opacity: 0.05,
     depthWrite: false
   });
   decalFill = new THREE.Mesh(fillGeo2, fillMat);
@@ -1083,30 +1079,19 @@ function createDecal(cx, cz) {
   decalGroup.add(decalFill);
   const ringGeo4 = new THREE.RingGeometry(radius - 0.06, radius, 48);
   const ringMat2 = new THREE.MeshBasicMaterial({
-    color: 16738047,
+    color: 16755268,
     transparent: true,
-    opacity: 0.4,
+    opacity: 0.3,
     depthWrite: false
   });
   decalRing = new THREE.Mesh(ringGeo4, ringMat2);
   decalRing.rotation.x = -Math.PI / 2;
   decalGroup.add(decalRing);
-  const dotGeo = new THREE.CircleGeometry(DUNK.aoeRadius, 24);
-  const dotMat = new THREE.MeshBasicMaterial({
-    color: 16746751,
-    transparent: true,
-    opacity: 0.15,
-    depthWrite: false
-  });
-  const dot = new THREE.Mesh(dotGeo, dotMat);
-  dot.rotation.x = -Math.PI / 2;
-  dot.name = "dunkCrosshair";
-  decalGroup.add(dot);
   decalGroup.scale.set(0, 0, 0);
   decalAge = 0;
   scene2.add(decalGroup);
 }
-function updateDecal(aimX2, aimZ2, dt) {
+function updateDecal(playerX, playerZ, dt) {
   if (!decalGroup) return;
   if (decalAge < DECAL_EXPAND_MS) {
     decalAge += dt * 1e3;
@@ -1116,15 +1101,9 @@ function updateDecal(aimX2, aimZ2, dt) {
   } else if (decalGroup.scale.x < 1) {
     decalGroup.scale.set(1, 1, 1);
   }
-  decalGroup.position.set(originX, 0.06, originZ);
-  const dot = decalGroup.getObjectByName("dunkCrosshair");
-  if (dot) {
-    const dx = landingX - originX;
-    const dz = landingZ - originZ;
-    dot.position.set(dx, 0, dz);
-  }
+  decalGroup.position.set(playerX, 0.06, playerZ);
   if (decalRing) {
-    const pulse = 0.3 + 0.15 * Math.sin(Date.now() * 8e-3);
+    const pulse = 0.2 + 0.1 * Math.sin(Date.now() * 8e-3);
     decalRing.material.opacity = pulse;
   }
 }
@@ -1139,6 +1118,302 @@ function removeDecal() {
   decalGroup = null;
   decalFill = null;
   decalRing = null;
+}
+function createChargeRing(playerPos2) {
+  removeChargeRing();
+  const scene2 = getScene();
+  const geo = new THREE.RingGeometry(0.5, 0.55, 32);
+  chargeRingMat = new THREE.MeshBasicMaterial({
+    color: 16746496,
+    transparent: true,
+    opacity: 0.6,
+    depthWrite: false
+  });
+  chargeRing = new THREE.Mesh(geo, chargeRingMat);
+  chargeRing.rotation.x = -Math.PI / 2;
+  chargeRing.position.set(playerPos2.x, playerPos2.y + 0.1, playerPos2.z);
+  scene2.add(chargeRing);
+}
+function updateChargeRing(playerPos2, fillT) {
+  if (!chargeRing || !chargeRingMat) return;
+  chargeRing.position.set(playerPos2.x, playerPos2.y + 0.1, playerPos2.z);
+  const r = 255;
+  const g = Math.round(136 * (1 - fillT));
+  const b = 0;
+  chargeRingMat.color.setHex(r << 16 | g << 8 | b);
+  chargeRingMat.opacity = 0.4 + 0.4 * fillT;
+}
+function removeChargeRing() {
+  if (!chargeRing) return;
+  const scene2 = getScene();
+  if (chargeRing.geometry) chargeRing.geometry.dispose();
+  if (chargeRing.material) chargeRing.material.dispose();
+  scene2.remove(chargeRing);
+  chargeRing = null;
+  chargeRingMat = null;
+}
+function updateTargeting(playerPos2, inputState2) {
+  const aimDx = inputState2.aimWorldPos.x - playerPos2.x;
+  const aimDz = inputState2.aimWorldPos.z - playerPos2.z;
+  const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
+  const clampedDist = Math.min(aimDist, DUNK.targetRadius);
+  landingX = playerPos2.x + aimDx / aimDist * clampedDist;
+  landingZ = playerPos2.z + aimDz / aimDist * clampedDist;
+}
+var floatSelectorVerb = {
+  name: "floatSelector",
+  tag: TAG.AERIAL_FLOAT,
+  interruptible: true,
+  canClaim(_entry, _playerPos, _inputState) {
+    return true;
+  },
+  onClaim(entry) {
+    phase = "rising";
+    target = entry.enemy;
+    floatTimer = 0;
+    lmbPressed = false;
+    lmbHoldTimer = 0;
+    resolved = false;
+    playerVelYOverride = null;
+    prevPlayerX = NaN;
+    if (!decalGroup) {
+      createDecal(0, 0);
+    }
+  },
+  update(dt, entry, playerPos2, inputState2) {
+    const enemy = entry.enemy;
+    if (phase === "rising") {
+      return updateRising(dt, enemy, playerPos2, inputState2);
+    } else if (phase === "float") {
+      return updateFloat(dt, enemy, playerPos2, inputState2);
+    }
+    return "cancel";
+  },
+  onCancel(entry) {
+    removeDecal();
+    removeChargeRing();
+    deactivateBulletTimeAuto();
+    setGravityOverride(entry.enemy, 1);
+    phase = "none";
+    target = null;
+    playerVelYOverride = null;
+    lmbPressed = false;
+    lmbHoldTimer = 0;
+    resolved = false;
+  },
+  onComplete(entry) {
+    removeDecal();
+    removeChargeRing();
+    phase = "none";
+    target = null;
+    playerVelYOverride = null;
+    lmbPressed = false;
+    lmbHoldTimer = 0;
+    resolved = false;
+  }
+};
+function updateRising(dt, enemy, playerPos2, inputState2) {
+  const vel = enemy.vel;
+  const isRising = vel && vel.y > 0;
+  if (isNaN(prevPlayerX)) {
+    prevPlayerX = playerPos2.x;
+    prevPlayerZ = playerPos2.z;
+  } else {
+    const deltaX = playerPos2.x - prevPlayerX;
+    const deltaZ = playerPos2.z - prevPlayerZ;
+    enemy.pos.x += deltaX;
+    enemy.pos.z += deltaZ;
+    if (enemy.mesh) {
+      enemy.mesh.position.x = enemy.pos.x;
+      enemy.mesh.position.z = enemy.pos.z;
+    }
+    prevPlayerX = playerPos2.x;
+    prevPlayerZ = playerPos2.z;
+  }
+  updateTargeting(playerPos2, inputState2);
+  updateDecal(playerPos2.x, playerPos2.z, dt);
+  if (enemy.health <= 0 || enemy.fellInPit || enemy.pos.y <= 0.3 && !isRising) {
+    return "cancel";
+  }
+  if (vel && vel.y <= 0) {
+    const dy = enemy.pos.y - playerPos2.y;
+    if (dy >= 0 && dy <= DUNK.floatConvergeDist) {
+      phase = "float";
+      floatTimer = DUNK.floatDuration;
+      playerVelYOverride = 0;
+      setGravityOverride(enemy, 0);
+      screenShake(DUNK.grabShake * 0.5);
+      spawnDamageNumber(playerPos2.x, playerPos2.z, "CATCH!", "#ff88ff");
+      return "active";
+    }
+  }
+  return "active";
+}
+function updateFloat(dt, enemy, playerPos2, inputState2) {
+  floatTimer -= dt * 1e3;
+  const vel = enemy.vel;
+  playerVelYOverride = 0;
+  if (vel) vel.y = 0;
+  const targetEnemyY = playerPos2.y + DUNK.floatEnemyOffsetY;
+  enemy.pos.y += (targetEnemyY - enemy.pos.y) * Math.min(1, dt * 10);
+  const driftDx = playerPos2.x - enemy.pos.x;
+  const driftDz = playerPos2.z - enemy.pos.z;
+  const lerpFactor = 1 - Math.exp(-FLOAT_SELECTOR.floatDriftRate * dt);
+  enemy.pos.x += driftDx * lerpFactor;
+  enemy.pos.z += driftDz * lerpFactor;
+  if (enemy.mesh) enemy.mesh.position.copy(enemy.pos);
+  updateTargeting(playerPos2, inputState2);
+  updateDecal(playerPos2.x, playerPos2.z, dt);
+  if (!lmbPressed && (inputState2.attack || inputState2.attackHeld)) {
+    lmbPressed = true;
+    lmbHoldTimer = 0;
+    createChargeRing(playerPos2);
+    activateBulletTimeAuto();
+  }
+  if (lmbPressed) {
+    if (inputState2.attackHeld) {
+      lmbHoldTimer += dt * 1e3;
+      const fillT = Math.min(lmbHoldTimer / FLOAT_SELECTOR.holdThreshold, 1);
+      updateChargeRing(playerPos2, fillT);
+      if (lmbHoldTimer >= FLOAT_SELECTOR.holdThreshold) {
+        transferClaim(enemy, "dunk");
+        resolved = true;
+        return "complete";
+      }
+    } else {
+      deactivateBulletTimeAuto();
+      transferClaim(enemy, "spike");
+      resolved = true;
+      return "complete";
+    }
+  }
+  if (floatTimer <= 0) {
+    return "cancel";
+  }
+  return "active";
+}
+function getFloatSelectorPlayerVelY() {
+  return playerVelYOverride;
+}
+function handoffDecal() {
+  if (!decalGroup) return null;
+  const result = { group: decalGroup, fill: decalFill, ring: decalRing };
+  decalGroup = null;
+  decalFill = null;
+  decalRing = null;
+  return result;
+}
+function resetFloatSelector() {
+  phase = "none";
+  target = null;
+  floatTimer = 0;
+  lmbPressed = false;
+  lmbHoldTimer = 0;
+  resolved = false;
+  playerVelYOverride = null;
+  landingX = 0;
+  landingZ = 0;
+  removeDecal();
+  removeChargeRing();
+}
+
+// src/verbs/dunk.ts
+var phase2 = "none";
+var target2 = null;
+var floatTimer2 = 0;
+var landingX2 = 0;
+var landingZ2 = 0;
+var originX = 0;
+var originZ = 0;
+var slamStartY = 0;
+var slamStartX = 0;
+var slamStartZ = 0;
+var playerVelYOverride2 = null;
+var landingLagMs = 0;
+var _gameState = null;
+var decalGroup2 = null;
+var decalFill2 = null;
+var decalRing2 = null;
+var decalAge2 = 0;
+var DECAL_EXPAND_MS2 = 250;
+var _handedDecal = null;
+var TRAIL_MAX = 20;
+var trailLine = null;
+var trailPoints = [];
+var trailLife = 0;
+function createDecal2(cx, cz) {
+  const scene2 = getScene();
+  const radius = DUNK.targetRadius;
+  decalGroup2 = new THREE.Group();
+  decalGroup2.position.set(cx, 0.06, cz);
+  const fillGeo2 = new THREE.CircleGeometry(radius, 32);
+  const fillMat = new THREE.MeshBasicMaterial({
+    color: 16729343,
+    transparent: true,
+    opacity: 0.08,
+    depthWrite: false
+  });
+  decalFill2 = new THREE.Mesh(fillGeo2, fillMat);
+  decalFill2.rotation.x = -Math.PI / 2;
+  decalGroup2.add(decalFill2);
+  const ringGeo4 = new THREE.RingGeometry(radius - 0.06, radius, 48);
+  const ringMat2 = new THREE.MeshBasicMaterial({
+    color: 16738047,
+    transparent: true,
+    opacity: 0.4,
+    depthWrite: false
+  });
+  decalRing2 = new THREE.Mesh(ringGeo4, ringMat2);
+  decalRing2.rotation.x = -Math.PI / 2;
+  decalGroup2.add(decalRing2);
+  const dotGeo = new THREE.CircleGeometry(DUNK.aoeRadius, 24);
+  const dotMat = new THREE.MeshBasicMaterial({
+    color: 16746751,
+    transparent: true,
+    opacity: 0.15,
+    depthWrite: false
+  });
+  const dot = new THREE.Mesh(dotGeo, dotMat);
+  dot.rotation.x = -Math.PI / 2;
+  dot.name = "dunkCrosshair";
+  decalGroup2.add(dot);
+  decalGroup2.scale.set(0, 0, 0);
+  decalAge2 = 0;
+  scene2.add(decalGroup2);
+}
+function updateDecal2(aimX2, aimZ2, dt) {
+  if (!decalGroup2) return;
+  if (decalAge2 < DECAL_EXPAND_MS2) {
+    decalAge2 += dt * 1e3;
+    const t = Math.min(decalAge2 / DECAL_EXPAND_MS2, 1);
+    const eased = 1 - (1 - t) * (1 - t);
+    decalGroup2.scale.set(eased, eased, eased);
+  } else if (decalGroup2.scale.x < 1) {
+    decalGroup2.scale.set(1, 1, 1);
+  }
+  decalGroup2.position.set(originX, 0.06, originZ);
+  const dot = decalGroup2.getObjectByName("dunkCrosshair");
+  if (dot) {
+    const dx = landingX2 - originX;
+    const dz = landingZ2 - originZ;
+    dot.position.set(dx, 0, dz);
+  }
+  if (decalRing2) {
+    const pulse = 0.3 + 0.15 * Math.sin(Date.now() * 8e-3);
+    decalRing2.material.opacity = pulse;
+  }
+}
+function removeDecal2() {
+  if (!decalGroup2) return;
+  const scene2 = getScene();
+  decalGroup2.traverse((child) => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+  });
+  scene2.remove(decalGroup2);
+  decalGroup2 = null;
+  decalFill2 = null;
+  decalRing2 = null;
 }
 function createTrail() {
   removeTrail();
@@ -1183,15 +1458,15 @@ function removeTrail() {
   trailPoints = [];
   trailLife = 0;
 }
-function updateTargeting(playerPos2, inputState2) {
+function updateTargeting2(playerPos2, inputState2) {
   originX = playerPos2.x;
   originZ = playerPos2.z;
   const aimDx = inputState2.aimWorldPos.x - originX;
   const aimDz = inputState2.aimWorldPos.z - originZ;
   const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
   const clampedDist = Math.min(aimDist, DUNK.targetRadius);
-  landingX = originX + aimDx / aimDist * clampedDist;
-  landingZ = originZ + aimDz / aimDist * clampedDist;
+  landingX2 = originX + aimDx / aimDist * clampedDist;
+  landingZ2 = originZ + aimDz / aimDist * clampedDist;
 }
 var dunkVerb = {
   name: "dunk",
@@ -1201,43 +1476,44 @@ var dunkVerb = {
     return true;
   },
   onClaim(entry) {
-    phase = "grab";
-    target = entry.enemy;
-    floatTimer = 0;
-    playerVelYOverride = null;
+    phase2 = "grab";
+    target2 = entry.enemy;
+    floatTimer2 = 0;
+    playerVelYOverride2 = null;
     landingLagMs = 0;
+    _handedDecal = handoffDecal();
   },
   update(dt, entry, playerPos2, inputState2) {
     const enemy = entry.enemy;
     _gameState = inputState2._gameState;
-    if (phase === "grab") {
+    if (phase2 === "grab") {
       originX = playerPos2.x;
       originZ = playerPos2.z;
       const aimDx = inputState2.aimWorldPos.x - originX;
       const aimDz = inputState2.aimWorldPos.z - originZ;
       const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
       const clampedDist = Math.min(aimDist, DUNK.targetRadius);
-      landingX = originX + aimDx / aimDist * clampedDist;
-      landingZ = originZ + aimDz / aimDist * clampedDist;
+      landingX2 = originX + aimDx / aimDist * clampedDist;
+      landingZ2 = originZ + aimDz / aimDist * clampedDist;
       transitionToGrab(enemy, playerPos2);
       return "active";
     }
-    if (phase === "wind") {
+    if (phase2 === "wind") {
       return updateWind(dt, enemy, playerPos2, inputState2);
     }
-    if (phase === "slam") {
+    if (phase2 === "slam") {
       return updateSlam(dt, enemy, playerPos2, inputState2);
     }
     return "cancel";
   },
   onCancel(entry) {
-    removeDecal();
+    removeDecal2();
     removeTrail();
     deactivateBulletTimeAuto();
     setGravityOverride(entry.enemy, 1);
-    phase = "none";
-    target = null;
-    playerVelYOverride = null;
+    phase2 = "none";
+    target2 = null;
+    playerVelYOverride2 = null;
     landingLagMs = 0;
   },
   onComplete(entry) {
@@ -1282,25 +1558,49 @@ var dunkVerb = {
       position: { x: enemy.pos.x, z: enemy.pos.z }
     });
     spawnDamageNumber(enemy.pos.x, enemy.pos.z, `DUNK! ${DUNK.damage}`, "#ff2244");
-    removeDecal();
+    removeDecal2();
     startTrailFade();
     deactivateBulletTimeAuto();
     landingLagMs = DUNK.landingLag;
-    phase = "none";
-    target = null;
-    playerVelYOverride = null;
+    phase2 = "none";
+    target2 = null;
+    playerVelYOverride2 = null;
   }
 };
 function transitionToGrab(enemy, playerPos2) {
-  phase = "wind";
-  target = enemy;
+  phase2 = "wind";
+  target2 = enemy;
   const ptVel = enemy.vel;
   enemy.pos.x = playerPos2.x;
   enemy.pos.z = playerPos2.z;
   enemy.pos.y = playerPos2.y + DUNK.carryOffsetY;
-  playerVelYOverride = DUNK.arcRiseVelocity;
+  playerVelYOverride2 = DUNK.arcRiseVelocity;
   if (ptVel) ptVel.y = DUNK.arcRiseVelocity;
-  createDecal(originX, originZ);
+  if (_handedDecal) {
+    decalGroup2 = _handedDecal.group;
+    decalFill2 = _handedDecal.fill;
+    decalRing2 = _handedDecal.ring;
+    _handedDecal = null;
+    if (decalFill2) {
+      decalFill2.material.color.setHex(16729343);
+      decalFill2.material.opacity = 0.08;
+    }
+    if (decalRing2) decalRing2.material.color.setHex(16738047);
+    const dotGeo = new THREE.CircleGeometry(DUNK.aoeRadius, 24);
+    const dotMat = new THREE.MeshBasicMaterial({
+      color: 16746751,
+      transparent: true,
+      opacity: 0.15,
+      depthWrite: false
+    });
+    const dot = new THREE.Mesh(dotGeo, dotMat);
+    dot.rotation.x = -Math.PI / 2;
+    dot.name = "dunkCrosshair";
+    decalGroup2.add(dot);
+    decalAge2 = DECAL_EXPAND_MS2;
+  } else {
+    createDecal2(originX, originZ);
+  }
   slamStartY = playerPos2.y;
   slamStartX = playerPos2.x;
   slamStartZ = playerPos2.z;
@@ -1316,13 +1616,13 @@ function transitionToGrab(enemy, playerPos2) {
 }
 function updateWind(dt, enemy, playerPos2, inputState2) {
   if (!inputState2.attackHeld) deactivateBulletTimeAuto();
-  updateTargeting(playerPos2, inputState2);
-  updateDecal(landingX, landingZ, dt);
-  playerVelYOverride -= JUMP.gravity * dt;
+  updateTargeting2(playerPos2, inputState2);
+  updateDecal2(landingX2, landingZ2, dt);
+  playerVelYOverride2 -= JUMP.gravity * dt;
   const ptVel = enemy.vel;
-  if (ptVel) ptVel.y = playerVelYOverride;
-  const toDx = landingX - playerPos2.x;
-  const toDz = landingZ - playerPos2.z;
+  if (ptVel) ptVel.y = playerVelYOverride2;
+  const toDx = landingX2 - playerPos2.x;
+  const toDz = landingZ2 - playerPos2.z;
   const toDist = Math.sqrt(toDx * toDx + toDz * toDz);
   if (toDist > 0.05) {
     const riseTime = DUNK.arcRiseVelocity / JUMP.gravity;
@@ -1335,8 +1635,8 @@ function updateWind(dt, enemy, playerPos2, inputState2) {
   enemy.pos.z = playerPos2.z;
   enemy.pos.y = playerPos2.y + DUNK.carryOffsetY;
   if (enemy.mesh) {
-    const faceDx = landingX - playerPos2.x;
-    const faceDz = landingZ - playerPos2.z;
+    const faceDx = landingX2 - playerPos2.x;
+    const faceDz = landingZ2 - playerPos2.z;
     const faceDist = Math.sqrt(faceDx * faceDx + faceDz * faceDz) || 0.01;
     const fwdX = faceDx / faceDist * DUNK.carryOffsetZ;
     const fwdZ = faceDz / faceDist * DUNK.carryOffsetZ;
@@ -1345,26 +1645,27 @@ function updateWind(dt, enemy, playerPos2, inputState2) {
   trailPoints.push({ x: playerPos2.x, y: playerPos2.y, z: playerPos2.z });
   if (trailPoints.length > TRAIL_MAX) trailPoints.shift();
   updateTrailGeometry();
-  if (playerVelYOverride <= 0) {
-    playerVelYOverride = DUNK.slamVelocity;
+  if (playerVelYOverride2 <= 0) {
+    playerVelYOverride2 = DUNK.slamVelocity;
     if (ptVel) ptVel.y = DUNK.slamVelocity;
     slamStartY = playerPos2.y;
     slamStartX = playerPos2.x;
     slamStartZ = playerPos2.z;
-    phase = "slam";
+    phase2 = "slam";
   }
   return "active";
 }
 function updateSlam(dt, enemy, playerPos2, inputState2) {
-  updateTargeting(playerPos2, inputState2);
-  updateDecal(landingX, landingZ, dt);
+  originX = playerPos2.x;
+  originZ = playerPos2.z;
+  updateDecal2(landingX2, landingZ2, dt);
   const groundY = getGroundHeight(playerPos2.x, playerPos2.z);
   const totalDrop = Math.max(slamStartY - groundY, 0.1);
   const dropped = Math.max(slamStartY - playerPos2.y, 0);
   const progress = Math.min(dropped / totalDrop, 1);
   const arcMult = 0.3 + 0.7 * progress;
-  const toDx = landingX - playerPos2.x;
-  const toDz = landingZ - playerPos2.z;
+  const toDx = landingX2 - playerPos2.x;
+  const toDz = landingZ2 - playerPos2.z;
   const toDist = Math.sqrt(toDx * toDx + toDz * toDz);
   if (toDist > 0.05) {
     const moveStep = Math.min(DUNK.homing * arcMult * dt, toDist);
@@ -1378,8 +1679,8 @@ function updateSlam(dt, enemy, playerPos2, inputState2) {
   enemy.pos.z = playerPos2.z;
   enemy.pos.y = playerPos2.y + DUNK.carryOffsetY;
   if (enemy.mesh) {
-    const faceDx = landingX - playerPos2.x;
-    const faceDz = landingZ - playerPos2.z;
+    const faceDx = landingX2 - playerPos2.x;
+    const faceDz = landingZ2 - playerPos2.z;
     const faceDist = Math.sqrt(faceDx * faceDx + faceDz * faceDz) || 0.01;
     const fwdX = faceDx / faceDist * DUNK.carryOffsetZ;
     const fwdZ = faceDz / faceDist * DUNK.carryOffsetZ;
@@ -1397,10 +1698,10 @@ function updateSlam(dt, enemy, playerPos2, inputState2) {
   return "active";
 }
 function getDunkPhase() {
-  return phase;
+  return phase2;
 }
 function getDunkPlayerVelY() {
-  return playerVelYOverride;
+  return playerVelYOverride2;
 }
 function getDunkLandingLag() {
   const lag = landingLagMs;
@@ -1418,287 +1719,21 @@ function updateDunkVisuals(dt) {
   }
 }
 function resetDunk() {
-  phase = "none";
-  target = null;
-  floatTimer = 0;
-  playerVelYOverride = null;
+  phase2 = "none";
+  target2 = null;
+  floatTimer2 = 0;
+  playerVelYOverride2 = null;
   landingLagMs = 0;
-  landingX = 0;
-  landingZ = 0;
+  landingX2 = 0;
+  landingZ2 = 0;
   originX = 0;
   originZ = 0;
   slamStartY = 0;
   slamStartX = 0;
   slamStartZ = 0;
   _gameState = null;
-  removeDecal();
-  removeTrail();
-}
-
-// src/verbs/floatSelector.ts
-var phase2 = "none";
-var target2 = null;
-var floatTimer2 = 0;
-var lmbPressed = false;
-var lmbHoldTimer = 0;
-var resolved = false;
-var playerVelYOverride2 = null;
-var prevPlayerX = 0;
-var prevPlayerZ = 0;
-var landingX2 = 0;
-var landingZ2 = 0;
-var decalGroup2 = null;
-var decalFill2 = null;
-var decalRing2 = null;
-var decalAge2 = 0;
-var DECAL_EXPAND_MS2 = 250;
-var chargeRing = null;
-var chargeRingMat = null;
-function createDecal2(cx, cz) {
-  const scene2 = getScene();
-  const radius = DUNK.targetRadius;
-  decalGroup2 = new THREE.Group();
-  decalGroup2.position.set(cx, 0.06, cz);
-  const fillGeo2 = new THREE.CircleGeometry(radius, 32);
-  const fillMat = new THREE.MeshBasicMaterial({
-    color: 16755268,
-    transparent: true,
-    opacity: 0.05,
-    depthWrite: false
-  });
-  decalFill2 = new THREE.Mesh(fillGeo2, fillMat);
-  decalFill2.rotation.x = -Math.PI / 2;
-  decalGroup2.add(decalFill2);
-  const ringGeo4 = new THREE.RingGeometry(radius - 0.06, radius, 48);
-  const ringMat2 = new THREE.MeshBasicMaterial({
-    color: 16755268,
-    transparent: true,
-    opacity: 0.3,
-    depthWrite: false
-  });
-  decalRing2 = new THREE.Mesh(ringGeo4, ringMat2);
-  decalRing2.rotation.x = -Math.PI / 2;
-  decalGroup2.add(decalRing2);
-  decalGroup2.scale.set(0, 0, 0);
-  decalAge2 = 0;
-  scene2.add(decalGroup2);
-}
-function updateDecal2(playerX, playerZ, dt) {
-  if (!decalGroup2) return;
-  if (decalAge2 < DECAL_EXPAND_MS2) {
-    decalAge2 += dt * 1e3;
-    const t = Math.min(decalAge2 / DECAL_EXPAND_MS2, 1);
-    const eased = 1 - (1 - t) * (1 - t);
-    decalGroup2.scale.set(eased, eased, eased);
-  } else if (decalGroup2.scale.x < 1) {
-    decalGroup2.scale.set(1, 1, 1);
-  }
-  decalGroup2.position.set(playerX, 0.06, playerZ);
-  if (decalRing2) {
-    const pulse = 0.2 + 0.1 * Math.sin(Date.now() * 8e-3);
-    decalRing2.material.opacity = pulse;
-  }
-}
-function removeDecal2() {
-  if (!decalGroup2) return;
-  const scene2 = getScene();
-  decalGroup2.traverse((child) => {
-    if (child.geometry) child.geometry.dispose();
-    if (child.material) child.material.dispose();
-  });
-  scene2.remove(decalGroup2);
-  decalGroup2 = null;
-  decalFill2 = null;
-  decalRing2 = null;
-}
-function createChargeRing(playerPos2) {
-  removeChargeRing();
-  const scene2 = getScene();
-  const geo = new THREE.RingGeometry(0.5, 0.55, 32);
-  chargeRingMat = new THREE.MeshBasicMaterial({
-    color: 16746496,
-    transparent: true,
-    opacity: 0.6,
-    depthWrite: false
-  });
-  chargeRing = new THREE.Mesh(geo, chargeRingMat);
-  chargeRing.rotation.x = -Math.PI / 2;
-  chargeRing.position.set(playerPos2.x, playerPos2.y + 0.1, playerPos2.z);
-  scene2.add(chargeRing);
-}
-function updateChargeRing(playerPos2, fillT) {
-  if (!chargeRing || !chargeRingMat) return;
-  chargeRing.position.set(playerPos2.x, playerPos2.y + 0.1, playerPos2.z);
-  const r = 255;
-  const g = Math.round(136 * (1 - fillT));
-  const b = 0;
-  chargeRingMat.color.setHex(r << 16 | g << 8 | b);
-  chargeRingMat.opacity = 0.4 + 0.4 * fillT;
-}
-function removeChargeRing() {
-  if (!chargeRing) return;
-  const scene2 = getScene();
-  if (chargeRing.geometry) chargeRing.geometry.dispose();
-  if (chargeRing.material) chargeRing.material.dispose();
-  scene2.remove(chargeRing);
-  chargeRing = null;
-  chargeRingMat = null;
-}
-function updateTargeting2(playerPos2, inputState2) {
-  const aimDx = inputState2.aimWorldPos.x - playerPos2.x;
-  const aimDz = inputState2.aimWorldPos.z - playerPos2.z;
-  const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
-  const clampedDist = Math.min(aimDist, DUNK.targetRadius);
-  landingX2 = playerPos2.x + aimDx / aimDist * clampedDist;
-  landingZ2 = playerPos2.z + aimDz / aimDist * clampedDist;
-}
-var floatSelectorVerb = {
-  name: "floatSelector",
-  tag: TAG.AERIAL_FLOAT,
-  interruptible: true,
-  canClaim(_entry, _playerPos, _inputState) {
-    return true;
-  },
-  onClaim(entry) {
-    phase2 = "rising";
-    target2 = entry.enemy;
-    floatTimer2 = 0;
-    lmbPressed = false;
-    lmbHoldTimer = 0;
-    resolved = false;
-    playerVelYOverride2 = null;
-    prevPlayerX = NaN;
-    if (!decalGroup2) {
-      createDecal2(0, 0);
-    }
-  },
-  update(dt, entry, playerPos2, inputState2) {
-    const enemy = entry.enemy;
-    if (phase2 === "rising") {
-      return updateRising(dt, enemy, playerPos2, inputState2);
-    } else if (phase2 === "float") {
-      return updateFloat(dt, enemy, playerPos2, inputState2);
-    }
-    return "cancel";
-  },
-  onCancel(entry) {
-    removeDecal2();
-    removeChargeRing();
-    deactivateBulletTimeAuto();
-    setGravityOverride(entry.enemy, 1);
-    phase2 = "none";
-    target2 = null;
-    playerVelYOverride2 = null;
-    lmbPressed = false;
-    lmbHoldTimer = 0;
-    resolved = false;
-  },
-  onComplete(entry) {
-    removeDecal2();
-    removeChargeRing();
-    phase2 = "none";
-    target2 = null;
-    playerVelYOverride2 = null;
-    lmbPressed = false;
-    lmbHoldTimer = 0;
-    resolved = false;
-  }
-};
-function updateRising(dt, enemy, playerPos2, inputState2) {
-  const vel = enemy.vel;
-  const isRising = vel && vel.y > 0;
-  if (isNaN(prevPlayerX)) {
-    prevPlayerX = playerPos2.x;
-    prevPlayerZ = playerPos2.z;
-  } else {
-    const deltaX = playerPos2.x - prevPlayerX;
-    const deltaZ = playerPos2.z - prevPlayerZ;
-    enemy.pos.x += deltaX;
-    enemy.pos.z += deltaZ;
-    if (enemy.mesh) {
-      enemy.mesh.position.x = enemy.pos.x;
-      enemy.mesh.position.z = enemy.pos.z;
-    }
-    prevPlayerX = playerPos2.x;
-    prevPlayerZ = playerPos2.z;
-  }
-  updateTargeting2(playerPos2, inputState2);
-  updateDecal2(playerPos2.x, playerPos2.z, dt);
-  if (enemy.health <= 0 || enemy.fellInPit || enemy.pos.y <= 0.3 && !isRising) {
-    return "cancel";
-  }
-  if (vel && vel.y <= 0) {
-    const dy = enemy.pos.y - playerPos2.y;
-    if (dy >= 0 && dy <= DUNK.floatConvergeDist) {
-      phase2 = "float";
-      floatTimer2 = DUNK.floatDuration;
-      playerVelYOverride2 = 0;
-      setGravityOverride(enemy, 0);
-      screenShake(DUNK.grabShake * 0.5);
-      spawnDamageNumber(playerPos2.x, playerPos2.z, "CATCH!", "#ff88ff");
-      return "active";
-    }
-  }
-  return "active";
-}
-function updateFloat(dt, enemy, playerPos2, inputState2) {
-  floatTimer2 -= dt * 1e3;
-  const vel = enemy.vel;
-  playerVelYOverride2 = 0;
-  if (vel) vel.y = 0;
-  const targetEnemyY = playerPos2.y + DUNK.floatEnemyOffsetY;
-  enemy.pos.y += (targetEnemyY - enemy.pos.y) * Math.min(1, dt * 10);
-  const driftDx = playerPos2.x - enemy.pos.x;
-  const driftDz = playerPos2.z - enemy.pos.z;
-  const lerpFactor = 1 - Math.exp(-FLOAT_SELECTOR.floatDriftRate * dt);
-  enemy.pos.x += driftDx * lerpFactor;
-  enemy.pos.z += driftDz * lerpFactor;
-  if (enemy.mesh) enemy.mesh.position.copy(enemy.pos);
-  updateTargeting2(playerPos2, inputState2);
-  updateDecal2(playerPos2.x, playerPos2.z, dt);
-  if (!lmbPressed && (inputState2.attack || inputState2.attackHeld)) {
-    lmbPressed = true;
-    lmbHoldTimer = 0;
-    createChargeRing(playerPos2);
-    activateBulletTimeAuto();
-  }
-  if (lmbPressed) {
-    if (inputState2.attackHeld) {
-      lmbHoldTimer += dt * 1e3;
-      const fillT = Math.min(lmbHoldTimer / FLOAT_SELECTOR.holdThreshold, 1);
-      updateChargeRing(playerPos2, fillT);
-      if (lmbHoldTimer >= FLOAT_SELECTOR.holdThreshold) {
-        transferClaim(enemy, "dunk");
-        resolved = true;
-        return "complete";
-      }
-    } else {
-      deactivateBulletTimeAuto();
-      transferClaim(enemy, "spike");
-      resolved = true;
-      return "complete";
-    }
-  }
-  if (floatTimer2 <= 0) {
-    return "cancel";
-  }
-  return "active";
-}
-function getFloatSelectorPlayerVelY() {
-  return playerVelYOverride2;
-}
-function resetFloatSelector() {
-  phase2 = "none";
-  target2 = null;
-  floatTimer2 = 0;
-  lmbPressed = false;
-  lmbHoldTimer = 0;
-  resolved = false;
-  playerVelYOverride2 = null;
-  landingX2 = 0;
-  landingZ2 = 0;
   removeDecal2();
-  removeChargeRing();
+  removeTrail();
 }
 
 // src/engine/entityCarrier.ts

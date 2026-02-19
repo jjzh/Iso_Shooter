@@ -390,6 +390,19 @@ export function getFloatSelectorPlayerVelY(): number | null {
   return playerVelYOverride;
 }
 
+// --------------- Decal Handoff ---------------
+
+/** Transfer decal ownership to another verb (e.g. dunk). Returns the Three.js
+ *  objects and nulls local refs so onComplete won't dispose them. */
+export function handoffDecal(): { group: any; fill: any; ring: any } | null {
+  if (!decalGroup) return null;
+  const result = { group: decalGroup, fill: decalFill, ring: decalRing };
+  decalGroup = null;
+  decalFill = null;
+  decalRing = null;
+  return result;
+}
+
 // --------------- Reset ---------------
 
 export function resetFloatSelector(): void {

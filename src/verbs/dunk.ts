@@ -18,6 +18,7 @@ import { screenShake, getScene } from '../engine/renderer';
 import { emit } from '../engine/events';
 import { spawnDamageNumber } from '../ui/damageNumbers';
 import { TAG } from '../engine/tags';
+import { handoffDecal } from './floatSelector';
 
 // --------------- Internal State ---------------
 
@@ -56,6 +57,9 @@ let decalFill: any = null;
 let decalRing: any = null;
 let decalAge = 0;
 const DECAL_EXPAND_MS = 250;
+
+// Decal handoff — stolen from floatSelector during onClaim, consumed in transitionToGrab
+let _handedDecal: { group: any; fill: any; ring: any } | null = null;
 
 const TRAIL_MAX = 20;
 let trailLine: any = null;
@@ -249,6 +253,10 @@ export const dunkVerb: AerialVerb = {
     floatTimer = 0;
     playerVelYOverride = null;
     landingLagMs = 0;
+
+    // Steal decal from floatSelector BEFORE its onComplete disposes it.
+    // This lets transitionToGrab adopt + recolor instead of creating from scratch.
+    _handedDecal = handoffDecal();
   },
 
   update(dt: number, entry: LaunchedEnemy, playerPos: any, inputState: any): 'active' | 'complete' | 'cancel' {
@@ -373,8 +381,35 @@ function transitionToGrab(enemy: any, playerPos: any): void {
   playerVelYOverride = DUNK.arcRiseVelocity;
   if (ptVel) ptVel.y = DUNK.arcRiseVelocity;
 
-  // Create landing target decal (magenta with crosshair)
-  createDecal(originX, originZ);
+  // Adopt floatSelector's decal (seamless transition) or create fresh
+  if (_handedDecal) {
+    decalGroup = _handedDecal.group;
+    decalFill = _handedDecal.fill;
+    decalRing = _handedDecal.ring;
+    _handedDecal = null;
+
+    // Recolor from orange → magenta
+    if (decalFill) {
+      (decalFill.material as any).color.setHex(0xff44ff);
+      (decalFill.material as any).opacity = 0.08;
+    }
+    if (decalRing) (decalRing.material as any).color.setHex(0xff66ff);
+
+    // Add crosshair dot (floatSelector doesn't have one)
+    const dotGeo = new THREE.CircleGeometry(DUNK.aoeRadius, 24);
+    const dotMat = new THREE.MeshBasicMaterial({
+      color: 0xff88ff, transparent: true, opacity: 0.15, depthWrite: false,
+    });
+    const dot = new THREE.Mesh(dotGeo, dotMat);
+    dot.rotation.x = -Math.PI / 2;
+    dot.name = 'dunkCrosshair';
+    decalGroup.add(dot);
+
+    // Already expanded — skip scale animation
+    decalAge = DECAL_EXPAND_MS;
+  } else {
+    createDecal(originX, originZ);
+  }
 
   // Record slam start for arc progress
   slamStartY = playerPos.y;
@@ -457,8 +492,10 @@ function updateWind(dt: number, enemy: any, playerPos: any, inputState: any): 'a
 // --------------- Slam Phase Update ---------------
 
 function updateSlam(dt: number, enemy: any, playerPos: any, inputState: any): 'active' | 'complete' | 'cancel' {
-  // Update targeting (decal follows player during slam too)
-  updateTargeting(playerPos, inputState);
+  // Landing target is LOCKED at slam start — no more re-aiming mid-flight.
+  // Just update decal visuals (origin follows player so crosshair converges).
+  originX = playerPos.x;
+  originZ = playerPos.z;
   updateDecal(landingX, landingZ, dt);
 
   // Arc trajectory -- ease-in XZ so the slam curves instead of going straight
