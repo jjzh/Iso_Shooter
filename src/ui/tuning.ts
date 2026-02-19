@@ -2,11 +2,15 @@
 // Mutates config objects directly; game reads them each frame so changes are instant
 // Sections are collapsible so you can focus on what you're tuning
 
-import { PLAYER } from '../config/player';
-import { ENEMY_TYPES } from '../config/enemies';
+import { PLAYER, MELEE } from '../config/player';
+import { ENEMY_TYPES, MOB_GLOBAL } from '../config/enemies';
 import { ABILITIES } from '../config/abilities';
+import { PHYSICS } from '../config/physics';
 import { C as ANIM } from '../entities/playerAnimator';
 import { AUDIO_CONFIG, setMasterVolume } from '../engine/audio';
+import { SPAWN_CONFIG } from '../config/spawn';
+import { DOOR_CONFIG } from '../config/door';
+import { BULLET_TIME } from '../engine/bulletTime';
 import { buildShareUrl } from '../engine/urlParams';
 
 // ─── Slider Section Definitions ───
@@ -54,10 +58,42 @@ const SECTIONS: SliderSection[] = [
     ]
   },
   {
-    section: 'Enemies',
+    section: 'Melee',
+    collapsed: true,
     items: [
-      { label: 'Speed Mult', config: () => null,  key: 'enemySpeedMult',  min: 0.2,  max: 4,  step: 0.1,  custom: 'enemySpeed',
-        unit: 'x', tip: 'Global speed multiplier applied to all enemy types. 1x = default.' },
+      { label: 'Damage',       config: () => MELEE,  key: 'damage',          min: 5,    max: 60,   step: 1,
+        unit: '', tip: 'Melee swing damage per hit.' },
+      { label: 'Range',        config: () => MELEE,  key: 'range',           min: 1,    max: 4,    step: 0.2,
+        unit: 'u', tip: 'How far the swing reaches from player center.' },
+      { label: 'Arc',          config: () => MELEE,  key: 'arc',             min: 1,    max: 3.5,  step: 0.1,
+        unit: 'rad', tip: 'Hit cone width in radians (~2.4 = 137\u00b0).' },
+      { label: 'Cooldown',     config: () => MELEE,  key: 'cooldown',        min: 100,  max: 800,  step: 10,
+        unit: 'ms', tip: 'Time between swings.' },
+      { label: 'Knockback',    config: () => MELEE,  key: 'knockback',       min: 0,    max: 4,    step: 0.25,
+        unit: 'u', tip: 'Distance enemies are pushed on hit.' },
+      { label: 'Auto Range',   config: () => MELEE,  key: 'autoTargetRange', min: 1,    max: 6,    step: 0.5,
+        unit: 'u', tip: 'Radius to search for auto-targeting snap.' },
+      { label: 'Auto Arc',     config: () => MELEE,  key: 'autoTargetArc',   min: 1,    max: 3.5,  step: 0.1,
+        unit: 'rad', tip: 'Cone width for auto-targeting snap.' },
+      { label: 'Shake',        config: () => MELEE,  key: 'screenShake',     min: 0,    max: 4,    step: 0.25,
+        unit: '', tip: 'Screen shake intensity on melee hit.' },
+      { label: 'Hit Pause',    config: () => MELEE,  key: 'hitPause',        min: 0,    max: 100,  step: 5,
+        unit: 'ms', tip: 'Freeze-frame duration on melee hit (juice).' },
+    ]
+  },
+  {
+    section: 'Mob Global',
+    items: [
+      { label: 'Speed Mult',     config: () => MOB_GLOBAL,  key: 'speedMult',     min: 0.2,  max: 3,  step: 0.1,
+        unit: 'x', tip: 'Global speed multiplier for all enemies.' },
+      { label: 'Damage Mult',    config: () => MOB_GLOBAL,  key: 'damageMult',    min: 0.2,  max: 3,  step: 0.1,
+        unit: 'x', tip: 'Global damage multiplier for all enemies.' },
+      { label: 'Health Mult',    config: () => MOB_GLOBAL,  key: 'healthMult',    min: 0.2,  max: 3,  step: 0.1,
+        unit: 'x', tip: 'Global health multiplier for all enemies.' },
+      { label: 'Telegraph Mult', config: () => MOB_GLOBAL,  key: 'telegraphMult', min: 0.2,  max: 3,  step: 0.1,
+        unit: 'x', tip: 'Global telegraph duration multiplier. Higher = more reaction time.' },
+      { label: 'Recovery Mult',  config: () => MOB_GLOBAL,  key: 'recoveryMult',  min: 0.2,  max: 3,  step: 0.1,
+        unit: 'x', tip: 'Global recovery duration multiplier. Higher = bigger punish windows.' },
     ]
   },
 
@@ -88,7 +124,7 @@ const SECTIONS: SliderSection[] = [
     section: 'Force Push',
     collapsed: true,
     items: [
-      { label: 'Cooldown',     config: () => ABILITIES.ultimate,  key: 'cooldown',          min: 1000,  max: 15000, step: 500,
+      { label: 'Cooldown',     config: () => ABILITIES.ultimate,  key: 'cooldown',          min: 100,  max: 15000, step: 100,
         unit: 'ms', tip: 'Force push cooldown.' },
       { label: 'Charge Time',  config: () => ABILITIES.ultimate,  key: 'chargeTimeMs',      min: 200,   max: 5000,  step: 100,
         unit: 'ms', tip: 'Time to fully charge.' },
@@ -104,6 +140,58 @@ const SECTIONS: SliderSection[] = [
         unit: 'u', tip: 'Knockback force at full charge.' },
       { label: 'Move Mult',    config: () => ABILITIES.ultimate,  key: 'chargeMoveSpeedMult', min: 0,   max: 1,     step: 0.05,
         unit: 'x', tip: 'Movement speed multiplier while charging.' },
+    ]
+  },
+
+  // ── Bullet Time ──
+  {
+    section: 'Bullet Time',
+    collapsed: true,
+    items: [
+      { label: 'Time Scale',   config: () => BULLET_TIME, key: 'timeScale',          min: 0.05, max: 0.8,  step: 0.05,
+        unit: 'x', tip: 'How slow the world runs during bullet time (0.25 = 25% speed).' },
+      { label: 'Max Resource',  config: () => BULLET_TIME, key: 'maxResource',        min: 500,  max: 10000, step: 500,
+        unit: 'ms', tip: 'Total bullet time available at full bar.' },
+      { label: 'Drain Rate',    config: () => BULLET_TIME, key: 'drainRate',          min: 200,  max: 3000,  step: 100,
+        unit: 'ms/s', tip: 'How fast the bar drains per real second.' },
+      { label: 'Kill Refill',   config: () => BULLET_TIME, key: 'killRefill',         min: 100,  max: 2000,  step: 100,
+        unit: 'ms', tip: 'Resource refilled per enemy kill.' },
+      { label: 'Min Activate',  config: () => BULLET_TIME, key: 'activationMinimum',  min: 0,    max: 1000,  step: 50,
+        unit: 'ms', tip: 'Minimum resource required to activate bullet time.' },
+      { label: 'Infinite',      config: () => BULLET_TIME, key: 'infinite',           min: 0,    max: 1,     step: 1,
+        unit: '', tip: '1 = infinite bullet time (no drain). 0 = normal drain.' },
+    ]
+  },
+
+  // ── Physics ──
+  {
+    section: 'Physics',
+    collapsed: true,
+    items: [
+      { label: 'Friction',       config: () => PHYSICS,  key: 'friction',         min: 2,    max: 30,   step: 1,
+        unit: 'u/s²', tip: 'Knockback deceleration. Higher = snappier stop.' },
+      { label: 'Push Instant %', config: () => PHYSICS,  key: 'pushInstantRatio', min: 0,    max: 1,    step: 0.05,
+        unit: '', tip: 'Fraction of knockback applied as instant offset. 1.0 = old instant feel.' },
+      { label: 'Wave Block Rad', config: () => PHYSICS,  key: 'pushWaveBlockRadius', min: 0,  max: 2,    step: 0.1,
+        unit: 'u', tip: 'Lateral distance for enemy occlusion. Nearer enemies block push to those behind. 0 = no blocking.' },
+      { label: 'Slam Min Speed', config: () => PHYSICS,  key: 'wallSlamMinSpeed', min: 0,    max: 10,   step: 0.5,
+        unit: 'u/s', tip: 'Minimum impact speed for wall slam damage.' },
+      { label: 'Slam Damage',    config: () => PHYSICS,  key: 'wallSlamDamage',   min: 1,    max: 20,   step: 1,
+        unit: '/unit', tip: 'Damage per unit of speed above slam threshold.' },
+      { label: 'Slam Stun',      config: () => PHYSICS,  key: 'wallSlamStun',     min: 0,    max: 1000, step: 50,
+        unit: 'ms', tip: 'Stun duration on wall slam.' },
+      { label: 'Slam Bounce',    config: () => PHYSICS,  key: 'wallSlamBounce',   min: 0,    max: 1,    step: 0.05,
+        unit: '', tip: 'Velocity reflection on wall hit. 0 = dead stop, 1 = perfect bounce.' },
+      { label: 'Slam Shake',     config: () => PHYSICS,  key: 'wallSlamShake',    min: 0,    max: 8,    step: 0.5,
+        unit: '', tip: 'Screen shake intensity on wall slam.' },
+      { label: 'Enemy Bounce',   config: () => PHYSICS,  key: 'enemyBounce',     min: 0,    max: 1,    step: 0.05,
+        unit: '', tip: 'Enemy-enemy collision restitution. 0 = stick, 1 = full bounce.' },
+      { label: 'Impact Min Spd', config: () => PHYSICS,  key: 'impactMinSpeed',  min: 0,    max: 10,   step: 0.5,
+        unit: 'u/s', tip: 'Minimum relative speed for enemy-enemy impact damage.' },
+      { label: 'Impact Damage',  config: () => PHYSICS,  key: 'impactDamage',    min: 1,    max: 20,   step: 1,
+        unit: '/unit', tip: 'Damage per unit of speed above impact threshold.' },
+      { label: 'Impact Stun',    config: () => PHYSICS,  key: 'impactStun',      min: 0,    max: 1000, step: 50,
+        unit: 'ms', tip: 'Stun duration when enemies collide at speed.' },
     ]
   },
 
@@ -206,6 +294,38 @@ const SECTIONS: SliderSection[] = [
         unit: '', tip: 'Wave clear chime volume.' },
       { label: 'Player Hit',    config: () => AUDIO_CONFIG,  key: 'playerHitVolume',    min: 0,    max: 1,   step: 0.05,
         unit: '', tip: 'Player damage taken sound volume.' },
+      { label: 'Melee Swing',   config: () => AUDIO_CONFIG,  key: 'meleeSwingVolume',   min: 0,    max: 1,   step: 0.05,
+        unit: '', tip: 'Melee swing whoosh volume.' },
+      { label: 'Melee Hit',     config: () => AUDIO_CONFIG,  key: 'meleeHitVolume',     min: 0,    max: 1,   step: 0.05,
+        unit: '', tip: 'Melee hit thump volume.' },
+    ]
+  },
+  {
+    section: 'Spawn Pacing',
+    collapsed: true,
+    items: [
+      { label: 'Telegraph Dur',     config: () => SPAWN_CONFIG, key: 'telegraphDuration',  min: 500,  max: 3000, step: 100,
+        unit: 'ms', tip: 'How long spawn warnings show before enemies appear.' },
+      { label: 'Spawn Cooldown',    config: () => SPAWN_CONFIG, key: 'spawnCooldown',      min: 200,  max: 2000, step: 100,
+        unit: 'ms', tip: 'Minimum delay between consecutive pack dispatches.' },
+      { label: 'Max Conc. Mult',    config: () => SPAWN_CONFIG, key: 'maxConcurrentMult',  min: 0.5,  max: 2,    step: 0.1,
+        unit: '', tip: 'Multiplier on max concurrent enemies (affects all rooms).' },
+      { label: 'Ahead Dist Min',    config: () => SPAWN_CONFIG, key: 'spawnAheadMin',      min: 3,    max: 15,   step: 1,
+        unit: 'u', tip: 'Min distance ahead of player to spawn enemies.' },
+      { label: 'Ahead Dist Max',    config: () => SPAWN_CONFIG, key: 'spawnAheadMax',      min: 8,    max: 25,   step: 1,
+        unit: 'u', tip: 'Max distance ahead of player to spawn enemies.' },
+    ]
+  },
+  {
+    section: 'Door',
+    collapsed: true,
+    items: [
+      { label: 'Unlock Duration',   config: () => DOOR_CONFIG,  key: 'unlockDuration',     min: 300,  max: 2000, step: 100,
+        unit: 'ms', tip: 'Door unlock animation duration.' },
+      { label: 'Interact Radius',   config: () => DOOR_CONFIG,  key: 'interactRadius',     min: 1,    max: 4,    step: 0.5,
+        unit: 'u', tip: 'How close player must be to enter door.' },
+      { label: 'Rest Pause',        config: () => DOOR_CONFIG,  key: 'restPause',          min: 500,  max: 5000, step: 500,
+        unit: 'ms', tip: 'How long before rest room door opens.' },
     ]
   },
 ];

@@ -19,6 +19,18 @@ export const AUDIO_CONFIG = {
   chargeVolume: 0.35,
   waveClearVolume: 0.4,
   playerHitVolume: 0.5,
+  meleeSwingVolume: 0.3,
+  meleeHitVolume: 0.45,
+  wallSlamVolume: 0.5,
+  enemyImpactVolume: 0.4,
+  // Vertical combat
+  jumpVolume: 0.25,
+  landVolume: 0.3,
+  launchVolume: 0.4,
+  aerialStrikeVolume: 0.45,
+  slamVolume: 0.5,
+  dunkGrabVolume: 0.35,
+  dunkImpactVolume: 0.55,
   enabled: true,
 };
 
@@ -42,6 +54,19 @@ export function initAudio(): void {
 
     // Subscribe to game events
     wireEventBus();
+
+    // Wire mute button
+    const muteBtn = document.getElementById('mute-btn');
+    if (muteBtn) {
+      muteBtn.addEventListener('click', () => {
+        AUDIO_CONFIG.enabled = !AUDIO_CONFIG.enabled;
+        if (masterGain) {
+          masterGain.gain.value = AUDIO_CONFIG.enabled ? AUDIO_CONFIG.masterVolume : 0;
+        }
+        muteBtn.textContent = AUDIO_CONFIG.enabled ? '\u{1F50A}' : '\u{1F507}';
+        muteBtn.classList.toggle('muted', !AUDIO_CONFIG.enabled);
+      });
+    }
   } catch (e) {
     console.warn('[audio] Web Audio API not available:', e);
   }
@@ -283,6 +308,398 @@ export function playPlayerHit(): void {
   noise.stop(now + duration);
 }
 
+// Melee swing: short ascending whoosh
+export function playMeleeSwing(): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const duration = 0.12;
+
+  const noise = ctx.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'highpass';
+  filter.frequency.setValueAtTime(1500, now);
+  filter.frequency.exponentialRampToValueAtTime(5000, now + duration);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.meleeSwingVolume, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+
+// Melee hit: punchy thump + bright noise
+export function playMeleeHit(): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const duration = 0.08;
+
+  // Low thump
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(120, now);
+  osc.frequency.exponentialRampToValueAtTime(50, now + duration);
+  const oscGain = ctx.createGain();
+  oscGain.gain.setValueAtTime(AUDIO_CONFIG.meleeHitVolume * 0.5, now);
+  oscGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+
+  // Bright noise snap
+  const noise = ctx.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 3000;
+  filter.Q.value = 3;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.meleeHitVolume * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.6);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+
+// Wall slam: heavy impact thud with low rumble
+export function playWallSlam(intensity: number = 1): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const duration = 0.15;
+  const vol = AUDIO_CONFIG.wallSlamVolume * Math.min(intensity, 2);
+
+  // Deep thud — lower pitch than melee hit
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(80, now);
+  osc.frequency.exponentialRampToValueAtTime(30, now + duration);
+  const oscGain = ctx.createGain();
+  oscGain.gain.setValueAtTime(vol * 0.6, now);
+  oscGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+
+  // Crunch noise
+  const noise = ctx.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.5);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 2000;
+  filter.Q.value = 2;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(vol * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.5);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+
+// Enemy impact: mid-pitched collision thud — distinct from wall slam
+export function playEnemyImpact(intensity: number = 1): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const duration = 0.1;
+  const vol = AUDIO_CONFIG.enemyImpactVolume * Math.min(intensity, 2);
+
+  // Mid-pitched thump (higher than wall slam, lower than melee hit)
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(150, now);
+  osc.frequency.exponentialRampToValueAtTime(60, now + duration);
+  const oscGain = ctx.createGain();
+  oscGain.gain.setValueAtTime(vol * 0.5, now);
+  oscGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+
+  // Short noise pop
+  const noise = ctx.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.4);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 1500;
+  filter.Q.value = 3;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(vol * 0.3, now);
+  nGain.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.4);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+
+// Door unlock: ascending 4-note arpeggio (more dramatic than wave clear)
+export function playDoorUnlock(): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const notes = [392, 523, 659, 784]; // G4, C5, E5, G5
+  const noteLen = 0.18;
+
+  notes.forEach((freq, i) => {
+    const osc = ctx!.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    const gain = ctx!.createGain();
+    const start = now + i * 0.1;
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(AUDIO_CONFIG.waveClearVolume * 0.35, start + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + noteLen);
+    osc.connect(gain);
+    gain.connect(masterGain!);
+    osc.start(start);
+    osc.stop(start + noteLen);
+  });
+}
+
+// Player healed: warm ascending tone
+export function playHeal(): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(330, now);
+  osc.frequency.linearRampToValueAtTime(660, now + 0.4);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(0.2, now + 0.05);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + 0.5);
+}
+
+// ─── Vertical Combat Sounds ───
+
+// Jump: short ascending whoosh
+export function playJump(): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const duration = 0.1;
+
+  const noise = ctx.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.setValueAtTime(600, now);
+  filter.frequency.exponentialRampToValueAtTime(2500, now + duration);
+  filter.Q.value = 2;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.jumpVolume, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+
+// Land: low thump proportional to fall speed
+export function playLand(fallSpeed: number): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const intensity = Math.min(fallSpeed / 15, 1.5);
+  const duration = 0.08 + intensity * 0.04;
+
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(60 + intensity * 30, now);
+  osc.frequency.exponentialRampToValueAtTime(25, now + duration);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.landVolume * intensity, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+}
+
+// Launch: upward punch — ascending tone + pop
+export function playLaunch(): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const duration = 0.15;
+
+  // Rising tone
+  const osc = ctx.createOscillator();
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(120, now);
+  osc.frequency.exponentialRampToValueAtTime(600, now + duration * 0.7);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.launchVolume * 0.3, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+
+  // Pop noise
+  const noise = ctx.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.5);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'highpass';
+  filter.frequency.value = 2000;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.launchVolume * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.5);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+
+// Aerial strike: sharp descending crack
+export function playAerialStrike(): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const duration = 0.1;
+
+  const osc = ctx.createOscillator();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(500, now);
+  osc.frequency.exponentialRampToValueAtTime(100, now + duration);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.aerialStrikeVolume * 0.4, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+
+  // Bright snap
+  const noise = ctx.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 4000;
+  filter.Q.value = 4;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.aerialStrikeVolume * 0.5, now);
+  nGain.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.6);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+
+// Slam: heavy ground pound — deep boom + noise
+export function playSlam(fallSpeed: number): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const intensity = Math.min(fallSpeed / 20, 1.5);
+  const duration = 0.2 + intensity * 0.05;
+
+  // Deep boom
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(50 + intensity * 20, now);
+  osc.frequency.exponentialRampToValueAtTime(20, now + duration);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.slamVolume * (0.4 + intensity * 0.3), now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+
+  // Debris noise
+  const noise = ctx.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.7);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 1500;
+  filter.Q.value = 2;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.slamVolume * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.7);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+
+// Dunk grab: metallic catch sound
+export function playDunkGrab(): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const duration = 0.1;
+
+  // High metallic ping
+  const osc = ctx.createOscillator();
+  osc.type = 'triangle';
+  osc.frequency.value = 1200;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.dunkGrabVolume * 0.4, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+}
+
+// Dunk impact: massive boom — bigger than slam
+export function playDunkImpact(): void {
+  if (!ctx || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx.currentTime;
+  const duration = 0.25;
+
+  // Ultra-low boom
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(40, now);
+  osc.frequency.exponentialRampToValueAtTime(15, now + duration);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.dunkImpactVolume * 0.6, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+
+  // Heavy crunch
+  const noise = ctx.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 2000;
+  filter.Q.value = 3;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.dunkImpactVolume * 0.5, now);
+  nGain.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.6);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+
+  // Sub-bass rumble
+  const sub = ctx.createOscillator();
+  sub.type = 'sine';
+  sub.frequency.value = 25;
+  const subGain = ctx.createGain();
+  subGain.gain.setValueAtTime(AUDIO_CONFIG.dunkImpactVolume * 0.3, now);
+  subGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  sub.connect(subGain);
+  subGain.connect(masterGain);
+  sub.start(now);
+  sub.stop(now + duration);
+}
+
 // ─── Event Bus Integration ───
 
 function wireEventBus(): void {
@@ -303,4 +720,42 @@ function wireEventBus(): void {
   });
 
   on('waveCleared', () => playWaveClear());
+
+  on('roomCleared', () => playWaveClear());
+
+  on('roomClearComplete', () => playDoorUnlock());
+
+  on('playerHealed', () => playHeal());
+
+  on('meleeSwing', () => playMeleeSwing());
+
+  on('meleeHit', () => playMeleeHit());
+
+  on('wallSlam', (e: GameEvent) => {
+    if (e.type === 'wallSlam') playWallSlam(e.speed / 5); // normalize around speed 5
+  });
+
+  on('enemyImpact', (e: GameEvent) => {
+    if (e.type === 'enemyImpact') playEnemyImpact(e.speed / 5);
+  });
+
+  // ─── Vertical Combat Events ───
+
+  on('playerJump', () => playJump());
+
+  on('playerLand', (e: GameEvent) => {
+    if (e.type === 'playerLand') playLand(e.fallSpeed);
+  });
+
+  on('enemyLaunched', () => playLaunch());
+
+  on('aerialStrike', () => playAerialStrike());
+
+  on('playerSlam', (e: GameEvent) => {
+    if (e.type === 'playerSlam') playSlam(e.fallSpeed);
+  });
+
+  on('dunkGrab', () => playDunkGrab());
+
+  on('dunkImpact', () => playDunkImpact());
 }

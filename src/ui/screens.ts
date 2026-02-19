@@ -1,7 +1,13 @@
+import { initRoomSelector } from './roomSelector';
+
 let startScreen: any, startBtn: any;
 let gameOverScreen: any, restartBtn: any, gameOverStats: any;
 
-export function initScreens(onRestart: () => void, onStart: () => void) {
+export function initScreens(
+  onRestart: () => void,
+  onStart: () => void,
+  onStartAtRoom?: (roomIndex: number) => void
+) {
   // Start screen
   startScreen = document.getElementById('start-screen');
   startBtn = document.getElementById('start-btn');
@@ -15,6 +21,14 @@ export function initScreens(onRestart: () => void, onStart: () => void) {
     e.preventDefault();
     handleStart();
   });
+
+  // Room selector
+  if (onStartAtRoom) {
+    initRoomSelector((roomIndex) => {
+      hideStartScreen();
+      onStartAtRoom(roomIndex);
+    });
+  }
 
   // Game over screen
   gameOverScreen = document.getElementById('game-over-screen');
