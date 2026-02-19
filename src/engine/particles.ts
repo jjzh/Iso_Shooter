@@ -131,6 +131,92 @@ export const DOOR_UNLOCK_BURST: ParticleConfig = {
   shape: 'sphere',
 };
 
+// ─── Vertical Combat Presets ───
+
+export const JUMP_DUST: ParticleConfig = {
+  count: 4,
+  lifetime: 0.2,
+  speed: 3,
+  spread: Math.PI,
+  size: 0.05,
+  color: 0xbbaa88,
+  fadeOut: true,
+  gravity: 2,
+  shape: 'sphere',
+};
+
+export const LAND_DUST: ParticleConfig = {
+  count: 6,
+  lifetime: 0.3,
+  speed: 4,
+  spread: Math.PI,
+  size: 0.06,
+  color: 0xbbaa88,
+  fadeOut: true,
+  gravity: 3,
+  shape: 'sphere',
+};
+
+export const LAUNCH_BURST: ParticleConfig = {
+  count: 6,
+  lifetime: 0.3,
+  speed: 7,
+  spread: Math.PI * 0.4,
+  size: 0.06,
+  color: 0xffaa00,
+  fadeOut: true,
+  gravity: -2,   // float upward with the launch
+  shape: 'box',
+};
+
+export const AERIAL_SPIKE: ParticleConfig = {
+  count: 8,
+  lifetime: 0.25,
+  speed: 8,
+  spread: Math.PI * 0.6,
+  size: 0.07,
+  color: 0x44ddff,
+  fadeOut: true,
+  gravity: 6,
+  shape: 'box',
+};
+
+export const SLAM_IMPACT: ParticleConfig = {
+  count: 10,
+  lifetime: 0.35,
+  speed: 8,
+  spread: Math.PI,
+  size: 0.07,
+  color: 0xff8800,
+  fadeOut: true,
+  gravity: 4,
+  shape: 'box',
+};
+
+export const DUNK_GRAB_SPARK: ParticleConfig = {
+  count: 5,
+  lifetime: 0.2,
+  speed: 5,
+  spread: Math.PI * 0.5,
+  size: 0.05,
+  color: 0xff44ff,
+  fadeOut: true,
+  gravity: 0,
+  shape: 'sphere',
+};
+
+export const DUNK_IMPACT_BURST: ParticleConfig = {
+  count: 14,
+  lifetime: 0.4,
+  speed: 10,
+  spread: Math.PI,
+  size: 0.08,
+  color: 0xff2244,
+  fadeOut: true,
+  gravity: 5,
+  shape: 'box',
+};
+
 // ─── Pool ───
 
 const POOL_SIZE = 80;
@@ -620,6 +706,69 @@ function wireEventBus(): void {
       // Burst particles at the door location (top of far wall)
       // We don't have the exact position here, so emit upward from center-far
       burst({ x: 0, y: 2, z: 0 }, DOOR_UNLOCK_BURST);
+    }
+  });
+
+  // ─── Vertical Combat Events ───
+
+  on('playerJump', (e: GameEvent) => {
+    if (e.type === 'playerJump') {
+      burst({ x: e.position.x, y: 0.1, z: e.position.z }, JUMP_DUST);
+    }
+  });
+
+  on('playerLand', (e: GameEvent) => {
+    if (e.type === 'playerLand') {
+      const intensity = Math.min(e.fallSpeed / 10, 2);
+      burst(
+        { x: e.position.x, y: 0.1, z: e.position.z },
+        { ...LAND_DUST, count: Math.round(3 + intensity * 4) }
+      );
+    }
+  });
+
+  on('enemyLaunched', (e: GameEvent) => {
+    if (e.type === 'enemyLaunched') {
+      burst(
+        { x: e.position.x, y: 0.3, z: e.position.z },
+        LAUNCH_BURST
+      );
+    }
+  });
+
+  on('aerialStrike', (e: GameEvent) => {
+    if (e.type === 'aerialStrike') {
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        AERIAL_SPIKE
+      );
+    }
+  });
+
+  on('playerSlam', (e: GameEvent) => {
+    if (e.type === 'playerSlam') {
+      burst(
+        { x: e.position.x, y: 0.1, z: e.position.z },
+        { ...SLAM_IMPACT, count: Math.round(8 + (e.fallSpeed / 15) * 4) }
+      );
+    }
+  });
+
+  on('dunkGrab', (e: GameEvent) => {
+    if (e.type === 'dunkGrab') {
+      burst(
+        { x: e.position.x, y: 0.8, z: e.position.z },
+        DUNK_GRAB_SPARK
+      );
+    }
+  });
+
+  on('dunkImpact', (e: GameEvent) => {
+    if (e.type === 'dunkImpact') {
+      burst(
+        { x: e.position.x, y: 0.1, z: e.position.z },
+        DUNK_IMPACT_BURST
+      );
     }
   });
 }
