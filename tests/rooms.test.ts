@@ -8,8 +8,8 @@ import { ENEMY_TYPES } from '../src/config/enemies';
 // ─── Demo Room Definitions ───
 
 describe('Demo room definitions', () => {
-  it('should have 3 rooms', () => {
-    expect(ROOMS.length).toBe(3);
+  it('should have 4 rooms', () => {
+    expect(ROOMS.length).toBe(4);
   });
 
   ROOMS.forEach((room, i) => {
@@ -158,6 +158,42 @@ describe('Room 3: Physics Playground', () => {
 
   it('should have more obstacles than room 2', () => {
     expect(room.obstacles.length).toBeGreaterThan(ROOMS[1].obstacles.length);
+  });
+});
+
+// ─── Room 4 specifics: The Arena (Vertical) ───
+
+describe('Room 4: The Arena', () => {
+  const room = ROOMS[3];
+
+  it('should have vertical profile', () => {
+    expect(room.profile).toBe('vertical');
+  });
+
+  it('should have heightZones', () => {
+    expect(room.heightZones).toBeDefined();
+    expect(room.heightZones!.length).toBeGreaterThan(0);
+  });
+
+  it('should have tighter frustum', () => {
+    expect(room.frustumSize).toBeDefined();
+    expect(room.frustumSize).toBeLessThan(12);
+  });
+
+  it('should only have goblins', () => {
+    const types = new Set(
+      room.spawnBudget.packs.flatMap(p => p.enemies.map(e => e.type))
+    );
+    expect(types.size).toBe(1);
+    expect(types.has('goblin')).toBe(true);
+  });
+
+  it('should have no pits (vertical is the hazard)', () => {
+    expect(room.pits.length).toBe(0);
+  });
+
+  it('should have no obstacles (open for aerial combat)', () => {
+    expect(room.obstacles.length).toBe(0);
   });
 });
 
