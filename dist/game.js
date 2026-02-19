@@ -5927,6 +5927,7 @@ function autoAimClosestEnemy(enemies) {
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i];
     if (e.fellInPit || e.health <= 0) continue;
+    if (hasTag(e, TAG.STUNNED)) continue;
     const dx = e.pos.x - pp.x;
     const dz = e.pos.z - pp.z;
     const dist = dx * dx + dz * dz;
@@ -13447,7 +13448,7 @@ function gameLoop(timestamp) {
   const gameDt = dt * getBulletTimeScale();
   updatePlayer(input, dt, gameState);
   input._gameState = gameState;
-  updateAerialVerbs(dt, getPlayerPos(), input);
+  updateAerialVerbs(gameDt, getPlayerPos(), input);
   updateCarriers(dt, gameState);
   updateLaunchPillars(dt);
   updateProjectiles(gameDt);

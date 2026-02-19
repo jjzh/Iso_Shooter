@@ -1,5 +1,6 @@
 import { screenToWorld } from './renderer';
 import { getPlayerPos } from '../entities/player';
+import { hasTag, TAG } from './tags';
 
 const keys: Record<string, boolean> = {};
 
@@ -413,6 +414,9 @@ export function autoAimClosestEnemy(enemies: any[]) {
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i];
     if (e.fellInPit || e.health <= 0) continue;
+    // Skip launched/floated enemies — they're right next to the player
+    // and would cause spike to aim at itself instead of a ground target
+    if (hasTag(e, TAG.STUNNED)) continue;
     const dx = e.pos.x - pp.x;
     const dz = e.pos.z - pp.z;
     const dist = dx * dx + dz * dz; // squared distance is fine for comparison

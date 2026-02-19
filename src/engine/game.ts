@@ -99,10 +99,11 @@ function gameLoop(timestamp: number): void {
   // 2. Player (uses real dt — player moves at normal speed)
   updatePlayer(input, dt, gameState);
 
-  // 2b. Aerial verbs (dunk, spike, etc.) — uses real dt like player
+  // 2b. Aerial verbs (dunk, spike, etc.) — uses gameDt so bullet time slows
+  // the float/wind/slam phases, giving the player more perceived aim time
   // Attach gameState to input so verb onComplete can access enemies for AoE
   (input as any)._gameState = gameState;
-  updateAerialVerbs(dt, getPlayerPos(), input);
+  updateAerialVerbs(gameDt, getPlayerPos(), input);
 
   // 2c. Entity carriers (spiked enemies as projectiles) — real dt like player
   updateCarriers(dt, gameState);
