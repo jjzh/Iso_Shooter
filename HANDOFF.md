@@ -10,13 +10,13 @@
 - **Last updated:** 2026-02-19
 
 ## Current State
-**Phase 3 complete. 5 playable demo rooms with assassin detection mechanics integrated. 817 tests pass across 25 test files.**
+**Phase 3 complete + playtested. 5 playable demo rooms with iterated assassin detection mechanics. 817 tests pass across 25 test files.**
 
 - Room 1 ("The Origin") — cylinder+sphere player, auto-fire projectiles, no melee/force push, goblins, no pits
 - Room 2 ("The Foundation") — fist rig, melee + dash + force push, goblins, 3 pits, pit highlights on entry, no wall slam/collision damage
 - Room 3 ("Physics Playground") — fist rig, 3 pits, 4 obstacles, wall slams + enemy collision damage + spatial force push
-- Room 4 ("The Arena") — vertical combat: jump (Space), launch (E), dunk (hold LMB), spike (tap LMB), aerial strike, 2 raised platforms, tighter camera (9.6 frustum), blue platform highlights on entry
-- Room 5 ("The Shadows") — assassin profile: vision cones (color-ramping ground wedges), patrol maze (3 lane walls + 2 cover pillars), detection timer (350ms in-cone → aggro), aggro indicator (red "!" pop), bullet time (auto-triggers on detection, Q toggle), 3 pits for force push kills, LOS occlusion (cones clip behind walls)
+- Room 4 ("The Shadows") — assassin profile: vision cones, waypoint patrol circuits around pits, detection-based bullet time (cone overlap triggers BT before aggro), push aggro with 250ms delay, 3 pits for force push kills, LOS occlusion
+- Room 5 ("The Arena") — vertical combat: jump (Space), launch (E), dunk (hold LMB), spike (tap LMB), aerial strike, 2 raised platforms, tighter camera (9.6 frustum), blue platform highlights on entry
 - All rooms are sandbox mode (door starts unlocked, enemies still spawn)
 - Room selector on start screen lets you jump to any room
 - Player visual swaps between origin model (cylinder+sphere) and fist rig based on room profile
@@ -25,7 +25,7 @@
 - HUD grays out abilities not available for current room profile (progressive reveal)
 - Mobile buttons: profile-gated radial fan layout (dash/push for base, jump/launch/cancel for vertical)
 - Per-room physics flags: `enableWallSlamDamage`, `enableEnemyCollisionDamage` on RoomDefinition
-- Bullet time HUD: meter bar + vignette overlay + ceremony text (already integrated from Phase 2, now active via enemyAggroed event)
+- Bullet time HUD: meter bar + vignette overlay + ceremony text — BT triggered by detection events (cone overlap), not aggro
 
 Design plan: `docs/plans/2026-02-18-portfolio-demo-design.md`
 Phase 1 implementation plan: `docs/plans/2026-02-18-portfolio-phase1-foundation.md`
@@ -38,8 +38,8 @@ Phase 3 implementation: `docs/plans/2026-02-19-the-shadows-implementation.md`
 1. **The Origin** — Feb 7 prototype (auto-fire, cylinder+sphere, pure movement) ✅
 2. **The Foundation** — base combat (melee, dash, pit + force push) ✅
 3. **Physics Playground** — wall slams, enemy collisions, force push as spatial tool ✅
-4. **The Arena** — vertical branch (Y-axis, jump, launch, dunk, spike) ✅
-5. **The Shadows** — assassin branch (vision cones, patrol maze, bullet time) ✅
+4. **The Shadows** — assassin branch (vision cones, patrol maze, bullet time) ✅
+5. **The Arena** — vertical branch (Y-axis, jump, launch, dunk, spike) ✅
 6. **The Workshop** — rule-bending branch (physics objects, enlarge/shrink)
 
 Architecture: profile-gated superset (`'origin' | 'base' | 'assassin' | 'rule-bending' | 'vertical'`). Each room declares its profile. Sandbox mode (no required combat). Room selector UI to jump anywhere.
@@ -80,10 +80,14 @@ Key architecture decisions:
 8. Full build + typecheck + all 817 tests pass
 
 Key architecture decisions:
-- Bullet time was already fully integrated from Phase 2 — zero bullet time work needed. It subscribes to `enemyAggroed` event (which was never emitted before). Now enemy.ts emits it, and bullet time auto-activates.
+- Bullet time triggers on vision cone overlap (detectionStarted/detectionCleared events), NOT on aggro — gives player a slow-mo reaction window before aggro
+- Reference-counted BT activation: `_detectingCount` tracks simultaneous cone overlaps, BT stays active until all clear
+- Push aggro uses 250ms delay timer (doesn't trigger BT — only cone detection does)
+- Damage instantly aggros regardless of detection state
 - `aggroed` defaults to `true` on spawn — non-assassin rooms skip detection entirely
 - `getActiveProfile() === 'assassin'` gates all new enemy behavior
-- Patrol uses smooth turning (turnToward helper) so vision cones sweep readable arcs
+- Waypoint patrol: rectangular circuits around pits, slow turn speed (1.2 rad/s), stops walking while turning >45°
+- Fixed-position spawning: `SpawnPackEnemy.fixedPos` overrides zone-based spawn resolution
 - Detection timer decays faster than it builds (1500ms/s decay vs 1000ms/s build) — forgiving
 
 ## New Files Created (Phase 3)
@@ -117,12 +121,13 @@ Key architecture decisions:
 - [ ] Whether to include archers in any rooms (adds ranged pressure but more complexity)
 - [ ] Room highlight timing/color tuning — current defaults feel good but may want to adjust per room
 - [ ] Commentary UI — how to present the design narrative text per room
-- [ ] Room 5 detection tuning — detection timer (350ms), cone angle (~48°), patrol distance (6) need playtesting
+- [x] ~~Room 5 detection tuning~~ — playtested, iterated: waypoint patrols, detection-based BT, push aggro delay, fixed spawns near pits
 - [ ] Whether Room 6 adds enough value vs. polishing existing 5 and deploying
 - [x] ~~Vertical integration approach~~ — resolved: profile-gated superset, 15-task plan executed successfully
 - [x] ~~Assassin integration approach~~ — resolved: profile-gated, bullet time already wired, 8-task plan executed
 
 ## Session Log
+- **2026-02-19 (session 6)** — Playtested Room 4 "The Shadows" and iterated. Fixed 3 bugs from Phase 3 (force push E-key binding, enemy death in detection block, room 4/5 ordering). Added waypoint patrol system (slow rectangular circuits around pits instead of quick snap-turns). Fixed-position spawning (goblins near each pit). Refactored bullet time to trigger on vision cone overlap (detectionStarted/detectionCleared events with reference counting) instead of aggro — gives slow-mo reaction window before aggro fires. Added push aggro with 250ms delay (doesn't trigger BT). Fixed dash label. Key decisions: BT should feel like a reaction window to cone detection, not a consequence of aggro; push should aggro enemies but not trigger BT. Next: more playtesting, polish pass, or Room 6.
 - **2026-02-19 (session 5)** — Completed assassin detection room integration (Phase 3). Designed patrol maze with vision cones as portfolio's detection puzzle room. Executed 8-task plan: copied visionCone.ts, extended types/events/config, added patrol+detection+aggro to enemy.ts (profile-gated), wired systems, added Room 5 "The Shadows" (14×14 maze, 3 walls, 2 pillars, 3 pits, 5 goblins). Key discovery: bullet time was already fully integrated from Phase 2 — just needed to emit `enemyAggroed` event. 817 tests across 25 files all pass. Next: playtest Room 5 to tune detection feel.
 - **2026-02-19 (session 4)** — Completed full vertical combat integration (Phase 2). Executed 15-task plan: copied 11 files from explore/vertical, built profile-gated superset versions of player.ts/physics.ts/enemy.ts/game.ts/roomManager.ts, added Room 4 ("The Arena") with heightZones and platform rendering, profile-gated mobile buttons, 7 audio + 7 particle presets, bullet time exit ramp. Added blue platform highlights rendering at ground level. 793 tests across 24 files all pass. Key decisions: fists replace sword globally; Space=jump/Shift=dash/E=launch globally (no-op in non-vertical rooms); per-room physics flags preserved. PR: #3.
 - **2026-02-18 (session 3)** — Added "The Origin" room (Room 1) recreating Feb 7 prototype: cylinder+sphere player model, auto-fire projectiles toward cursor, no melee/force push/afterimages. Stripped tuning panel and spawn editor. Added per-room physics flags (`enableWallSlamDamage`, `enableEnemyCollisionDamage`) — Foundation disables both to focus on pit kills, Physics Playground enables both. Added 3 pits to Foundation (was 1). Built room highlight system with vertical corner pillars + gradient glow wall planes that pulse on room entry. HUD now grays out abilities unavailable for current profile (progressive reveal). Highlight system is reusable with configurable color per target type. 531 tests pass. PR: #3.
