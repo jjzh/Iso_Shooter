@@ -264,7 +264,7 @@ const gameState = {
 12. ✅ Hit feedback (flash, knockback, screen shake)
 
 ### Stretch Goals (if time remains)
-13. Mistral AI integration — between waves, send player performance data (clear time, health remaining, abilities used, enemies killed by type) to Mistral API and have it adjust next wave composition dynamically. This is the hackathon's "AI hook." Mistral endpoint: `https://api.mistral.ai/v1/chat/completions`. Model: `mistral-large-latest`. Credits available with code at `https://mistral-credits-app-production.up.railway.app/h/supercell-game-hack/` (password: GamingHack). The prompt to Mistral should describe available enemy types and ask it to return a JSON wave config.
+13. Mistral AI integration — between waves, send player performance data (clear time, health remaining, abilities used, enemies killed by type) to Mistral API and have it adjust next wave composition dynamically. This is the hackathon's "AI hook." Mistral endpoint: `https://api.mistral.ai/v1/chat/completions`. Model: `mistral-large-latest`. The prompt to Mistral should describe available enemy types and ask it to return a JSON wave config.
 14. Chests in the arena that cost currency to open, granting a random power-up.
 15. Power-up selection screen between waves (choose 1 of 3 buffs).
 16. Sound effects (howler.js or simple Web Audio API).
