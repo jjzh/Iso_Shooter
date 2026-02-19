@@ -3,7 +3,7 @@ import { AbilitiesConfig } from '../types/index';
 export const ABILITIES: AbilitiesConfig = {
   dash: {
     name: 'Shadow Dash',
-    key: 'Space',
+    key: 'Shift',
     cooldown: 3000,
     duration: 200,
     distance: 5,

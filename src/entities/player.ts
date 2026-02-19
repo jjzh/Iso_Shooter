@@ -202,7 +202,7 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   }
 
   // Trigger charge (start) — not available in origin profile
-  if (getActiveProfile() !== 'origin' && (inputState.chargeStarted || inputState.ultimate) && gameState.abilities.ultimate.cooldownRemaining <= 0 && !isCharging && !isPlayerAirborne && !playerHasTag(TAG.AERIAL) && actionLockoutTimer <= 0) {
+  if (getActiveProfile() !== 'origin' && (inputState.chargeStarted || (inputState.ultimate && getActiveProfile() !== 'vertical')) && gameState.abilities.ultimate.cooldownRemaining <= 0 && !isCharging && !isPlayerAirborne && !playerHasTag(TAG.AERIAL) && actionLockoutTimer <= 0) {
     startCharge(inputState, gameState);
   }
 

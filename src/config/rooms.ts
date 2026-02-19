@@ -3,7 +3,7 @@
 // Rooms are rectangular (longer on Z) — player enters from +Z (bottom-left in iso),
 // progresses toward -Z (top-right in iso), exits through a door at the far end
 
-import { Obstacle, Pit, SpawnPack, RoomSpawnBudget, PlayerProfile } from '../types/index';
+import { Obstacle, Pit, SpawnPack, SpawnPackEnemy, RoomSpawnBudget, PlayerProfile } from '../types/index';
 
 export type HighlightTarget = 'pits' | 'obstacles' | 'platforms';
 
@@ -36,11 +36,11 @@ export interface RoomDefinition {
 
 // ─── Helper: build packs of N enemies ───
 
-function pack(enemies: { type: string }[], zone: SpawnPack['spawnZone'] = 'ahead'): SpawnPack {
+function pack(enemies: SpawnPackEnemy[], zone: SpawnPack['spawnZone'] = 'ahead'): SpawnPack {
   return { enemies, spawnZone: zone };
 }
 
-function goblins(n: number): { type: string }[] {
+function goblins(n: number): SpawnPackEnemy[] {
   return Array.from({ length: n }, () => ({ type: 'goblin' }));
 }
 
@@ -146,7 +146,67 @@ export const ROOMS: RoomDefinition[] = [
   },
 
   // ══════════════════════════════════════════════════════════════════════
-  // Room 4: "The Arena" — vertical combat: jump, launch, dunk, spike
+  // Room 4: "The Shadows" — patrol maze, vision cones, detection puzzle
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: 'The Shadows',
+    profile: 'assassin' as PlayerProfile,
+    sandboxMode: true,
+    commentary: "What if the design question shifts from damage to detection?",
+    arenaHalfX: 14,
+    arenaHalfZ: 14,
+    obstacles: [
+      // Maze walls — creating lanes
+      { x: -5, z: 5, w: 8, h: 2, d: 1 },     // upper-left horizontal wall
+      { x: 5, z: -1, w: 8, h: 2, d: 1 },      // center-right horizontal wall
+      { x: -5, z: -7, w: 8, h: 2, d: 1 },     // lower-left horizontal wall
+      // Cover pillars at intersections
+      { x: 0, z: 8, w: 1.5, h: 2, d: 1.5 },   // top gap pillar
+      { x: -1, z: -4, w: 1.5, h: 2, d: 1.5 }, // center gap pillar
+    ],
+    pits: [
+      // Opportunistic push spots at corridor intersections
+      { x: 8, z: 5, w: 3, d: 3 },     // right side, near upper wall end
+      { x: -8, z: -1, w: 3, d: 3 },    // left side, center height
+      { x: 4, z: -5, w: 3, d: 2.5 },   // lower-right, between center and lower walls
+    ],
+    spawnBudget: {
+      maxConcurrent: 5,
+      telegraphDuration: 1500,
+      packs: [
+        // Pit 1 (x:8, z:5) — right side, 2 goblins on opposite corners
+        {
+          enemies: [
+            { type: 'goblin', fixedPos: { x: 11, z: 3 }, patrolWaypoints: [{ x: 11, z: 3 }, { x: 11, z: 7 }, { x: 5, z: 7 }, { x: 5, z: 3 }] },
+            { type: 'goblin', fixedPos: { x: 5, z: 7 }, patrolWaypoints: [{ x: 5, z: 7 }, { x: 5, z: 3 }, { x: 11, z: 3 }, { x: 11, z: 7 }] },
+          ],
+          spawnZone: 'ahead' as const,
+        },
+        // Pit 2 (x:-8, z:-1) — left side, 2 goblins on opposite corners
+        {
+          enemies: [
+            { type: 'goblin', fixedPos: { x: -5, z: -3 }, patrolWaypoints: [{ x: -5, z: -3 }, { x: -5, z: 1 }, { x: -11, z: 1 }, { x: -11, z: -3 }] },
+            { type: 'goblin', fixedPos: { x: -11, z: 1 }, patrolWaypoints: [{ x: -11, z: 1 }, { x: -11, z: -3 }, { x: -5, z: -3 }, { x: -5, z: 1 }] },
+          ],
+          spawnZone: 'ahead' as const,
+        },
+        // Pit 3 (x:4, z:-5) — lower center-right, 1 goblin
+        {
+          enemies: [
+            { type: 'goblin', fixedPos: { x: 7, z: -3 }, patrolWaypoints: [{ x: 7, z: -3 }, { x: 7, z: -7 }, { x: 1, z: -7 }, { x: 1, z: -3 }] },
+          ],
+          spawnZone: 'ahead' as const,
+        },
+      ],
+    },
+    playerStart: { x: -10, z: 10 },
+    enableWallSlamDamage: false,
+    enableEnemyCollisionDamage: false,
+    highlights: [{ target: 'pits' }],
+  },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 5: "The Arena" — vertical combat: jump, launch, dunk, spike
   // ══════════════════════════════════════════════════════════════════════
   {
     name: 'The Arena',
@@ -174,45 +234,5 @@ export const ROOMS: RoomDefinition[] = [
     enableEnemyCollisionDamage: true,
     frustumSize: 9.6,
     highlights: [{ target: 'platforms', color: 0x4488ff }],
-  },
-
-  // ══════════════════════════════════════════════════════════════════════
-  // Room 5: "The Shadows" — patrol maze, vision cones, detection puzzle
-  // ══════════════════════════════════════════════════════════════════════
-  {
-    name: 'The Shadows',
-    profile: 'assassin' as PlayerProfile,
-    sandboxMode: true,
-    commentary: "What if the design question shifts from damage to detection?",
-    arenaHalfX: 14,
-    arenaHalfZ: 14,
-    obstacles: [
-      // Maze walls — creating lanes
-      { x: -5, z: 5, w: 8, h: 2, d: 1 },     // upper-left horizontal wall
-      { x: 5, z: -1, w: 8, h: 2, d: 1 },      // center-right horizontal wall
-      { x: -5, z: -7, w: 8, h: 2, d: 1 },     // lower-left horizontal wall
-      // Cover pillars at intersections
-      { x: 0, z: 8, w: 1.5, h: 2, d: 1.5 },   // top gap pillar
-      { x: -1, z: -4, w: 1.5, h: 2, d: 1.5 }, // center gap pillar
-    ],
-    pits: [
-      // Opportunistic push spots at corridor intersections
-      { x: 8, z: 5, w: 3, d: 3 },     // right side, near upper wall end
-      { x: -8, z: -1, w: 3, d: 3 },    // left side, center height
-      { x: 4, z: -10, w: 3, d: 2.5 },  // lower-right dead end
-    ],
-    spawnBudget: {
-      maxConcurrent: 5,
-      telegraphDuration: 1500,
-      packs: [
-        pack(goblins(2), 'ahead'),
-        pack(goblins(2), 'sides'),
-        pack(goblins(1), 'far'),
-      ],
-    },
-    playerStart: { x: -10, z: 10 },
-    enableWallSlamDamage: false,
-    enableEnemyCollisionDamage: false,
-    highlights: [{ target: 'pits' }],
   },
 ];

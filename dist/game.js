@@ -62,6 +62,24 @@ function getCollisionBounds() {
   return bounds;
 }
 
+// src/config/terrain.ts
+var HEIGHT_ZONES = [];
+function setHeightZones(zones) {
+  HEIGHT_ZONES.length = 0;
+  zones.forEach((z) => HEIGHT_ZONES.push(z));
+}
+function getGroundHeight(x, z) {
+  let maxY = 0;
+  for (const zone of HEIGHT_ZONES) {
+    const halfW = zone.w / 2;
+    const halfD = zone.d / 2;
+    if (x >= zone.x - halfW && x <= zone.x + halfW && z >= zone.z - halfD && z <= zone.z + halfD) {
+      if (zone.y > maxY) maxY = zone.y;
+    }
+  }
+  return maxY;
+}
+
 // src/engine/renderer.ts
 var scene;
 var camera;
@@ -72,6 +90,7 @@ var cameraOffset = new THREE.Vector3(20, 20, 20);
 var obstacleMeshes = [];
 var wallMeshes = [];
 var pitMeshes = [];
+var _platformMeshes = [];
 var shakeRemaining = 0;
 var shakeIntensity = 0;
 var _camTarget = new THREE.Vector3();
@@ -235,9 +254,29 @@ function createPits() {
     pitMeshes.push(wEdge);
   }
 }
+function clearPlatformMeshes() {
+  for (const m of _platformMeshes) {
+    scene.remove(m);
+    if (m.geometry) m.geometry.dispose();
+  }
+  _platformMeshes = [];
+}
+function createPlatforms() {
+  clearPlatformMeshes();
+  const mat = new THREE.MeshStandardMaterial({ color: 3368618, roughness: 0.7 });
+  for (const zone of HEIGHT_ZONES) {
+    const geo = new THREE.BoxGeometry(zone.w, zone.y, zone.d);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(zone.x, zone.y / 2, zone.z);
+    scene.add(mesh);
+    _platformMeshes.push(mesh);
+  }
+}
 function rebuildArenaVisuals() {
   createObstacles();
   createPits();
+  clearPlatformMeshes();
+  createPlatforms();
 }
 function getViewportSize() {
   if (window.visualViewport) {
@@ -259,6 +298,9 @@ function applyFrustum(f) {
   camera.bottom = -f;
   camera.updateProjectionMatrix();
   currentFrustum = f;
+}
+function setFrustumSize(size) {
+  applyFrustum(size);
 }
 function updateCamera(playerPos2, dt) {
   camera.position.copy(playerPos2).add(cameraOffset);
@@ -323,12 +365,162 @@ var MELEE = {
   hitPause: 40
   // ms of freeze-frame on hit (juice)
 };
+var JUMP = {
+  initialVelocity: 12,
+  // upward velocity on jump
+  gravity: 25,
+  // player gravity (may differ from enemy gravity)
+  airControlMult: 1,
+  // XZ speed multiplier while airborne
+  landingLag: 50,
+  // ms of end-lag on landing
+  coyoteTime: 80
+  // ms of grace period after walking off ledge
+};
+var AERIAL_STRIKE = {
+  damage: 20,
+  // bonus damage (more than ground melee)
+  range: 2.5,
+  // XZ range to find target
+  slamVelocity: -18,
+  // downward velocity applied to enemy (negative = down)
+  screenShake: 2.5,
+  // bigger shake than ground melee
+  hitPause: 60,
+  // longer freeze-frame for impact
+  cooldown: 300
+  // ms between aerial strikes (shorter than ground melee)
+};
+var DUNK = {
+  slamVelocity: -25,
+  // downward velocity for both player + enemy
+  damage: 35,
+  // big damage on impact (the payoff)
+  landingShake: 4,
+  // massive screen shake
+  landingLag: 200,
+  // ms of end-lag
+  aoeRadius: 1.5,
+  // splash damage radius on impact
+  aoeDamage: 10,
+  // splash damage to other nearby enemies
+  aoeKnockback: 10,
+  // knockback to nearby enemies
+  targetRadius: 6,
+  // radius of landing target circle (world units)
+  homing: 60,
+  // XZ homing speed toward target (units/sec)
+  grabPause: 60,
+  // ms freeze-frame on grab
+  grabShake: 1.5,
+  // screen shake on grab
+  carryOffsetY: -0.4,
+  // enemy offset below player during slam fall
+  carryOffsetZ: 0.35,
+  // enemy offset forward during slam fall
+  floatDuration: 600,
+  // ms of zero-gravity float (aim window before dunk)
+  floatConvergeDist: 3.5,
+  // Y distance threshold to trigger float
+  floatEnemyOffsetY: 0.6,
+  // enemy hovers this far above player during float
+  floatDriftSpeed: 3,
+  // XZ drift speed toward each other during float
+  arcRiseVelocity: 8,
+  // upward velocity at grab start
+  arcXzFraction: 0.3
+  // fraction of XZ distance to landing covered during rise
+};
+var SELF_SLAM = {
+  slamVelocity: -30,
+  // fast downward velocity
+  landingShake: 3,
+  // screen shake on impact
+  landingLag: 150,
+  // ms of end-lag
+  damageRadius: 2.5,
+  // AoE damage radius on impact
+  damage: 15,
+  // AoE damage to nearby grounded enemies
+  knockback: 8
+  // knockback force on nearby enemies
+};
+var LAUNCH = {
+  range: 3,
+  // max range to find a target
+  enemyVelMult: 1.3,
+  // enemy launch velocity = JUMP.initialVelocity × this
+  playerVelMult: 1.15,
+  // player hop velocity = JUMP.initialVelocity × this
+  cooldown: 600,
+  // ms cooldown between launches
+  damage: 5,
+  // small chip damage on launch
+  arcFraction: 0.7,
+  // fraction of XZ distance covered by arc velocity
+  pillarDuration: 500,
+  // total animation time ms
+  pillarRiseTime: 150,
+  // ms to emerge from ground
+  pillarHoldTime: 100,
+  // ms at peak before sinking
+  pillarHeight: 1.2,
+  // rise height above ground
+  pillarRadius: 0.3,
+  // cylinder radius
+  pillarColor: 8943462,
+  // stone gray-brown
+  windupDuration: 120,
+  // ms delay between E press and launch execution
+  indicatorColor: 16755200,
+  // ring + emissive color
+  indicatorRingRadius: 0.6,
+  // outer radius of ground ring
+  indicatorOpacity: 0.4
+  // base ring opacity
+};
+var FLOAT_SELECTOR = {
+  holdThreshold: 180,
+  // ms to differentiate tap (spike) vs hold (dunk)
+  chargeVisualDelay: 50,
+  // ms before charge ring starts filling
+  floatDriftRate: 6
+  // exponential decay rate for XZ drift during float
+};
+var SPIKE = {
+  damage: 15,
+  // hit damage to spiked enemy on strike
+  projectileSpeed: 25,
+  // enemy flight speed (units/sec)
+  projectileAngle: 35,
+  // degrees below horizontal toward aim point
+  throughDamage: 20,
+  // damage to enemies hit along flight path
+  throughKnockback: 8,
+  // knockback to path-hit enemies
+  impactDamage: 15,
+  // AoE damage on ground impact
+  impactRadius: 2,
+  // AoE radius on ground impact
+  impactKnockback: 10,
+  // knockback on ground impact
+  windupDuration: 80,
+  // ms windup before strike
+  hangDuration: 150,
+  // ms hang after strike (follow-through)
+  fastFallGravityMult: 2.5,
+  // enhanced gravity during post-spike fall
+  screenShake: 3,
+  // shake on spike strike
+  impactShake: 2.5
+  // shake on enemy ground impact
+};
 
 // src/config/abilities.ts
 var ABILITIES = {
   dash: {
     name: "Shadow Dash",
-    key: "Space",
+    key: "Shift",
     cooldown: 3e3,
     duration: 200,
     distance: 5,
@@ -661,6 +853,13 @@ var ENEMY_TYPES = {
       leapSpeed: 7,
       arcHeight: 2,
       cooldown: 4e3
+    },
+    aggroRadius: 8,
+    patrol: {
+      distance: 6,
+      speed: 1.2,
+      pauseMin: 500,
+      pauseMax: 1500
     }
   },
   skeletonArcher: {
@@ -1244,13 +1443,413 @@ function on(type, callback) {
   set.add(callback);
 }
 
+// src/engine/tags.ts
+var tagSets = /* @__PURE__ */ new Map();
+function ensureSet(owner) {
+  let set = tagSets.get(owner);
+  if (!set) {
+    set = /* @__PURE__ */ new Set();
+    tagSets.set(owner, set);
+  }
+  return set;
+}
+function addTag(owner, tag) {
+  ensureSet(owner).add(tag);
+}
+function removeTag(owner, tag) {
+  const set = tagSets.get(owner);
+  if (set) set.delete(tag);
+}
+function hasTag(owner, tag) {
+  const set = tagSets.get(owner);
+  if (!set) return false;
+  if (set.has(tag)) return true;
+  const prefix = tag + ".";
+  for (const t of set) {
+    if (t.startsWith(prefix)) return true;
+  }
+  return false;
+}
+function removeTagsMatching(owner, prefix) {
+  const set = tagSets.get(owner);
+  if (!set) return;
+  const dotPrefix = prefix + ".";
+  for (const tag of [...set]) {
+    if (tag === prefix || tag.startsWith(dotPrefix)) {
+      set.delete(tag);
+    }
+  }
+}
+function clearTags(owner) {
+  tagSets.delete(owner);
+}
+function clearAllTags() {
+  tagSets.clear();
+}
+var PLAYER_OWNER = /* @__PURE__ */ Symbol("player");
+function addPlayerTag(tag) {
+  addTag(PLAYER_OWNER, tag);
+}
+function playerHasTag(tag) {
+  return hasTag(PLAYER_OWNER, tag);
+}
+function removePlayerTagsMatching(prefix) {
+  removeTagsMatching(PLAYER_OWNER, prefix);
+}
+function clearPlayerTags() {
+  clearTags(PLAYER_OWNER);
+}
+var TAG = {
+  // Aerial verb states (added/removed by aerial verb framework)
+  AERIAL: "State.Aerial",
+  AERIAL_RISING: "State.Aerial.Rising",
+  AERIAL_FLOAT: "State.Aerial.Float",
+  AERIAL_DUNK: "State.Aerial.Dunk",
+  AERIAL_SPIKE: "State.Aerial.Spike",
+  // General player states (future — wire these as needed)
+  AIRBORNE: "State.Airborne",
+  // Shared states (applicable to any entity)
+  STUNNED: "State.Stunned"
+};
+
+// src/engine/profileManager.ts
+var activeProfile = "base";
+var currentHooks = null;
+function getActiveProfile() {
+  return activeProfile;
+}
+function setProfile(profile, hooks) {
+  if (currentHooks) {
+    currentHooks.cleanup();
+  }
+  activeProfile = profile;
+  currentHooks = hooks ?? null;
+  if (currentHooks) {
+    currentHooks.setup();
+  }
+}
+
+// src/engine/visionCone.ts
+var raycastFn = null;
+var VISION_CONE_CONFIG = {
+  angle: Math.PI / 3 * 0.8,
+  // ~48° cone (20% narrower than 60°)
+  segments: 16,
+  // geometry resolution
+  opacity: 0.08,
+  // idle cone opacity
+  idleColor: 4521864,
+  // green
+  detectColor1: 16772676,
+  // yellow (detection start)
+  detectColor2: 16746496,
+  // orange (detection mid)
+  aggroColor: 16729156,
+  // red (detection full / aggroed)
+  fadeAfterAggro: 1e3,
+  // ms — fade duration after aggro flash
+  aggroHoldDuration: 250,
+  // ms — red flash holds at full before fading
+  detectionThreshold: 350,
+  // ms — player must be in cone this long to trigger aggro
+  idleTurnRate: 0.4,
+  // rad/s — how fast idle enemies scan back and forth
+  idleScanArc: Math.PI / 3,
+  // ±60° sweep from initial facing while idle
+  turnSpeed: 3
+  // rad/s — how fast enemies rotate toward their target facing (all states)
+};
+var sceneRef3 = null;
+var coneMap = /* @__PURE__ */ new Map();
+var cachedGeo = null;
+var cachedGeoAngle = 0;
+function initVisionCones(scene2, raycast) {
+  sceneRef3 = scene2;
+  if (raycast) raycastFn = raycast;
+}
+function getConeGeo() {
+  const angle = VISION_CONE_CONFIG.angle;
+  if (cachedGeo && Math.abs(cachedGeoAngle - angle) < 1e-3) {
+    return cachedGeo;
+  }
+  if (cachedGeo) cachedGeo.dispose();
+  cachedGeo = new THREE.CircleGeometry(
+    1,
+    VISION_CONE_CONFIG.segments,
+    Math.PI / 2 - angle / 2,
+    angle
+  );
+  cachedGeo.rotateX(-Math.PI / 2);
+  cachedGeoAngle = angle;
+  return cachedGeo;
+}
+function cloneConeGeo() {
+  const geo = getConeGeo().clone();
+  const basePositions = new Float32Array(geo.attributes.position.array);
+  return { geo, basePositions };
+}
+function isInsideVisionCone(enemyX, enemyZ, rotationY, targetX, targetZ, radius) {
+  const dx = targetX - enemyX;
+  const dz = targetZ - enemyZ;
+  const distSq = dx * dx + dz * dz;
+  if (distSq > radius * radius) return false;
+  const angleToTarget = Math.atan2(-dx, -dz);
+  let angleDiff = angleToTarget - rotationY;
+  while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+  while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+  const halfAngle = VISION_CONE_CONFIG.angle / 2;
+  return Math.abs(angleDiff) <= halfAngle;
+}
+function updateDetectionColor(data, detectionT) {
+  if (detectionT <= 0) {
+    data.mesh.material.color.setHex(VISION_CONE_CONFIG.idleColor);
+    data.mesh.material.opacity = VISION_CONE_CONFIG.opacity;
+  } else if (detectionT < 0.5) {
+    const t = detectionT * 2;
+    lerpColor(data.mesh.material.color, VISION_CONE_CONFIG.detectColor1, VISION_CONE_CONFIG.detectColor2, t);
+    data.mesh.material.opacity = VISION_CONE_CONFIG.opacity + t * 0.12;
+  } else {
+    const t = (detectionT - 0.5) * 2;
+    lerpColor(data.mesh.material.color, VISION_CONE_CONFIG.detectColor2, VISION_CONE_CONFIG.aggroColor, t);
+    data.mesh.material.opacity = VISION_CONE_CONFIG.opacity + 0.12 + t * 0.05;
+  }
+}
+var _c1 = { r: 0, g: 0, b: 0 };
+var _c2 = { r: 0, g: 0, b: 0 };
+function lerpColor(target4, hex1, hex2, t) {
+  _c1.r = hex1 >> 16 & 255;
+  _c1.g = hex1 >> 8 & 255;
+  _c1.b = hex1 & 255;
+  _c2.r = hex2 >> 16 & 255;
+  _c2.g = hex2 >> 8 & 255;
+  _c2.b = hex2 & 255;
+  const r = Math.round(_c1.r + (_c2.r - _c1.r) * t);
+  const g = Math.round(_c1.g + (_c2.g - _c1.g) * t);
+  const b = Math.round(_c1.b + (_c2.b - _c1.b) * t);
+  target4.setRGB(r / 255, g / 255, b / 255);
+}
+function addVisionCone(enemy) {
+  if (!sceneRef3) return;
+  if (coneMap.has(enemy)) return;
+  const aggroRadius = enemy.config.aggroRadius;
+  if (!aggroRadius || aggroRadius <= 0) return;
+  if (!enemy._facingInitialized) {
+    enemy.mesh.rotation.y = (Math.random() - 0.5) * Math.PI * 2;
+    enemy.idleBaseRotY = enemy.mesh.rotation.y;
+    enemy.idleScanPhase = Math.random() * Math.PI * 2;
+    enemy._facingInitialized = true;
+  }
+  const { geo, basePositions } = cloneConeGeo();
+  const mat = new THREE.MeshBasicMaterial({
+    color: VISION_CONE_CONFIG.idleColor,
+    transparent: true,
+    opacity: VISION_CONE_CONFIG.opacity,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.scale.set(aggroRadius, 1, aggroRadius);
+  mesh.position.set(enemy.pos.x, 0.02, enemy.pos.z);
+  mesh.renderOrder = -1;
+  sceneRef3.add(mesh);
+  coneMap.set(enemy, {
+    mesh,
+    basePositions,
+    geoAngle: cachedGeoAngle,
+    aggroTimer: 0,
+    holdTimer: 0,
+    wasAggroed: false
+  });
+}
+function updateIdleFacing(enemies, dt) {
+  for (const enemy of enemies) {
+    if (!enemy.aggroed && enemy.idleBaseRotY != null && !enemy.config.patrol) {
+      enemy.idleScanPhase = (enemy.idleScanPhase || 0) + dt * VISION_CONE_CONFIG.idleTurnRate;
+      enemy.mesh.rotation.y = enemy.idleBaseRotY + Math.sin(enemy.idleScanPhase) * VISION_CONE_CONFIG.idleScanArc;
+    }
+  }
+}
+function updateConeOcclusion(data, enemy) {
+  if (!raycastFn) return;
+  const positions = data.mesh.geometry.attributes.position.array;
+  const base = data.basePositions;
+  const aggroRadius = enemy.config.aggroRadius;
+  const rotY = enemy.mesh.rotation.y;
+  const cosR = Math.cos(rotY);
+  const sinR = Math.sin(rotY);
+  const segments = VISION_CONE_CONFIG.segments;
+  for (let i = 1; i <= segments + 1; i++) {
+    const bx = base[i * 3 + 0];
+    const bz = base[i * 3 + 2];
+    const worldDirX = bx * cosR + bz * sinR;
+    const worldDirZ = -bx * sinR + bz * cosR;
+    const len = Math.sqrt(worldDirX * worldDirX + worldDirZ * worldDirZ);
+    if (len < 1e-3) continue;
+    const ndx = worldDirX / len;
+    const ndz = worldDirZ / len;
+    const hitDist = raycastFn(enemy.pos.x, enemy.pos.z, ndx, ndz, aggroRadius);
+    const scale = Math.min(hitDist / aggroRadius, 1);
+    positions[i * 3 + 0] = bx * scale;
+    positions[i * 3 + 2] = bz * scale;
+  }
+  data.mesh.geometry.attributes.position.needsUpdate = true;
+}
+function updateVisionCones(enemies, dt) {
+  getConeGeo();
+  for (const enemy of enemies) {
+    const data = coneMap.get(enemy);
+    if (!data) continue;
+    if (Math.abs(data.geoAngle - cachedGeoAngle) > 1e-3) {
+      data.mesh.geometry.dispose();
+      const { geo, basePositions } = cloneConeGeo();
+      data.mesh.geometry = geo;
+      data.basePositions = basePositions;
+      data.geoAngle = cachedGeoAngle;
+    }
+    data.mesh.position.set(enemy.pos.x, 0.02, enemy.pos.z);
+    const aggroRadius = enemy.config.aggroRadius;
+    if (aggroRadius && aggroRadius > 0) {
+      data.mesh.scale.set(aggroRadius, 1, aggroRadius);
+    }
+    data.mesh.rotation.y = enemy.mesh.rotation.y;
+    if (!data.wasAggroed && aggroRadius > 0) {
+      updateConeOcclusion(data, enemy);
+    }
+    if (!enemy.aggroed && !data.wasAggroed) {
+      const threshold = VISION_CONE_CONFIG.detectionThreshold;
+      const detectionT = threshold > 0 ? Math.min((enemy.detectionTimer || 0) / threshold, 1) : 0;
+      updateDetectionColor(data, detectionT);
+    }
+    if (enemy.aggroed && !data.wasAggroed) {
+      data.wasAggroed = true;
+      data.holdTimer = VISION_CONE_CONFIG.aggroHoldDuration;
+      data.aggroTimer = VISION_CONE_CONFIG.fadeAfterAggro;
+      data.mesh.material.color.setHex(VISION_CONE_CONFIG.aggroColor);
+      data.mesh.material.opacity = 0.25;
+    }
+    if (data.wasAggroed) {
+      if (data.holdTimer > 0) {
+        data.holdTimer -= dt * 1e3;
+      } else if (data.aggroTimer > 0) {
+        data.aggroTimer -= dt * 1e3;
+        const fadeT = Math.max(0, data.aggroTimer / VISION_CONE_CONFIG.fadeAfterAggro);
+        data.mesh.material.opacity = 0.25 * fadeT;
+        if (data.aggroTimer <= 0) {
+          data.mesh.visible = false;
+        }
+      }
+    }
+  }
+}
+function removeVisionCone(enemy) {
+  const data = coneMap.get(enemy);
+  if (!data) return;
+  if (sceneRef3) {
+    sceneRef3.remove(data.mesh);
+  }
+  data.mesh.geometry.dispose();
+  data.mesh.material.dispose();
+  coneMap.delete(enemy);
+}
+function clearVisionCones() {
+  for (const [enemy, data] of coneMap) {
+    if (sceneRef3) {
+      sceneRef3.remove(data.mesh);
+    }
+    data.mesh.geometry.dispose();
+    data.mesh.material.dispose();
+  }
+  coneMap.clear();
+}
+
 // src/entities/enemy.ts
-var sceneRef3;
+var sceneRef4;
 var shieldGeo;
 var _mortarFillGeoShared = null;
 var _deathFillGeoShared = null;
+var AGGRO_IND = {
+  heightAbove: 2.2,
+  popDuration: 120,
+  holdDuration: 600,
+  fadeDuration: 400,
+  bobSpeed: 6,
+  bobAmp: 0.08
+};
+var aggroIndicators = [];
+function showAggroIndicator(enemy) {
+  if (!sceneRef4) return;
+  const group = new THREE.Group();
+  const coneGeo = new THREE.ConeGeometry(0.12, 0.5, 6);
+  const mat = new THREE.MeshStandardMaterial({
+    color: 16729156,
+    emissive: 16720418,
+    emissiveIntensity: 0.8,
+    transparent: true,
+    opacity: 1
+  });
+  const cone = new THREE.Mesh(coneGeo, mat);
+  cone.position.y = 0.15;
+  group.add(cone);
+  const dotGeo = new THREE.SphereGeometry(0.08, 6, 6);
+  const dot = new THREE.Mesh(dotGeo, mat.clone());
+  dot.position.y = -0.2;
+  group.add(dot);
+  group.position.set(enemy.pos.x, enemy.config.size.height + AGGRO_IND.heightAbove, enemy.pos.z);
+  group.scale.set(0, 0, 0);
+  sceneRef4.add(group);
+  aggroIndicators.push({ mesh: group, phase: "pop", timer: AGGRO_IND.popDuration, enemy });
+}
+function updateAggroIndicators(dt) {
+  for (let i = aggroIndicators.length - 1; i >= 0; i--) {
+    const ind = aggroIndicators[i];
+    ind.timer -= dt * 1e3;
+    ind.mesh.position.x = ind.enemy.pos.x;
+    ind.mesh.position.z = ind.enemy.pos.z;
+    if (ind.phase === "pop") {
+      const t = 1 - ind.timer / AGGRO_IND.popDuration;
+      const s = t < 0.7 ? t / 0.7 * 1.4 : 1.4 - (t - 0.7) / 0.3 * 0.4;
+      ind.mesh.scale.set(s, s, s);
+      if (ind.timer <= 0) {
+        ind.phase = "hold";
+        ind.timer = AGGRO_IND.holdDuration;
+        ind.mesh.scale.set(1, 1, 1);
+      }
+    } else if (ind.phase === "hold") {
+      const bob = Math.sin(Date.now() * 1e-3 * AGGRO_IND.bobSpeed) * AGGRO_IND.bobAmp;
+      ind.mesh.position.y = ind.enemy.config.size.height + AGGRO_IND.heightAbove + bob;
+      if (ind.timer <= 0) {
+        ind.phase = "fade";
+        ind.timer = AGGRO_IND.fadeDuration;
+      }
+    } else {
+      const fadeT = Math.max(0, ind.timer / AGGRO_IND.fadeDuration);
+      ind.mesh.scale.set(fadeT, fadeT, fadeT);
+      ind.mesh.children.forEach((c) => {
+        if (c.material) c.material.opacity = fadeT;
+      });
+      if (ind.timer <= 0) {
+        sceneRef4.remove(ind.mesh);
+        aggroIndicators.splice(i, 1);
+      }
+    }
+  }
+}
+function clearAggroIndicators() {
+  for (const ind of aggroIndicators) {
+    if (sceneRef4) sceneRef4.remove(ind.mesh);
+  }
+  aggroIndicators.length = 0;
+}
+var PUSH_AGGRO_DELAY = 250;
 function initEnemySystem(scene2) {
-  sceneRef3 = scene2;
+  sceneRef4 = scene2;
+  on("enemyPushed", (e) => {
+    if (e.type !== "enemyPushed") return;
+    const enemy = e.enemy;
+    if (!enemy.aggroed && enemy.config.aggroRadius && getActiveProfile() === "assassin") {
+      enemy.pushAggroTimer = PUSH_AGGRO_DELAY;
+    }
+  });
 }
 function createShieldMesh(cfg) {
   const shieldCfg = cfg.shield;
@@ -1269,7 +1868,7 @@ function createShieldMesh(cfg) {
   mesh.scale.set(radius, radius, radius);
   return mesh;
 }
-function spawnEnemy(typeName, position, gameState2) {
+function spawnEnemy(typeName, position, gameState2, patrolWaypoints) {
   const cfg = ENEMY_TYPES[typeName];
   if (!cfg) return null;
   const group = new THREE.Group();
@@ -1277,7 +1876,7 @@ function spawnEnemy(typeName, position, gameState2) {
   const bodyMesh = model.bodyMesh;
   const headMesh = model.headMesh;
   group.position.copy(position);
-  sceneRef3.add(group);
+  sceneRef4.add(group);
   const enemy = {
     mesh: group,
     bodyMesh,
@@ -1322,7 +1921,7 @@ function spawnEnemy(typeName, position, gameState2) {
     mortarGroundCircle: null,
     // THREE.Mesh for persistent ground circle
     // Physics velocity (knockback system)
-    vel: { x: 0, z: 0 },
+    vel: { x: 0, y: 0, z: 0 },
     // knockback velocity — integrated by applyVelocities()
     // Pit / edge-slide
     wasDeflected: false,
@@ -1352,7 +1951,23 @@ function spawnEnemy(typeName, position, gameState2) {
     // prevent double-hit per attack cycle
     // Hit reaction (squash/bounce)
     hitReaction: createHitReaction(),
-    allMaterials: model.allMaterials
+    allMaterials: model.allMaterials,
+    // Assassin profile state
+    aggroed: true,
+    // default true — non-assassin rooms skip detection
+    detecting: false,
+    // true while player is in cone + LOS (detection building)
+    detectionTimer: 0,
+    pushAggroTimer: 0,
+    // ms remaining until push-triggered aggro (0 = inactive)
+    patrolOriginX: position.x,
+    patrolOriginZ: position.z,
+    patrolDir: 1,
+    patrolPauseTimer: 0,
+    patrolTargetAngle: null,
+    // Waypoint patrol (assassin rooms with fixed patrol circuits)
+    patrolWaypoints: patrolWaypoints || null,
+    patrolWaypointIdx: 0
   };
   if (cfg.shield && cfg.shield.maxHealth > 0) {
     enemy.shieldHealth = cfg.shield.maxHealth;
@@ -1362,6 +1977,21 @@ function spawnEnemy(typeName, position, gameState2) {
     group.add(enemy.shieldMesh);
   }
   gameState2.enemies.push(enemy);
+  if (getActiveProfile() === "assassin" && cfg.aggroRadius) {
+    enemy.aggroed = false;
+    if (patrolWaypoints && patrolWaypoints.length > 1) {
+      const wp = patrolWaypoints[1];
+      const dx = wp.x - position.x;
+      const dz = wp.z - position.z;
+      enemy.mesh.rotation.y = rotationToFace(dx, dz);
+    } else {
+      enemy.mesh.rotation.y = (Math.random() - 0.5) * Math.PI * 2;
+    }
+    enemy.idleBaseRotY = enemy.mesh.rotation.y;
+    enemy.idleScanPhase = Math.random() * Math.PI * 2;
+    enemy._facingInitialized = true;
+    addVisionCone(enemy);
+  }
   return enemy;
 }
 var _toPlayer = new THREE.Vector3();
@@ -1394,13 +2024,235 @@ function pitAwareDir(x, z, dx, dz, lookahead) {
   }
   return { dx: 0, dz: 0 };
 }
+function raycastTerrainDist(ox, oz, dx, dz, maxDist) {
+  if (!_collisionBounds) _collisionBounds = getCollisionBounds();
+  let closest = maxDist;
+  for (const box of _collisionBounds) {
+    let tmin, tmax;
+    if (Math.abs(dx) < 1e-8) {
+      if (ox < box.minX || ox > box.maxX) continue;
+      tmin = -Infinity;
+      tmax = Infinity;
+    } else {
+      const invDx = 1 / dx;
+      let t1 = (box.minX - ox) * invDx;
+      let t2 = (box.maxX - ox) * invDx;
+      if (t1 > t2) {
+        const tmp = t1;
+        t1 = t2;
+        t2 = tmp;
+      }
+      tmin = t1;
+      tmax = t2;
+    }
+    if (Math.abs(dz) < 1e-8) {
+      if (oz < box.minZ || oz > box.maxZ) continue;
+    } else {
+      const invDz = 1 / dz;
+      let t1 = (box.minZ - oz) * invDz;
+      let t2 = (box.maxZ - oz) * invDz;
+      if (t1 > t2) {
+        const tmp = t1;
+        t1 = t2;
+        t2 = tmp;
+      }
+      tmin = Math.max(tmin, t1);
+      tmax = Math.min(tmax, t2);
+    }
+    if (tmax < 0 || tmin > tmax) continue;
+    const t = tmin > 0 ? tmin : tmax;
+    if (t > 0 && t < closest) {
+      closest = t;
+    }
+  }
+  return closest;
+}
+function getForward(rotY) {
+  return { x: -Math.sin(rotY), z: -Math.cos(rotY) };
+}
+function rotationToFace(dx, dz) {
+  return Math.atan2(-dx, -dz);
+}
+function turnToward(enemy, targetRotY, dt) {
+  let diff = targetRotY - enemy.mesh.rotation.y;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  const maxStep = VISION_CONE_CONFIG.turnSpeed * dt;
+  if (Math.abs(diff) <= maxStep) {
+    enemy.mesh.rotation.y = targetRotY;
+  } else {
+    enemy.mesh.rotation.y += Math.sign(diff) * maxStep;
+  }
+}
+var WAYPOINT_TURN_SPEED = 1.2;
+var WAYPOINT_ARRIVAL_DIST = 0.5;
+function updateWaypointPatrol(enemy, dt) {
+  const wps = enemy.patrolWaypoints;
+  const target4 = wps[enemy.patrolWaypointIdx];
+  const dx = target4.x - enemy.pos.x;
+  const dz = target4.z - enemy.pos.z;
+  const dist = Math.sqrt(dx * dx + dz * dz);
+  if (dist < WAYPOINT_ARRIVAL_DIST) {
+    enemy.patrolWaypointIdx = (enemy.patrolWaypointIdx + 1) % wps.length;
+    return;
+  }
+  const targetRot = rotationToFace(dx, dz);
+  let diff = targetRot - enemy.mesh.rotation.y;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  const maxStep = WAYPOINT_TURN_SPEED * dt;
+  if (Math.abs(diff) <= maxStep) {
+    enemy.mesh.rotation.y = targetRot;
+  } else {
+    enemy.mesh.rotation.y += Math.sign(diff) * maxStep;
+  }
+  if (Math.abs(diff) < Math.PI / 4) {
+    const speed = (enemy.config.patrol?.speed || 1.2) * (enemy.slowMult || 1);
+    const fwd = getForward(enemy.mesh.rotation.y);
+    enemy.pos.x += fwd.x * speed * dt;
+    enemy.pos.z += fwd.z * speed * dt;
+    enemy.pos.x = Math.max(-ARENA_HALF_X + 1, Math.min(ARENA_HALF_X - 1, enemy.pos.x));
+    enemy.pos.z = Math.max(-ARENA_HALF_Z + 1, Math.min(ARENA_HALF_Z - 1, enemy.pos.z));
+  }
+}
+function updatePatrol(enemy, dt) {
+  if (enemy.patrolWaypoints && enemy.patrolWaypoints.length > 0) {
+    return updateWaypointPatrol(enemy, dt);
+  }
+  const cfg = enemy.config.patrol;
+  if (!cfg) return;
+  if (enemy.patrolPauseTimer > 0) {
+    enemy.patrolPauseTimer -= dt * 1e3;
+    if (enemy.patrolTargetAngle != null) {
+      turnToward(enemy, enemy.patrolTargetAngle, dt);
+    }
+    return;
+  }
+  const fwd = getForward(enemy.mesh.rotation.y);
+  const speed = cfg.speed * (enemy.slowMult || 1);
+  const hitDist = raycastTerrainDist(enemy.pos.x, enemy.pos.z, fwd.x, fwd.z, 1.5);
+  const hitWall = hitDist < 1;
+  const dFromOriginX = enemy.pos.x - enemy.patrolOriginX;
+  const dFromOriginZ = enemy.pos.z - enemy.patrolOriginZ;
+  const distFromOrigin = Math.sqrt(dFromOriginX * dFromOriginX + dFromOriginZ * dFromOriginZ);
+  const reachedEnd = distFromOrigin >= cfg.distance;
+  if (hitWall || reachedEnd) {
+    enemy.patrolDir *= -1;
+    enemy.patrolTargetAngle = enemy.mesh.rotation.y + Math.PI;
+    while (enemy.patrolTargetAngle > Math.PI) enemy.patrolTargetAngle -= Math.PI * 2;
+    while (enemy.patrolTargetAngle < -Math.PI) enemy.patrolTargetAngle += Math.PI * 2;
+    enemy.patrolPauseTimer = cfg.pauseMin + Math.random() * (cfg.pauseMax - cfg.pauseMin);
+    return;
+  }
+  enemy.pos.x += fwd.x * speed * dt;
+  enemy.pos.z += fwd.z * speed * dt;
+  enemy.pos.x = Math.max(-ARENA_HALF_X + 1, Math.min(ARENA_HALF_X - 1, enemy.pos.x));
+  enemy.pos.z = Math.max(-ARENA_HALF_Z + 1, Math.min(ARENA_HALF_Z - 1, enemy.pos.z));
+}
 function updateEnemies(dt, playerPos2, gameState2) {
+  const isAssassin = getActiveProfile() === "assassin";
+  if (isAssassin) {
+    updateIdleFacing(gameState2.enemies, dt);
+  }
   for (let i = gameState2.enemies.length - 1; i >= 0; i--) {
     const enemy = gameState2.enemies[i];
+    if (enemy.isCarrierPayload) continue;
+    if (isAssassin && !enemy.aggroed && enemy.config.aggroRadius) {
+      if (enemy.pushAggroTimer > 0) {
+        enemy.pushAggroTimer -= dt * 1e3;
+        if (enemy.pushAggroTimer <= 0) {
+          enemy.pushAggroTimer = 0;
+          enemy.aggroed = true;
+          emit({ type: "enemyAggroed", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+          showAggroIndicator(enemy);
+          if (playerPos2) {
+            const toDx = playerPos2.x - enemy.pos.x;
+            const toDz = playerPos2.z - enemy.pos.z;
+            enemy.mesh.rotation.y = rotationToFace(toDx, toDz);
+          }
+        }
+      }
+      if (!enemy.aggroed && enemy.health < enemy.config.health) {
+        enemy.aggroed = true;
+        emit({ type: "enemyAggroed", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+        showAggroIndicator(enemy);
+        if (playerPos2) {
+          const toDx = playerPos2.x - enemy.pos.x;
+          const toDz = playerPos2.z - enemy.pos.z;
+          enemy.mesh.rotation.y = rotationToFace(toDx, toDz);
+        }
+      }
+      if (!enemy.aggroed) {
+        if (enemy.config.patrol && !enemy.isLeaping) {
+          updatePatrol(enemy, dt);
+        }
+        if (playerPos2) {
+          const inCone = isInsideVisionCone(
+            enemy.pos.x,
+            enemy.pos.z,
+            enemy.mesh.rotation.y,
+            playerPos2.x,
+            playerPos2.z,
+            enemy.config.aggroRadius
+          );
+          let inLOS = true;
+          if (inCone) {
+            const ddx = playerPos2.x - enemy.pos.x;
+            const ddz = playerPos2.z - enemy.pos.z;
+            const dist = Math.sqrt(ddx * ddx + ddz * ddz);
+            if (dist > 0.1) {
+              const hitDist = raycastTerrainDist(enemy.pos.x, enemy.pos.z, ddx / dist, ddz / dist, dist);
+              inLOS = hitDist >= dist - 0.5;
+            }
+          }
+          if (inCone && inLOS) {
+            if (!enemy.detecting) {
+              enemy.detecting = true;
+              emit({ type: "detectionStarted", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+            }
+            enemy.detectionTimer += dt * 1e3;
+            if (enemy.detectionTimer >= VISION_CONE_CONFIG.detectionThreshold) {
+              enemy.detecting = false;
+              enemy.aggroed = true;
+              emit({ type: "enemyAggroed", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+              showAggroIndicator(enemy);
+              const toDx = playerPos2.x - enemy.pos.x;
+              const toDz = playerPos2.z - enemy.pos.z;
+              enemy.mesh.rotation.y = rotationToFace(toDx, toDz);
+            }
+          } else {
+            enemy.detectionTimer = Math.max(0, enemy.detectionTimer - dt * 1500);
+            if (enemy.detecting && enemy.detectionTimer === 0) {
+              enemy.detecting = false;
+              emit({ type: "detectionCleared", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+            }
+          }
+        }
+        if (enemy.health <= 0) {
+          if (enemy.detecting) {
+            enemy.detecting = false;
+            emit({ type: "detectionCleared", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+          }
+          emit({ type: "enemyDied", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+          removeVisionCone(enemy);
+          sceneRef4.remove(enemy.mesh);
+          gameState2.enemies.splice(i, 1);
+          const drops = enemy.config.drops;
+          gameState2.currency += Math.floor(
+            drops.currency.min + Math.random() * (drops.currency.max - drops.currency.min + 1)
+          );
+          continue;
+        }
+        enemy.pos.x = Math.max(-ARENA_HALF_X, Math.min(ARENA_HALF_X, enemy.pos.x));
+        enemy.pos.z = Math.max(-ARENA_HALF_Z, Math.min(ARENA_HALF_Z, enemy.pos.z));
+        enemy.mesh.position.copy(enemy.pos);
+        continue;
+      }
+    }
     if (enemy.isLeaping) {
       updateLeap(enemy, dt);
-    } else if (enemy.stunTimer > 0) {
-      enemy.stunTimer -= dt * 1e3;
+    } else if (enemy.stunTimer > 0 || hasTag(enemy, TAG.STUNNED)) {
+      if (enemy.stunTimer > 0) enemy.stunTimer -= dt * 1e3;
     } else {
       switch (enemy.behavior) {
         case "rush":
@@ -1419,11 +2271,35 @@ function updateEnemies(dt, playerPos2, gameState2) {
     }
     enemy.pos.x = Math.max(-19, Math.min(19, enemy.pos.x));
     enemy.pos.z = Math.max(-19, Math.min(19, enemy.pos.z));
+    if (!enemy.isLeaping) {
+      const groundBelow = getGroundHeight(enemy.pos.x, enemy.pos.z);
+      if (enemy.pos.y > groundBelow + 0.05) {
+        const vel = enemy.vel;
+        if (vel && vel.y === 0) vel.y = 0;
+      }
+    }
     if (enemy.isLeaping) {
       enemy.mesh.position.x = enemy.pos.x;
       enemy.mesh.position.z = enemy.pos.z;
     } else {
       enemy.mesh.position.copy(enemy.pos);
+    }
+    const groundBelowEnemy = getGroundHeight(enemy.pos.x, enemy.pos.z);
+    const enemyAirborne = enemy.pos.y > groundBelowEnemy + 0.15 && !enemy.isLeaping;
+    if (enemyAirborne) {
+      if (!enemy._tumbleAngle) enemy._tumbleAngle = 0;
+      enemy._tumbleAngle += dt * 8;
+      enemy.mesh.rotation.x = Math.sin(enemy._tumbleAngle) * 0.5;
+      enemy.mesh.rotation.z = Math.cos(enemy._tumbleAngle * 0.7) * 0.3;
+      const vy = enemy.vel.y || 0;
+      const stretch = 1 + Math.abs(vy) * 0.02;
+      const squash = 1 / Math.sqrt(stretch);
+      enemy.mesh.scale.set(squash, stretch, squash);
+    } else {
+      enemy.mesh.rotation.x = 0;
+      enemy.mesh.rotation.z = 0;
+      enemy.mesh.scale.set(1, 1, 1);
+      enemy._tumbleAngle = 0;
     }
     if (enemy.flashTimer > 0) {
       enemy.flashTimer -= dt * 1e3;
@@ -1471,7 +2347,8 @@ function updateEnemies(dt, playerPos2, gameState2) {
         }
         removeMortarArcLine(enemy);
         removeMortarGroundCircle(enemy);
-        sceneRef3.remove(enemy.mesh);
+        removeVisionCone(enemy);
+        sceneRef4.remove(enemy.mesh);
         gameState2.enemies.splice(i, 1);
         const drops = enemy.config.drops;
         gameState2.currency += Math.floor(
@@ -1490,7 +2367,8 @@ function updateEnemies(dt, playerPos2, gameState2) {
         }
         removeMortarArcLine(enemy);
         removeMortarGroundCircle(enemy);
-        sceneRef3.remove(enemy.mesh);
+        removeVisionCone(enemy);
+        sceneRef4.remove(enemy.mesh);
         gameState2.enemies.splice(i, 1);
         const drops = enemy.config.drops;
         gameState2.currency += Math.floor(
@@ -1517,13 +2395,18 @@ function updateEnemies(dt, playerPos2, gameState2) {
       }
       removeMortarArcLine(enemy);
       removeMortarGroundCircle(enemy);
-      sceneRef3.remove(enemy.mesh);
+      removeVisionCone(enemy);
+      sceneRef4.remove(enemy.mesh);
       gameState2.enemies.splice(i, 1);
       const drops = enemy.config.drops;
       gameState2.currency += Math.floor(
         drops.currency.min + Math.random() * (drops.currency.max - drops.currency.min + 1)
       );
     }
+  }
+  if (isAssassin) {
+    updateVisionCones(gameState2.enemies, dt);
+    updateAggroIndicators(dt);
   }
 }
 function startEnemyMelee(enemy) {
@@ -1890,7 +2773,7 @@ function createMortarArcLine(enemy) {
     depthWrite: false
   });
   const line = new THREE.Line(geo, mat);
-  sceneRef3.add(line);
+  sceneRef4.add(line);
   enemy.mortarArcLine = line;
   updateMortarArcLine(enemy);
 }
@@ -1921,7 +2804,7 @@ function removeMortarArcLine(enemy) {
   if (enemy.mortarArcLine) {
     enemy.mortarArcLine.geometry.dispose();
     enemy.mortarArcLine.material.dispose();
-    sceneRef3.remove(enemy.mortarArcLine);
+    sceneRef4.remove(enemy.mortarArcLine);
     enemy.mortarArcLine = null;
   }
 }
@@ -1934,14 +2817,14 @@ function createMortarGroundCircle(enemy) {
     _circleGeo = new THREE.RingGeometry(0.85, 1, 32);
     _circleGeo.rotateX(-Math.PI / 2);
   }
-  const ringMat = new THREE.MeshBasicMaterial({
+  const ringMat2 = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
     opacity: 0.3,
     side: THREE.DoubleSide,
     depthWrite: false
   });
-  const ringMesh = new THREE.Mesh(_circleGeo, ringMat);
+  const ringMesh2 = new THREE.Mesh(_circleGeo, ringMat2);
   if (!_mortarFillGeoShared) {
     _mortarFillGeoShared = new THREE.CircleGeometry(1, 32);
     _mortarFillGeoShared.rotateX(-Math.PI / 2);
@@ -1955,16 +2838,16 @@ function createMortarGroundCircle(enemy) {
   });
   const fillMesh = new THREE.Mesh(_mortarFillGeoShared, fillMat);
   const group = new THREE.Group();
-  group.add(ringMesh);
+  group.add(ringMesh2);
   group.add(fillMesh);
   group.position.set(enemy.mortarTarget.x, 0.05, enemy.mortarTarget.z);
   const circleStartScale = mortar.circleStartScale || 0.25;
   const startScale = radius * circleStartScale;
   group.scale.set(startScale, startScale, startScale);
-  sceneRef3.add(group);
+  sceneRef4.add(group);
   enemy.mortarGroundCircle = {
     group,
-    ringMat,
+    ringMat: ringMat2,
     fillMat,
     color,
     targetRadius: radius,
@@ -1980,7 +2863,7 @@ function removeMortarGroundCircle(enemy) {
     const gc = enemy.mortarGroundCircle;
     gc.ringMat.dispose();
     gc.fillMat.dispose();
-    sceneRef3.remove(gc.group);
+    sceneRef4.remove(gc.group);
     enemy.mortarGroundCircle = null;
   }
 }
@@ -1993,14 +2876,14 @@ function createDeathTelegraph(enemy) {
     _deathCircleGeo = new THREE.RingGeometry(0.85, 1, 32);
     _deathCircleGeo.rotateX(-Math.PI / 2);
   }
-  const ringMat = new THREE.MeshBasicMaterial({
+  const ringMat2 = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
     opacity: 0.5,
     side: THREE.DoubleSide,
     depthWrite: false
   });
-  const ringMesh = new THREE.Mesh(_deathCircleGeo, ringMat);
+  const ringMesh2 = new THREE.Mesh(_deathCircleGeo, ringMat2);
   if (!_deathFillGeoShared) {
     _deathFillGeoShared = new THREE.CircleGeometry(1, 32);
     _deathFillGeoShared.rotateX(-Math.PI / 2);
@@ -2014,14 +2897,14 @@ function createDeathTelegraph(enemy) {
   });
   const fillMesh = new THREE.Mesh(_deathFillGeoShared, fillMat);
   const group = new THREE.Group();
-  group.add(ringMesh);
+  group.add(ringMesh2);
   group.add(fillMesh);
   group.position.set(enemy.pos.x, 0.05, enemy.pos.z);
   group.scale.set(0.1, 0.1, 0.1);
-  sceneRef3.add(group);
+  sceneRef4.add(group);
   enemy.deathTelegraph = {
     group,
-    ringMat,
+    ringMat: ringMat2,
     fillMat,
     targetRadius: radius
   };
@@ -2045,7 +2928,7 @@ function removeDeathTelegraph(enemy) {
   if (!tg) return;
   tg.ringMat.dispose();
   tg.fillMat.dispose();
-  sceneRef3.remove(tg.group);
+  sceneRef4.remove(tg.group);
   enemy.deathTelegraph = null;
 }
 function onDeathExplosion(enemy, gameState2) {
@@ -2169,6 +3052,8 @@ function stunEnemy(enemy, durationMs) {
   }
 }
 function clearEnemies(gameState2) {
+  clearVisionCones();
+  clearAggroIndicators();
   for (const enemy of gameState2.enemies) {
     if (enemy.shieldMesh) {
       enemy.shieldMesh.geometry.dispose();
@@ -2177,7 +3062,7 @@ function clearEnemies(gameState2) {
     removeMortarArcLine(enemy);
     removeMortarGroundCircle(enemy);
     removeDeathTelegraph(enemy);
-    sceneRef3.remove(enemy.mesh);
+    sceneRef4.remove(enemy.mesh);
   }
   gameState2.enemies.length = 0;
   _collisionBounds = null;
@@ -2185,12 +3070,12 @@ function clearEnemies(gameState2) {
 }
 
 // src/entities/mortarProjectile.ts
-var sceneRef4;
+var sceneRef5;
 var activeMortars = [];
 var activeIcePatches = [];
 var shellGeo;
 function initMortarSystem(scene2) {
-  sceneRef4 = scene2;
+  sceneRef5 = scene2;
 }
 function fireMortarProjectile(opts) {
   if (!shellGeo) {
@@ -2203,7 +3088,7 @@ function fireMortarProjectile(opts) {
   });
   const mesh = new THREE.Mesh(shellGeo, mat);
   mesh.position.set(opts.startX, 0.8, opts.startZ);
-  sceneRef4.add(mesh);
+  sceneRef5.add(mesh);
   const trailPositions = new Float32Array(30 * 3);
   const trailGeo = new THREE.BufferGeometry();
   trailGeo.setAttribute("position", new THREE.BufferAttribute(trailPositions, 3));
@@ -2214,7 +3099,7 @@ function fireMortarProjectile(opts) {
     depthWrite: false
   });
   const trail = new THREE.Line(trailGeo, trailMat);
-  sceneRef4.add(trail);
+  sceneRef5.add(trail);
   const dx = opts.targetX - opts.startX;
   const dz = opts.targetZ - opts.startZ;
   const groundDist = Math.sqrt(dx * dx + dz * dz);
@@ -2336,7 +3221,7 @@ function createIcePatch(x, z, radius, config) {
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, 0.02, z);
-  sceneRef4.add(mesh);
+  sceneRef5.add(mesh);
   const patch = {
     x,
     z,
@@ -2365,7 +3250,7 @@ function updateIcePatches(dt) {
     if (patch.elapsed >= patch.duration) {
       patch.geo.dispose();
       patch.mat.dispose();
-      sceneRef4.remove(patch.mesh);
+      sceneRef5.remove(patch.mesh);
       activeIcePatches.splice(i, 1);
     }
   }
@@ -2399,15 +3284,15 @@ function getIceEffects(x, z, isPlayer) {
 }
 function removeMortar(m) {
   m.mat.dispose();
-  sceneRef4.remove(m.mesh);
+  sceneRef5.remove(m.mesh);
   m.trailGeo.dispose();
   m.trailMat.dispose();
-  sceneRef4.remove(m.trail);
+  sceneRef5.remove(m.trail);
   if (m.groundCircle) {
     const gc = m.groundCircle;
     gc.ringMat.dispose();
     gc.fillMat.dispose();
-    sceneRef4.remove(gc.group);
+    sceneRef5.remove(gc.group);
     m.groundCircle = null;
   }
 }
@@ -2421,7 +3306,7 @@ function clearIcePatches() {
   for (const patch of activeIcePatches) {
     patch.geo.dispose();
     patch.mat.dispose();
-    sceneRef4.remove(patch.mesh);
+    sceneRef5.remove(patch.mesh);
   }
   activeIcePatches.length = 0;
 }
@@ -2479,7 +3364,7 @@ var COLORS = {
   head: { color: 5627306, emissive: 3390344, emissiveIntensity: 0.5 },
   arm: { color: 3848314, emissive: 2005344, emissiveIntensity: 0.35 },
   leg: { color: 3716469, emissive: 1873496, emissiveIntensity: 0.35 },
-  sword: { color: 13421789, emissive: 8947882, emissiveIntensity: 0.3 }
+  fist: { color: 5627306, emissive: 3390344, emissiveIntensity: 0.5 }
 };
 var _torsoGeo = null;
 var _headGeo = null;
@@ -2487,8 +3372,7 @@ var _upperArmGeo = null;
 var _lowerArmGeo = null;
 var _thighGeo = null;
 var _shinGeo = null;
-var _swordBladeGeo = null;
-var _swordGuardGeo = null;
+var _fistGeo = null;
 function ensureGeometry() {
   if (_torsoGeo) return;
   _torsoGeo = new THREE.BoxGeometry(P.torsoWidth, P.torsoHeight, P.torsoDepth);
@@ -2497,8 +3381,7 @@ function ensureGeometry() {
   _lowerArmGeo = new THREE.BoxGeometry(P.lowerArmWidth, P.lowerArmHeight, P.lowerArmDepth);
   _thighGeo = new THREE.BoxGeometry(P.thighWidth, P.thighHeight, P.thighDepth);
   _shinGeo = new THREE.BoxGeometry(P.shinWidth, P.shinHeight, P.shinDepth);
-  _swordBladeGeo = new THREE.BoxGeometry(0.06, 0.5, 0.03);
-  _swordGuardGeo = new THREE.BoxGeometry(0.18, 0.04, 0.05);
+  _fistGeo = new THREE.BoxGeometry(0.1, 0.08, 0.1);
 }
 function makeMat(palette) {
   return new THREE.MeshStandardMaterial({
@@ -2544,6 +3427,7 @@ function createPlayerRig(parentGroup) {
   lowerArmL.position.y = P.elbowY;
   upperArmL.add(lowerArmL);
   addMesh(_lowerArmGeo, COLORS.arm, lowerArmL, 0, P.lowerArmY, 0);
+  addMesh(_fistGeo, COLORS.fist, lowerArmL, 0, P.lowerArmY - P.lowerArmHeight / 2 - 0.02, 0);
   const shoulderR = new THREE.Group();
   shoulderR.position.set(P.shoulderOffsetX, P.shoulderY, 0);
   torso.add(shoulderR);
@@ -2554,11 +3438,7 @@ function createPlayerRig(parentGroup) {
   lowerArmR.position.y = P.elbowY;
   upperArmR.add(lowerArmR);
   addMesh(_lowerArmGeo, COLORS.arm, lowerArmR, 0, P.lowerArmY, 0);
-  const sword = new THREE.Group();
-  sword.position.set(0, -0.24, 0);
-  lowerArmR.add(sword);
-  addMesh(_swordBladeGeo, COLORS.sword, sword, 0, -0.22, 0);
-  addMesh(_swordGuardGeo, COLORS.sword, sword, 0, 0.03, 0);
+  addMesh(_fistGeo, COLORS.fist, lowerArmR, 0, P.lowerArmY - P.lowerArmHeight / 2 - 0.02, 0);
   const thighL = new THREE.Group();
   thighL.position.set(-P.legOffsetX, 0, 0);
   hip.add(thighL);
@@ -2587,7 +3467,6 @@ function createPlayerRig(parentGroup) {
       shoulderR,
       upperArmR,
       lowerArmR,
-      sword,
       thighL,
       shinL,
       thighR,
@@ -2654,6 +3533,29 @@ var C = {
   // radians — front leg forward
   dashLegTrail: -0.5,
   // radians — back leg behind
+  // Airborne
+  jumpTuckAngle: 0.7,
+  // radians — thigh tuck during jump rise
+  jumpKneeBend: 0.9,
+  // radians — knee bend during tuck
+  jumpArmRaise: -0.4,
+  // radians — arms rise slightly
+  fallSpreadAngle: 0.35,
+  // radians — legs spread slightly during fall
+  fallArmRaise: -0.6,
+  // radians — arms rise higher in freefall
+  slamTuckAngle: 1,
+  // radians — tight tuck during slam
+  slamArmAngle: 0.8,
+  // radians — arms up overhead during slam
+  airSquashY: 1.1,
+  // stretch on jump rise
+  airSquashXZ: 0.92,
+  // compress X/Z on jump rise
+  slamStretchY: 0.8,
+  // compress on slam descent
+  slamStretchXZ: 1.15,
+  // widen on slam descent
   // Transitions (ms)
   idleToRunBlend: 80,
   runToIdleBlend: 120,
@@ -2675,7 +3577,10 @@ function createAnimatorState() {
     currentLean: 0,
     dashDir: 0,
     dashT: 0,
-    time: 0
+    time: 0,
+    punchSide: 0,
+    chargeT: 0,
+    chargeReleaseTimer: 0
   };
 }
 function resetAnimatorState(anim) {
@@ -2706,7 +3611,7 @@ function lerpAngle(from, to, t) {
   while (diff < -Math.PI) diff += Math.PI * 2;
   return from + diff * t;
 }
-function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, isInEndLag, dashProgress, isSwinging = false, swingProgress = 0) {
+function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, isInEndLag, dashProgress, isSwinging = false, swingProgress = 0, isAirborne = false, velY = 0, isSlamming2 = false, isCharging2 = false, chargeT = 0) {
   anim.time += dt;
   const isMoving = Math.abs(inputState2.moveX) > 0.01 || Math.abs(inputState2.moveZ) > 0.01;
   const prevState = anim.currentState;
@@ -2719,11 +3624,41 @@ function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, is
     if (anim.currentState !== "endLag") {
       transitionTo(anim, "endLag", 0);
     }
+  } else if (isCharging2) {
+    if (anim.currentState !== "charge") {
+      transitionTo(anim, "charge", 0);
+    }
+    anim.chargeT = chargeT;
+  } else if (anim.currentState === "charge" && !isCharging2) {
+    transitionTo(anim, "chargeRelease", 0);
+    anim.chargeReleaseTimer = 0;
+  } else if (anim.currentState === "chargeRelease") {
+    anim.chargeReleaseTimer += dt;
+    if (anim.chargeReleaseTimer >= 0.25) {
+      if (isMoving) {
+        transitionTo(anim, "run", C.endLagToNormalBlend / 1e3);
+      } else {
+        transitionTo(anim, "idle", C.endLagToNormalBlend / 1e3);
+      }
+    }
   } else if (isSwinging) {
     if (anim.currentState !== "swing") {
       transitionTo(anim, "swing", 0);
+      anim.punchSide = 1 - anim.punchSide;
     }
     anim.dashT = swingProgress;
+  } else if (isAirborne && isSlamming2) {
+    if (anim.currentState !== "slam") {
+      transitionTo(anim, "slam", 0);
+    }
+  } else if (isAirborne && velY > 0) {
+    if (anim.currentState !== "jump") {
+      transitionTo(anim, "jump", 0);
+    }
+  } else if (isAirborne) {
+    if (anim.currentState !== "fall") {
+      transitionTo(anim, "fall", 0);
+    }
   } else if (isMoving) {
     if (anim.currentState !== "run") {
       const blend = anim.currentState === "endLag" || anim.currentState === "swing" ? C.endLagToNormalBlend : C.idleToRunBlend;
@@ -2763,6 +3698,21 @@ function updateAnimation(joints, anim, dt, inputState2, aimAngle, isDashing2, is
       break;
     case "swing":
       applySwing(joints, anim);
+      break;
+    case "charge":
+      applyCharge(joints, anim);
+      break;
+    case "chargeRelease":
+      applyChargeRelease(joints, anim);
+      break;
+    case "jump":
+      applyJump(joints, anim);
+      break;
+    case "fall":
+      applyFall(joints, anim);
+      break;
+    case "slam":
+      applySlam(joints, anim);
       break;
   }
   const hipOffset = anim.moveDirSmoothed - aimAngle;
@@ -2817,23 +3767,23 @@ function applyRun(joints, anim, dt, input) {
   const speed = Math.sqrt(input.moveX * input.moveX + input.moveZ * input.moveZ);
   const distThisFrame = speed * 5 * dt;
   anim.runCyclePhase = (anim.runCyclePhase + distThisFrame * C.runCycleRate) % 1;
-  const phase = anim.runCyclePhase * Math.PI * 2;
-  const thighSwing = Math.sin(phase) * C.strideAngle;
+  const phase4 = anim.runCyclePhase * Math.PI * 2;
+  const thighSwing = Math.sin(phase4) * C.strideAngle;
   joints.thighL.rotation.x = thighSwing;
   joints.thighR.rotation.x = -thighSwing;
-  const kneeL = Math.max(0, Math.sin(phase - 0.6)) * C.kneeBendMax;
-  const kneeR = Math.max(0, Math.sin(phase - 0.6 + Math.PI)) * C.kneeBendMax;
+  const kneeL = Math.max(0, Math.sin(phase4 - 0.6)) * C.kneeBendMax;
+  const kneeR = Math.max(0, Math.sin(phase4 - 0.6 + Math.PI)) * C.kneeBendMax;
   joints.shinL.rotation.x = -kneeL;
   joints.shinR.rotation.x = -kneeR;
-  const armSwing = Math.sin(phase) * C.strideAngle * C.armSwingRatio;
+  const armSwing = Math.sin(phase4) * C.strideAngle * C.armSwingRatio;
   joints.upperArmL.rotation.x = -armSwing;
   joints.upperArmR.rotation.x = armSwing;
-  const forearmSwing = Math.sin(phase - C.forearmLag) * C.strideAngle * C.armSwingRatio * 0.5;
+  const forearmSwing = Math.sin(phase4 - C.forearmLag) * C.strideAngle * C.armSwingRatio * 0.5;
   joints.lowerArmL.rotation.x = -Math.abs(forearmSwing) - 0.15;
   joints.lowerArmR.rotation.x = -Math.abs(forearmSwing) - 0.15;
-  const bounce = Math.abs(Math.sin(phase * 2)) * C.bodyBounceHeight;
+  const bounce = Math.abs(Math.sin(phase4 * 2)) * C.bodyBounceHeight;
   joints.hip.position.y = 0.5 + bounce;
-  joints.torso.rotation.y = Math.sin(phase) * 0.06;
+  joints.torso.rotation.y = Math.sin(phase4) * 0.06;
 }
 function applyDash(joints, anim) {
   const t = anim.dashT;
@@ -2908,46 +3858,1581 @@ function applyEndLag(joints, anim) {
 }
 function applySwing(joints, anim) {
   const t = clamp(anim.dashT, 0, 1);
-  if (t < 0.3) {
-    const subT = t / 0.3;
+  const isLeft = anim.punchSide === 1;
+  const punchUpper = isLeft ? joints.upperArmL : joints.upperArmR;
+  const punchLower = isLeft ? joints.lowerArmL : joints.lowerArmR;
+  const guardUpper = isLeft ? joints.upperArmR : joints.upperArmL;
+  const guardLower = isLeft ? joints.lowerArmR : joints.lowerArmL;
+  const torsoTwistSign = isLeft ? 1 : -1;
+  const leadThigh = isLeft ? joints.thighL : joints.thighR;
+  const leadShin = isLeft ? joints.shinL : joints.shinR;
+  const rearThigh = isLeft ? joints.thighR : joints.thighL;
+  const rearShin = isLeft ? joints.shinR : joints.shinL;
+  if (t < 0.25) {
+    const subT = t / 0.25;
     const ease = easeOutQuad2(subT);
-    joints.upperArmR.rotation.x = 0.4 * ease;
-    joints.upperArmR.rotation.z = -0.3 * ease;
-    joints.lowerArmR.rotation.x = -0.6 * ease;
-    joints.upperArmL.rotation.x = -0.2 * ease;
-    joints.lowerArmL.rotation.x = -0.3 * ease;
-    joints.torso.rotation.y = -0.25 * ease;
-    joints.rigRoot.rotation.x = 0.06 * ease;
+    punchUpper.rotation.x = 0.35 * ease;
+    punchLower.rotation.x = -0.9 * ease;
+    guardUpper.rotation.x = -0.35 * ease;
+    guardLower.rotation.x = -0.75 * ease;
+    joints.torso.rotation.y = -0.25 * torsoTwistSign * ease;
+    joints.rigRoot.rotation.x = 0.04 * ease;
+    joints.hip.position.y = 0.5 - 0.02 * ease;
+    rearThigh.rotation.x = -0.12 * ease;
+    rearShin.rotation.x = -0.2 * ease;
+    leadThigh.rotation.x = 0.08 * ease;
+    leadShin.rotation.x = -0.05 * ease;
+    joints.hip.rotation.z = -0.03 * torsoTwistSign * ease;
   } else {
-    const subT = (t - 0.3) / 0.7;
+    const subT = (t - 0.25) / 0.75;
     const ease = easeOutQuad2(subT);
-    joints.upperArmR.rotation.x = 0.4 + (-1 - 0.4) * ease;
-    joints.upperArmR.rotation.z = -0.3 + (0.5 + 0.3) * ease;
-    joints.lowerArmR.rotation.x = -0.6 + (0.6 - 0.2) * ease;
-    joints.upperArmL.rotation.x = -0.2 + (0.3 + 0.2) * ease;
-    joints.lowerArmL.rotation.x = -0.3 + (-0.2 + 0.3) * ease;
-    joints.torso.rotation.y = -0.25 + (0.45 + 0.25) * ease;
-    const leanCurve = subT < 0.5 ? easeOutQuad2(subT * 2) : 1 - easeOutQuad2((subT - 0.5) * 2);
-    joints.rigRoot.rotation.x = 0.06 + 0.08 * leanCurve;
-    joints.thighL.rotation.x = 0.2 * ease;
-    joints.thighR.rotation.x = -0.15 * ease;
+    punchUpper.rotation.x = 0.35 + (-1.3 - 0.35) * ease;
+    punchLower.rotation.x = -0.9 + (0.9 - 0.12) * ease;
+    guardUpper.rotation.x = -0.35;
+    guardLower.rotation.x = -0.75;
+    joints.torso.rotation.y = (-0.25 + (0.4 + 0.25) * ease) * torsoTwistSign;
+    const leanCurve = subT < 0.35 ? easeOutQuad2(subT / 0.35) : 1 - 0.4 * easeOutQuad2((subT - 0.35) / 0.65);
+    joints.rigRoot.rotation.x = 0.04 + 0.16 * leanCurve;
+    const hipDrop = subT < 0.3 ? easeOutQuad2(subT / 0.3) : 1 - 0.5 * easeOutQuad2((subT - 0.3) / 0.7);
+    joints.hip.position.y = 0.5 - 0.02 - 0.025 * hipDrop;
+    joints.hip.rotation.z = (-0.03 + 0.08 * ease) * torsoTwistSign;
+    const stepCurve = subT < 0.4 ? easeOutQuad2(subT / 0.4) : 1 - 0.3 * easeOutQuad2((subT - 0.4) / 0.6);
+    leadThigh.rotation.x = 0.08 + 0.35 * stepCurve;
+    leadShin.rotation.x = -0.05 - 0.25 * stepCurve;
+    const pushCurve = subT < 0.5 ? easeOutQuad2(subT / 0.5) : 1 - 0.2 * easeOutQuad2((subT - 0.5) / 0.5);
+    rearThigh.rotation.x = -0.12 - 0.2 * pushCurve;
+    rearShin.rotation.x = -0.2 - 0.15 * pushCurve;
   }
+}
+function applyCharge(joints, anim) {
+  const chargeT = clamp(anim.chargeT, 0, 1);
+  const blendIn = clamp(anim.stateTimer / 0.15, 0, 1);
+  const ease = easeOutQuad2(blendIn);
+  const loopRate = 3.5;
+  const sway = Math.sin(anim.time * loopRate * Math.PI * 2);
+  const swaySmall = Math.sin(anim.time * loopRate * 0.7 * Math.PI * 2);
+  const crouch = 0.04 + 0.04 * chargeT;
+  joints.hip.position.y = 0.5 - crouch * ease;
+  joints.thighL.rotation.x = 0.15 * ease;
+  joints.thighR.rotation.x = -0.15 * ease;
+  joints.thighL.rotation.z = 0.08 * ease;
+  joints.thighR.rotation.z = -0.08 * ease;
+  joints.shinL.rotation.x = -0.2 * ease;
+  joints.shinR.rotation.x = -0.2 * ease;
+  const armPull = 0.5 + 0.6 * chargeT;
+  const elbowFlare = 0.2 + 0.3 * chargeT;
+  joints.upperArmL.rotation.x = armPull * ease;
+  joints.upperArmR.rotation.x = armPull * ease;
+  joints.upperArmL.rotation.z = elbowFlare * ease;
+  joints.upperArmR.rotation.z = -elbowFlare * ease;
+  joints.lowerArmL.rotation.x = (-0.6 - 0.3 * chargeT) * ease;
+  joints.lowerArmR.rotation.x = (-0.6 - 0.3 * chargeT) * ease;
+  const leanBack = -0.06 - 0.08 * chargeT;
+  joints.rigRoot.rotation.x = leanBack * ease;
+  joints.torso.rotation.x = -0.04 * chargeT * ease;
+  const swayAmp = 0.02 + 0.03 * chargeT;
+  joints.torso.rotation.y = sway * swayAmp * ease;
+  joints.hip.rotation.z = swaySmall * 0.015 * ease;
+  const armPulse = sway * 0.06 * chargeT * ease;
+  joints.upperArmL.rotation.x += armPulse;
+  joints.upperArmR.rotation.x += armPulse;
+  joints.head.rotation.x = 0.08 * chargeT * ease;
+}
+function applyChargeRelease(joints, anim) {
+  const t = clamp(anim.chargeReleaseTimer / 0.25, 0, 1);
+  if (t < 0.35) {
+    const subT = t / 0.35;
+    const ease = easeOutQuad2(subT);
+    joints.upperArmL.rotation.x = 0.5 + (-1.4 - 0.5) * ease;
+    joints.upperArmR.rotation.x = 0.5 + (-1.4 - 0.5) * ease;
+    joints.lowerArmL.rotation.x = -0.6 + (0.6 - 0.1) * ease;
+    joints.lowerArmR.rotation.x = -0.6 + (0.6 - 0.1) * ease;
+    joints.upperArmL.rotation.z = 0.3 + (-0.3 - 0.3) * ease;
+    joints.upperArmR.rotation.z = -0.3 + (0.3 + 0.3) * ease;
+    joints.rigRoot.rotation.x = -0.1 + (0.22 + 0.1) * ease;
+    joints.hip.position.y = 0.5 - 0.06 * ease;
+    joints.thighL.rotation.x = 0.15 + 0.35 * ease;
+    joints.shinL.rotation.x = -0.2 - 0.2 * ease;
+    joints.thighR.rotation.x = -0.15 - 0.15 * ease;
+    joints.shinR.rotation.x = -0.2 - 0.1 * ease;
+    joints.torso.rotation.x = 0.06 * ease;
+  } else {
+    const subT = (t - 0.35) / 0.65;
+    const ease = easeOutQuad2(subT);
+    const armRetract = 1 - ease;
+    joints.upperArmL.rotation.x = -1.4 * armRetract;
+    joints.upperArmR.rotation.x = -1.4 * armRetract;
+    joints.lowerArmL.rotation.x = -0.1 * armRetract;
+    joints.lowerArmR.rotation.x = -0.1 * armRetract;
+    joints.upperArmL.rotation.z = 0;
+    joints.upperArmR.rotation.z = 0;
+    joints.rigRoot.rotation.x = 0.22 * armRetract;
+    joints.hip.position.y = 0.5 - 0.06 * armRetract;
+    joints.thighL.rotation.x = 0.5 * armRetract;
+    joints.shinL.rotation.x = -0.4 * armRetract;
+    joints.thighR.rotation.x = -0.3 * armRetract;
+    joints.shinR.rotation.x = -0.3 * armRetract;
+    joints.torso.rotation.x = 0.06 * armRetract;
+  }
+}
+function applyJump(joints, anim) {
+  const t = clamp(anim.stateTimer / 0.15, 0, 1);
+  const ease = easeOutQuad2(t);
+  joints.rigRoot.scale.set(
+    1 + (C.airSquashXZ - 1) * ease,
+    1 + (C.airSquashY - 1) * ease,
+    1 + (C.airSquashXZ - 1) * ease
+  );
+  joints.thighL.rotation.x = -C.jumpTuckAngle * ease;
+  joints.thighR.rotation.x = -C.jumpTuckAngle * ease;
+  joints.shinL.rotation.x = C.jumpKneeBend * ease;
+  joints.shinR.rotation.x = C.jumpKneeBend * ease;
+  joints.upperArmL.rotation.x = C.jumpArmRaise * ease;
+  joints.upperArmR.rotation.x = C.jumpArmRaise * ease;
+  joints.upperArmL.rotation.z = 0.2 * ease;
+  joints.upperArmR.rotation.z = -0.2 * ease;
+  joints.lowerArmL.rotation.x = -0.3 * ease;
+  joints.lowerArmR.rotation.x = -0.3 * ease;
+  joints.rigRoot.rotation.x = -0.08 * ease;
+}
+function applyFall(joints, anim) {
+  const t = clamp(anim.stateTimer / 0.2, 0, 1);
+  const ease = easeOutQuad2(t);
+  joints.rigRoot.scale.set(1, 1, 1);
+  joints.thighL.rotation.x = C.fallSpreadAngle * ease;
+  joints.thighR.rotation.x = -C.fallSpreadAngle * 0.5 * ease;
+  joints.shinL.rotation.x = -0.3 * ease;
+  joints.shinR.rotation.x = -0.4 * ease;
+  joints.upperArmL.rotation.x = C.fallArmRaise * ease;
+  joints.upperArmR.rotation.x = C.fallArmRaise * ease;
+  joints.upperArmL.rotation.z = 0.4 * ease;
+  joints.upperArmR.rotation.z = -0.4 * ease;
+  joints.lowerArmL.rotation.x = -0.2 * ease;
+  joints.lowerArmR.rotation.x = -0.2 * ease;
+  joints.rigRoot.rotation.x = 0.1 * ease;
+}
+function applySlam(joints, anim) {
+  const t = clamp(anim.stateTimer / 0.1, 0, 1);
+  const ease = easeOutQuad2(t);
+  joints.rigRoot.scale.set(
+    1 + (C.slamStretchXZ - 1) * ease,
+    1 + (C.slamStretchY - 1) * ease,
+    1 + (C.slamStretchXZ - 1) * ease
+  );
+  joints.thighL.rotation.x = -C.slamTuckAngle * ease;
+  joints.thighR.rotation.x = -C.slamTuckAngle * ease;
+  joints.shinL.rotation.x = C.jumpKneeBend * ease;
+  joints.shinR.rotation.x = C.jumpKneeBend * ease;
+  joints.upperArmL.rotation.x = -C.slamArmAngle * ease;
+  joints.upperArmR.rotation.x = -C.slamArmAngle * ease;
+  joints.upperArmL.rotation.z = 0.15 * ease;
+  joints.upperArmR.rotation.z = -0.15 * ease;
+  joints.lowerArmL.rotation.x = -0.5 * ease;
+  joints.lowerArmR.rotation.x = -0.5 * ease;
+  joints.rigRoot.rotation.x = 0.2 * ease;
 }
 
-// src/engine/profileManager.ts
-var activeProfile = "base";
-var currentHooks = null;
-function getActiveProfile() {
-  return activeProfile;
+// src/engine/aerialVerbs.ts
+var launched = [];
+function registerLaunch(enemy) {
+  if (launched.some((e) => e.enemy === enemy)) return;
+  launched.push({
+    enemy,
+    launchTime: performance.now(),
+    claimedBy: null,
+    gravityMult: 1
+  });
 }
-function setProfile(profile, hooks) {
-  if (currentHooks) {
-    currentHooks.cleanup();
+function claimLaunched(enemy, verbName) {
+  const entry = launched.find((e) => e.enemy === enemy);
+  if (!entry || entry.claimedBy !== null) return false;
+  entry.claimedBy = verbName;
+  return true;
+}
+function releaseLaunched(enemy) {
+  const idx = launched.findIndex((e) => e.enemy === enemy);
+  if (idx !== -1) launched.splice(idx, 1);
+}
+function getLaunchedEntry(enemy) {
+  return launched.find((e) => e.enemy === enemy);
+}
+function setGravityOverride(enemy, mult) {
+  const entry = launched.find((e) => e.enemy === enemy);
+  if (entry) entry.gravityMult = mult;
+}
+function clearLaunched() {
+  launched.length = 0;
+}
+var verbs = /* @__PURE__ */ new Map();
+var activeVerb = null;
+var activeEnemy = null;
+function registerVerb(verb) {
+  verbs.set(verb.name, verb);
+}
+function getActiveEnemy() {
+  return activeEnemy;
+}
+function activateVerb(verbName, enemy) {
+  const verb = verbs.get(verbName);
+  if (!verb) return;
+  const entry = launched.find((e) => e.enemy === enemy);
+  if (!entry) return;
+  activeVerb = verb;
+  activeEnemy = enemy;
+  addPlayerTag(TAG.AERIAL);
+  if (verb.tag) addPlayerTag(verb.tag);
+  addTag(enemy, TAG.STUNNED);
+  verb.onClaim(entry);
+}
+function transferClaim(enemy, toVerbName) {
+  const verb = verbs.get(toVerbName);
+  if (!verb) return;
+  const entry = launched.find((e) => e.enemy === enemy);
+  if (!entry) return;
+  if (activeVerb && activeVerb.tag) {
+    removePlayerTagsMatching(activeVerb.tag);
   }
-  activeProfile = profile;
-  currentHooks = hooks ?? null;
-  if (currentHooks) {
-    currentHooks.setup();
+  entry.claimedBy = toVerbName;
+  activeVerb = verb;
+  activeEnemy = enemy;
+  if (verb.tag) addPlayerTag(verb.tag);
+  verb.onClaim(entry);
+}
+function cleanupVerbTags(enemy) {
+  removePlayerTagsMatching(TAG.AERIAL);
+  if (enemy) removeTag(enemy, TAG.STUNNED);
+}
+function updateAerialVerbs(dt, playerPos2, inputState2) {
+  if (!activeVerb || !activeEnemy) return;
+  const entry = launched.find((e) => e.enemy === activeEnemy);
+  if (!entry || activeEnemy.health <= 0 || activeEnemy.fellInPit) {
+    const enemyRef = activeEnemy;
+    activeVerb.onCancel(entry ?? { enemy: activeEnemy, launchTime: 0, claimedBy: null, gravityMult: 1 });
+    if (entry) releaseLaunched(activeEnemy);
+    activeVerb = null;
+    activeEnemy = null;
+    cleanupVerbTags(enemyRef);
+    return;
+  }
+  const verbBeforeUpdate = activeVerb;
+  const result = verbBeforeUpdate.update(dt, entry, playerPos2, inputState2);
+  const transferred = activeVerb !== verbBeforeUpdate;
+  if (result === "complete") {
+    if (transferred) {
+      verbBeforeUpdate.onComplete(entry);
+    } else {
+      const enemyRef = activeEnemy;
+      activeVerb.onComplete(entry);
+      releaseLaunched(activeEnemy);
+      activeVerb = null;
+      activeEnemy = null;
+      cleanupVerbTags(enemyRef);
+    }
+  } else if (result === "cancel") {
+    if (transferred) {
+      verbBeforeUpdate.onCancel(entry);
+    } else {
+      const enemyRef = activeEnemy;
+      activeVerb.onCancel(entry);
+      releaseLaunched(activeEnemy);
+      activeVerb = null;
+      activeEnemy = null;
+      cleanupVerbTags(enemyRef);
+    }
+  }
+}
+function initAerialVerbs(verbsToRegister) {
+  if (verbsToRegister) {
+    for (const verb of verbsToRegister) {
+      registerVerb(verb);
+    }
+  }
+}
+function resetAerialVerbs() {
+  cancelActiveVerb();
+  clearLaunched();
+}
+function cancelActiveVerb() {
+  if (!activeVerb || !activeEnemy) return;
+  const enemyRef = activeEnemy;
+  const entry = launched.find((e) => e.enemy === activeEnemy);
+  activeVerb.onCancel(entry ?? { enemy: activeEnemy, launchTime: 0, claimedBy: null, gravityMult: 1 });
+  if (entry) releaseLaunched(activeEnemy);
+  activeVerb = null;
+  activeEnemy = null;
+  cleanupVerbTags(enemyRef);
+}
+
+// src/engine/bulletTime.ts
+var BULLET_TIME = {
+  timeScale: 0.25,
+  // how slow the world runs (0.25 = 25% speed)
+  maxResource: 3e3,
+  // ms of bullet time available at full bar
+  drainRate: 1e3,
+  // resource drained per real second while active
+  killRefill: 600,
+  // resource refilled per enemy kill
+  activationMinimum: 300,
+  // minimum resource required to activate
+  infinite: 1,
+  // 1 = infinite resource (skip drain), 0 = normal drain
+  exitRampDuration: 250
+  // ms to ramp from BT scale → 1.0 on deactivation
+};
+var resource = BULLET_TIME.maxResource;
+var active = false;
+var initialized = false;
+var _autoEngaged = false;
+var _detectingCount = 0;
+var _rampActive = false;
+var _rampTimer = 0;
+var _rampFromScale = 0.25;
+function initBulletTime() {
+  if (initialized) return;
+  initialized = true;
+  on("enemyDied", () => {
+    refillBulletTime(BULLET_TIME.killRefill);
+  });
+  on("detectionStarted", () => {
+    _detectingCount++;
+    activateBulletTimeAuto();
+  });
+  on("detectionCleared", () => {
+    _detectingCount = Math.max(0, _detectingCount - 1);
+    if (_detectingCount === 0) {
+      deactivateBulletTimeAuto();
+    }
+  });
+}
+function activateBulletTime() {
+  if (active) return;
+  if (resource >= BULLET_TIME.activationMinimum) {
+    active = true;
+    _rampActive = false;
+    emit({ type: "bulletTimeActivated" });
+  }
+}
+function toggleBulletTime() {
+  if (active) {
+    startExitRamp();
+  } else {
+    activateBulletTime();
+  }
+}
+function startExitRamp() {
+  _rampFromScale = active ? BULLET_TIME.timeScale : getBulletTimeScale();
+  active = false;
+  _autoEngaged = false;
+  _rampActive = true;
+  _rampTimer = 0;
+  emit({ type: "bulletTimeDeactivated" });
+}
+function updateBulletTime(realDt) {
+  if (_rampActive) {
+    _rampTimer += realDt * 1e3;
+    if (_rampTimer >= BULLET_TIME.exitRampDuration) {
+      _rampActive = false;
+    }
+  }
+  if (!active) return;
+  if (BULLET_TIME.infinite >= 1) return;
+  resource -= BULLET_TIME.drainRate * realDt;
+  if (resource <= 0) {
+    resource = 0;
+    startExitRamp();
+  }
+}
+function getBulletTimeScale() {
+  if (active) return BULLET_TIME.timeScale;
+  if (_rampActive) {
+    const t = Math.min(_rampTimer / BULLET_TIME.exitRampDuration, 1);
+    const eased = t * t;
+    return _rampFromScale + (1 - _rampFromScale) * eased;
+  }
+  return 1;
+}
+function refillBulletTime(amount) {
+  resource = Math.min(resource + amount, BULLET_TIME.maxResource);
+}
+function resetBulletTime() {
+  resource = BULLET_TIME.maxResource;
+  active = false;
+  _rampActive = false;
+  _autoEngaged = false;
+  _detectingCount = 0;
+}
+function isBulletTimeActive() {
+  return active || _rampActive;
+}
+function getBulletTimeResource() {
+  return resource;
+}
+function getBulletTimeMax() {
+  return BULLET_TIME.maxResource;
+}
+function activateBulletTimeAuto() {
+  if (active) return;
+  _autoEngaged = true;
+  activateBulletTime();
+}
+function deactivateBulletTimeAuto() {
+  if (!_autoEngaged) return;
+  startExitRamp();
+}
+
+// src/verbs/floatSelector.ts
+var phase = "none";
+var target = null;
+var floatTimer = 0;
+var lmbPressed = false;
+var lmbHoldTimer = 0;
+var resolved = false;
+var playerVelYOverride = null;
+var prevPlayerX = 0;
+var prevPlayerZ = 0;
+var landingX = 0;
+var landingZ = 0;
+var decalGroup = null;
+var decalFill = null;
+var decalRing = null;
+var decalAge = 0;
+var DECAL_EXPAND_MS = 250;
+var chargeRing = null;
+var chargeRingMat = null;
+function createDecal(cx, cz) {
+  const scene2 = getScene();
+  const radius = DUNK.targetRadius;
+  decalGroup = new THREE.Group();
+  decalGroup.position.set(cx, 0.06, cz);
+  const fillGeo2 = new THREE.CircleGeometry(radius, 32);
+  const fillMat = new THREE.MeshBasicMaterial({
+    color: 16755268,
+    transparent: true,
+    opacity: 0.05,
+    depthWrite: false
+  });
+  decalFill = new THREE.Mesh(fillGeo2, fillMat);
+  decalFill.rotation.x = -Math.PI / 2;
+  decalGroup.add(decalFill);
+  const ringGeo4 = new THREE.RingGeometry(radius - 0.06, radius, 48);
+  const ringMat2 = new THREE.MeshBasicMaterial({
+    color: 16755268,
+    transparent: true,
+    opacity: 0.3,
+    depthWrite: false
+  });
+  decalRing = new THREE.Mesh(ringGeo4, ringMat2);
+  decalRing.rotation.x = -Math.PI / 2;
+  decalGroup.add(decalRing);
+  decalGroup.scale.set(0, 0, 0);
+  decalAge = 0;
+  scene2.add(decalGroup);
+}
+function updateDecal(playerX, playerZ, dt) {
+  if (!decalGroup) return;
+  if (decalAge < DECAL_EXPAND_MS) {
+    decalAge += dt * 1e3;
+    const t = Math.min(decalAge / DECAL_EXPAND_MS, 1);
+    const eased = 1 - (1 - t) * (1 - t);
+    decalGroup.scale.set(eased, eased, eased);
+  } else if (decalGroup.scale.x < 1) {
+    decalGroup.scale.set(1, 1, 1);
+  }
+  decalGroup.position.set(playerX, 0.06, playerZ);
+  if (decalRing) {
+    const pulse = 0.2 + 0.1 * Math.sin(Date.now() * 8e-3);
+    decalRing.material.opacity = pulse;
+  }
+}
+function removeDecal() {
+  if (!decalGroup) return;
+  const scene2 = getScene();
+  decalGroup.traverse((child) => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+  });
+  scene2.remove(decalGroup);
+  decalGroup = null;
+  decalFill = null;
+  decalRing = null;
+}
+function createChargeRing(playerPos2) {
+  removeChargeRing();
+  const scene2 = getScene();
+  const geo = new THREE.RingGeometry(0.5, 0.55, 32);
+  chargeRingMat = new THREE.MeshBasicMaterial({
+    color: 16746496,
+    transparent: true,
+    opacity: 0.6,
+    depthWrite: false
+  });
+  chargeRing = new THREE.Mesh(geo, chargeRingMat);
+  chargeRing.rotation.x = -Math.PI / 2;
+  chargeRing.position.set(playerPos2.x, playerPos2.y + 0.1, playerPos2.z);
+  scene2.add(chargeRing);
+}
+function updateChargeRing(playerPos2, fillT) {
+  if (!chargeRing || !chargeRingMat) return;
+  chargeRing.position.set(playerPos2.x, playerPos2.y + 0.1, playerPos2.z);
+  const r = 255;
+  const g = Math.round(136 * (1 - fillT));
+  const b = 0;
+  chargeRingMat.color.setHex(r << 16 | g << 8 | b);
+  chargeRingMat.opacity = 0.4 + 0.4 * fillT;
+}
+function removeChargeRing() {
+  if (!chargeRing) return;
+  const scene2 = getScene();
+  if (chargeRing.geometry) chargeRing.geometry.dispose();
+  if (chargeRing.material) chargeRing.material.dispose();
+  scene2.remove(chargeRing);
+  chargeRing = null;
+  chargeRingMat = null;
+}
+function updateTargeting(playerPos2, inputState2) {
+  const aimDx = inputState2.aimWorldPos.x - playerPos2.x;
+  const aimDz = inputState2.aimWorldPos.z - playerPos2.z;
+  const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
+  const clampedDist = Math.min(aimDist, DUNK.targetRadius);
+  landingX = playerPos2.x + aimDx / aimDist * clampedDist;
+  landingZ = playerPos2.z + aimDz / aimDist * clampedDist;
+}
+var floatSelectorVerb = {
+  name: "floatSelector",
+  tag: TAG.AERIAL_FLOAT,
+  interruptible: true,
+  canClaim(_entry, _playerPos, _inputState) {
+    return true;
+  },
+  onClaim(entry) {
+    phase = "rising";
+    target = entry.enemy;
+    floatTimer = 0;
+    lmbPressed = false;
+    lmbHoldTimer = 0;
+    resolved = false;
+    playerVelYOverride = null;
+    prevPlayerX = NaN;
+    if (!decalGroup) {
+      createDecal(0, 0);
+    }
+  },
+  update(dt, entry, playerPos2, inputState2) {
+    const enemy = entry.enemy;
+    if (phase === "rising") {
+      return updateRising(dt, enemy, playerPos2, inputState2);
+    } else if (phase === "float") {
+      return updateFloat(dt, enemy, playerPos2, inputState2);
+    }
+    return "cancel";
+  },
+  onCancel(entry) {
+    removeDecal();
+    removeChargeRing();
+    deactivateBulletTimeAuto();
+    setGravityOverride(entry.enemy, 1);
+    phase = "none";
+    target = null;
+    playerVelYOverride = null;
+    lmbPressed = false;
+    lmbHoldTimer = 0;
+    resolved = false;
+  },
+  onComplete(entry) {
+    removeDecal();
+    removeChargeRing();
+    phase = "none";
+    target = null;
+    playerVelYOverride = null;
+    lmbPressed = false;
+    lmbHoldTimer = 0;
+    resolved = false;
+  }
+};
+function updateRising(dt, enemy, playerPos2, inputState2) {
+  const vel = enemy.vel;
+  const isRising = vel && vel.y > 0;
+  if (isNaN(prevPlayerX)) {
+    prevPlayerX = playerPos2.x;
+    prevPlayerZ = playerPos2.z;
+  } else {
+    const deltaX = playerPos2.x - prevPlayerX;
+    const deltaZ = playerPos2.z - prevPlayerZ;
+    enemy.pos.x += deltaX;
+    enemy.pos.z += deltaZ;
+    if (enemy.mesh) {
+      enemy.mesh.position.x = enemy.pos.x;
+      enemy.mesh.position.z = enemy.pos.z;
+    }
+    prevPlayerX = playerPos2.x;
+    prevPlayerZ = playerPos2.z;
+  }
+  updateTargeting(playerPos2, inputState2);
+  updateDecal(playerPos2.x, playerPos2.z, dt);
+  if (enemy.health <= 0 || enemy.fellInPit || enemy.pos.y <= 0.3 && !isRising) {
+    return "cancel";
+  }
+  if (vel && vel.y <= 0) {
+    const dy = enemy.pos.y - playerPos2.y;
+    if (dy >= 0 && dy <= DUNK.floatConvergeDist) {
+      phase = "float";
+      floatTimer = DUNK.floatDuration;
+      playerVelYOverride = 0;
+      setGravityOverride(enemy, 0);
+      screenShake(DUNK.grabShake * 0.5);
+      return "active";
+    }
+  }
+  return "active";
+}
+function updateFloat(dt, enemy, playerPos2, inputState2) {
+  floatTimer -= dt * 1e3;
+  const vel = enemy.vel;
+  playerVelYOverride = 0;
+  if (vel) vel.y = 0;
+  const targetEnemyY = playerPos2.y + DUNK.floatEnemyOffsetY;
+  enemy.pos.y += (targetEnemyY - enemy.pos.y) * Math.min(1, dt * 10);
+  const driftDx = playerPos2.x - enemy.pos.x;
+  const driftDz = playerPos2.z - enemy.pos.z;
+  const lerpFactor = 1 - Math.exp(-FLOAT_SELECTOR.floatDriftRate * dt);
+  enemy.pos.x += driftDx * lerpFactor;
+  enemy.pos.z += driftDz * lerpFactor;
+  if (enemy.mesh) enemy.mesh.position.copy(enemy.pos);
+  updateTargeting(playerPos2, inputState2);
+  updateDecal(playerPos2.x, playerPos2.z, dt);
+  if (!lmbPressed && (inputState2.attack || inputState2.attackHeld)) {
+    lmbPressed = true;
+    lmbHoldTimer = 0;
+    createChargeRing(playerPos2);
+  }
+  if (lmbPressed) {
+    if (inputState2.attackHeld) {
+      lmbHoldTimer += dt * 1e3;
+      const fillT = Math.min(lmbHoldTimer / FLOAT_SELECTOR.holdThreshold, 1);
+      updateChargeRing(playerPos2, fillT);
+      if (lmbHoldTimer >= FLOAT_SELECTOR.holdThreshold) {
+        activateBulletTimeAuto();
+        transferClaim(enemy, "dunk");
+        resolved = true;
+        return "complete";
+      }
+    } else {
+      transferClaim(enemy, "spike");
+      resolved = true;
+      return "complete";
+    }
+  }
+  if (floatTimer <= 0) {
+    return "cancel";
+  }
+  return "active";
+}
+function getFloatSelectorPlayerVelY() {
+  return playerVelYOverride;
+}
+function handoffDecal() {
+  if (!decalGroup) return null;
+  const result = { group: decalGroup, fill: decalFill, ring: decalRing };
+  decalGroup = null;
+  decalFill = null;
+  decalRing = null;
+  return result;
+}
+function resetFloatSelector() {
+  phase = "none";
+  target = null;
+  floatTimer = 0;
+  lmbPressed = false;
+  lmbHoldTimer = 0;
+  resolved = false;
+  playerVelYOverride = null;
+  landingX = 0;
+  landingZ = 0;
+  removeDecal();
+  removeChargeRing();
+}
+
+// src/verbs/dunk.ts
+var phase2 = "none";
+var target2 = null;
+var floatTimer2 = 0;
+var landingX2 = 0;
+var landingZ2 = 0;
+var originX = 0;
+var originZ = 0;
+var slamStartY = 0;
+var slamStartX = 0;
+var slamStartZ = 0;
+var playerVelYOverride2 = null;
+var landingLagMs = 0;
+var _gameState = null;
+var decalGroup2 = null;
+var decalFill2 = null;
+var decalRing2 = null;
+var decalAge2 = 0;
+var DECAL_EXPAND_MS2 = 250;
+var _handedDecal = null;
+var TRAIL_MAX = 20;
+var trailLine = null;
+var trailPoints = [];
+var trailLife = 0;
+function createDecal2(cx, cz) {
+  const scene2 = getScene();
+  const radius = DUNK.targetRadius;
+  decalGroup2 = new THREE.Group();
+  decalGroup2.position.set(cx, 0.06, cz);
+  const fillGeo2 = new THREE.CircleGeometry(radius, 32);
+  const fillMat = new THREE.MeshBasicMaterial({
+    color: 16729343,
+    transparent: true,
+    opacity: 0.08,
+    depthWrite: false
+  });
+  decalFill2 = new THREE.Mesh(fillGeo2, fillMat);
+  decalFill2.rotation.x = -Math.PI / 2;
+  decalGroup2.add(decalFill2);
+  const ringGeo4 = new THREE.RingGeometry(radius - 0.06, radius, 48);
+  const ringMat2 = new THREE.MeshBasicMaterial({
+    color: 16738047,
+    transparent: true,
+    opacity: 0.4,
+    depthWrite: false
+  });
+  decalRing2 = new THREE.Mesh(ringGeo4, ringMat2);
+  decalRing2.rotation.x = -Math.PI / 2;
+  decalGroup2.add(decalRing2);
+  const dotGeo = new THREE.CircleGeometry(DUNK.aoeRadius, 24);
+  const dotMat = new THREE.MeshBasicMaterial({
+    color: 16746751,
+    transparent: true,
+    opacity: 0.15,
+    depthWrite: false
+  });
+  const dot = new THREE.Mesh(dotGeo, dotMat);
+  dot.rotation.x = -Math.PI / 2;
+  dot.name = "dunkCrosshair";
+  decalGroup2.add(dot);
+  decalGroup2.scale.set(0, 0, 0);
+  decalAge2 = 0;
+  scene2.add(decalGroup2);
+}
+function updateDecal2(aimX2, aimZ2, dt) {
+  if (!decalGroup2) return;
+  if (decalAge2 < DECAL_EXPAND_MS2) {
+    decalAge2 += dt * 1e3;
+    const t = Math.min(decalAge2 / DECAL_EXPAND_MS2, 1);
+    const eased = 1 - (1 - t) * (1 - t);
+    decalGroup2.scale.set(eased, eased, eased);
+  } else if (decalGroup2.scale.x < 1) {
+    decalGroup2.scale.set(1, 1, 1);
+  }
+  decalGroup2.position.set(originX, 0.06, originZ);
+  const dot = decalGroup2.getObjectByName("dunkCrosshair");
+  if (dot) {
+    const dx = landingX2 - originX;
+    const dz = landingZ2 - originZ;
+    dot.position.set(dx, 0, dz);
+  }
+  if (decalRing2) {
+    const pulse = 0.3 + 0.15 * Math.sin(Date.now() * 8e-3);
+    decalRing2.material.opacity = pulse;
+  }
+}
+function removeDecal2() {
+  if (!decalGroup2) return;
+  const scene2 = getScene();
+  decalGroup2.traverse((child) => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+  });
+  scene2.remove(decalGroup2);
+  decalGroup2 = null;
+  decalFill2 = null;
+  decalRing2 = null;
+}
+function createTrail() {
+  removeTrail();
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(TRAIL_MAX * 3);
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setDrawRange(0, 0);
+  const mat = new THREE.LineBasicMaterial({
+    color: 16738047,
+    transparent: true,
+    opacity: 0.7,
+    linewidth: 1
+  });
+  trailLine = new THREE.Line(geo, mat);
+  trailLine.frustumCulled = false;
+  getScene().add(trailLine);
+  trailLife = 0;
+}
+function updateTrailGeometry() {
+  if (!trailLine) return;
+  const posAttr = trailLine.geometry.getAttribute("position");
+  const arr = posAttr.array;
+  for (let i = 0; i < trailPoints.length; i++) {
+    const p = trailPoints[i];
+    arr[i * 3] = p.x;
+    arr[i * 3 + 1] = p.y;
+    arr[i * 3 + 2] = p.z;
+  }
+  posAttr.needsUpdate = true;
+  trailLine.geometry.setDrawRange(0, trailPoints.length);
+}
+function startTrailFade() {
+  trailLife = 300;
+}
+function removeTrail() {
+  if (!trailLine) return;
+  const scene2 = getScene();
+  scene2.remove(trailLine);
+  if (trailLine.geometry) trailLine.geometry.dispose();
+  if (trailLine.material) trailLine.material.dispose();
+  trailLine = null;
+  trailPoints = [];
+  trailLife = 0;
+}
+function updateTargeting2(playerPos2, inputState2) {
+  originX = playerPos2.x;
+  originZ = playerPos2.z;
+  const aimDx = inputState2.aimWorldPos.x - originX;
+  const aimDz = inputState2.aimWorldPos.z - originZ;
+  const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
+  const clampedDist = Math.min(aimDist, DUNK.targetRadius);
+  landingX2 = originX + aimDx / aimDist * clampedDist;
+  landingZ2 = originZ + aimDz / aimDist * clampedDist;
+}
+var dunkVerb = {
+  name: "dunk",
+  tag: TAG.AERIAL_DUNK,
+  interruptible: false,
+  canClaim(entry, playerPos2, _inputState) {
+    return true;
+  },
+  onClaim(entry) {
+    phase2 = "grab";
+    target2 = entry.enemy;
+    floatTimer2 = 0;
+    playerVelYOverride2 = null;
+    landingLagMs = 0;
+    _handedDecal = handoffDecal();
+  },
+  update(dt, entry, playerPos2, inputState2) {
+    const enemy = entry.enemy;
+    _gameState = inputState2._gameState;
+    if (phase2 === "grab") {
+      originX = playerPos2.x;
+      originZ = playerPos2.z;
+      const aimDx = inputState2.aimWorldPos.x - originX;
+      const aimDz = inputState2.aimWorldPos.z - originZ;
+      const aimDist = Math.sqrt(aimDx * aimDx + aimDz * aimDz) || 0.01;
+      const clampedDist = Math.min(aimDist, DUNK.targetRadius);
+      landingX2 = originX + aimDx / aimDist * clampedDist;
+      landingZ2 = originZ + aimDz / aimDist * clampedDist;
+      transitionToGrab(enemy, playerPos2);
+      return "active";
+    }
+    if (phase2 === "wind") {
+      return updateWind(dt, enemy, playerPos2, inputState2);
+    }
+    if (phase2 === "slam") {
+      return updateSlam(dt, enemy, playerPos2, inputState2);
+    }
+    return "cancel";
+  },
+  onCancel(entry) {
+    removeDecal2();
+    removeTrail();
+    deactivateBulletTimeAuto();
+    setGravityOverride(entry.enemy, 1);
+    phase2 = "none";
+    target2 = null;
+    playerVelYOverride2 = null;
+    landingLagMs = 0;
+  },
+  onComplete(entry) {
+    const enemy = entry.enemy;
+    const groundHeight = getGroundHeight(enemy.pos.x, enemy.pos.z);
+    enemy.health -= DUNK.damage;
+    enemy.flashTimer = 150;
+    enemy.pos.y = groundHeight;
+    const tVel = enemy.vel;
+    if (tVel) {
+      tVel.x = 0;
+      tVel.y = 0;
+      tVel.z = 0;
+    }
+    if (enemy.mesh) enemy.mesh.position.copy(enemy.pos);
+    if (_gameState && _gameState.enemies) {
+      const enemies = _gameState.enemies;
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e === enemy) continue;
+        if (e.health <= 0 || e.fellInPit) continue;
+        const dx = e.pos.x - enemy.pos.x;
+        const dz = e.pos.z - enemy.pos.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq < DUNK.aoeRadius * DUNK.aoeRadius) {
+          e.health -= DUNK.aoeDamage;
+          e.flashTimer = 100;
+          const dist = Math.sqrt(distSq) || 0.1;
+          const vel = e.vel;
+          if (vel) {
+            vel.x += dx / dist * DUNK.aoeKnockback;
+            vel.z += dz / dist * DUNK.aoeKnockback;
+          }
+        }
+      }
+    }
+    screenShake(DUNK.landingShake);
+    emit({
+      type: "dunkImpact",
+      enemy,
+      damage: DUNK.damage,
+      position: { x: enemy.pos.x, z: enemy.pos.z }
+    });
+    spawnDamageNumber(enemy.pos.x, enemy.pos.z, `DUNK! ${DUNK.damage}`, "#ff2244");
+    removeDecal2();
+    startTrailFade();
+    deactivateBulletTimeAuto();
+    landingLagMs = DUNK.landingLag;
+    phase2 = "none";
+    target2 = null;
+    playerVelYOverride2 = null;
+  }
+};
+function transitionToGrab(enemy, playerPos2) {
+  phase2 = "wind";
+  target2 = enemy;
+  const ptVel = enemy.vel;
+  enemy.pos.x = playerPos2.x;
+  enemy.pos.z = playerPos2.z;
+  enemy.pos.y = playerPos2.y + DUNK.carryOffsetY;
+  playerVelYOverride2 = DUNK.arcRiseVelocity;
+  if (ptVel) ptVel.y = DUNK.arcRiseVelocity;
+  if (_handedDecal) {
+    decalGroup2 = _handedDecal.group;
+    decalFill2 = _handedDecal.fill;
+    decalRing2 = _handedDecal.ring;
+    _handedDecal = null;
+    if (decalFill2) {
+      decalFill2.material.color.setHex(16729343);
+      decalFill2.material.opacity = 0.08;
+    }
+    if (decalRing2) decalRing2.material.color.setHex(16738047);
+    const dotGeo = new THREE.CircleGeometry(DUNK.aoeRadius, 24);
+    const dotMat = new THREE.MeshBasicMaterial({
+      color: 16746751,
+      transparent: true,
+      opacity: 0.15,
+      depthWrite: false
+    });
+    const dot = new THREE.Mesh(dotGeo, dotMat);
+    dot.rotation.x = -Math.PI / 2;
+    dot.name = "dunkCrosshair";
+    decalGroup2.add(dot);
+    decalAge2 = DECAL_EXPAND_MS2;
+  } else {
+    createDecal2(originX, originZ);
+  }
+  slamStartY = playerPos2.y;
+  slamStartX = playerPos2.x;
+  slamStartZ = playerPos2.z;
+  trailPoints = [{ x: playerPos2.x, y: playerPos2.y, z: playerPos2.z }];
+  createTrail();
+  screenShake(DUNK.grabShake);
+  emit({
+    type: "dunkGrab",
+    enemy,
+    position: { x: playerPos2.x, z: playerPos2.z }
+  });
+  spawnDamageNumber(playerPos2.x, playerPos2.z, "GRAB!", "#ff44ff");
+}
+function updateWind(dt, enemy, playerPos2, inputState2) {
+  if (!inputState2.attackHeld) deactivateBulletTimeAuto();
+  updateTargeting2(playerPos2, inputState2);
+  updateDecal2(landingX2, landingZ2, dt);
+  playerVelYOverride2 -= JUMP.gravity * dt;
+  const ptVel = enemy.vel;
+  if (ptVel) ptVel.y = playerVelYOverride2;
+  const toDx = landingX2 - playerPos2.x;
+  const toDz = landingZ2 - playerPos2.z;
+  const toDist = Math.sqrt(toDx * toDx + toDz * toDz);
+  if (toDist > 0.05) {
+    const riseTime = DUNK.arcRiseVelocity / JUMP.gravity;
+    const windSpeed = toDist * DUNK.arcXzFraction / riseTime;
+    const moveStep = Math.min(windSpeed * dt, toDist);
+    playerPos2.x += toDx / toDist * moveStep;
+    playerPos2.z += toDz / toDist * moveStep;
+  }
+  enemy.pos.x = playerPos2.x;
+  enemy.pos.z = playerPos2.z;
+  enemy.pos.y = playerPos2.y + DUNK.carryOffsetY;
+  if (enemy.mesh) {
+    const faceDx = landingX2 - playerPos2.x;
+    const faceDz = landingZ2 - playerPos2.z;
+    const faceDist = Math.sqrt(faceDx * faceDx + faceDz * faceDz) || 0.01;
+    const fwdX = faceDx / faceDist * DUNK.carryOffsetZ;
+    const fwdZ = faceDz / faceDist * DUNK.carryOffsetZ;
+    enemy.mesh.position.set(enemy.pos.x + fwdX, enemy.pos.y, enemy.pos.z + fwdZ);
+  }
+  trailPoints.push({ x: playerPos2.x, y: playerPos2.y, z: playerPos2.z });
+  if (trailPoints.length > TRAIL_MAX) trailPoints.shift();
+  updateTrailGeometry();
+  if (playerVelYOverride2 <= 0) {
+    playerVelYOverride2 = DUNK.slamVelocity;
+    if (ptVel) ptVel.y = DUNK.slamVelocity;
+    slamStartY = playerPos2.y;
+    slamStartX = playerPos2.x;
+    slamStartZ = playerPos2.z;
+    phase2 = "slam";
+  }
+  return "active";
+}
+function updateSlam(dt, enemy, playerPos2, inputState2) {
+  originX = playerPos2.x;
+  originZ = playerPos2.z;
+  updateDecal2(landingX2, landingZ2, dt);
+  const groundY = getGroundHeight(playerPos2.x, playerPos2.z);
+  const totalDrop = Math.max(slamStartY - groundY, 0.1);
+  const dropped = Math.max(slamStartY - playerPos2.y, 0);
+  const progress = Math.min(dropped / totalDrop, 1);
+  const arcMult = 0.3 + 0.7 * progress;
+  const toDx = landingX2 - playerPos2.x;
+  const toDz = landingZ2 - playerPos2.z;
+  const toDist = Math.sqrt(toDx * toDx + toDz * toDz);
+  if (toDist > 0.05) {
+    const moveStep = Math.min(DUNK.homing * arcMult * dt, toDist);
+    playerPos2.x += toDx / toDist * moveStep;
+    playerPos2.z += toDz / toDist * moveStep;
+  }
+  trailPoints.push({ x: playerPos2.x, y: playerPos2.y, z: playerPos2.z });
+  if (trailPoints.length > TRAIL_MAX) trailPoints.shift();
+  updateTrailGeometry();
+  enemy.pos.x = playerPos2.x;
+  enemy.pos.z = playerPos2.z;
+  enemy.pos.y = playerPos2.y + DUNK.carryOffsetY;
+  if (enemy.mesh) {
+    const faceDx = landingX2 - playerPos2.x;
+    const faceDz = landingZ2 - playerPos2.z;
+    const faceDist = Math.sqrt(faceDx * faceDx + faceDz * faceDz) || 0.01;
+    const fwdX = faceDx / faceDist * DUNK.carryOffsetZ;
+    const fwdZ = faceDz / faceDist * DUNK.carryOffsetZ;
+    enemy.mesh.position.set(
+      enemy.pos.x + fwdX,
+      enemy.pos.y,
+      enemy.pos.z + fwdZ
+    );
+  }
+  const groundHeight = getGroundHeight(playerPos2.x, playerPos2.z);
+  if (playerPos2.y <= groundHeight) {
+    playerPos2.y = groundHeight;
+    return "complete";
+  }
+  return "active";
+}
+function getDunkPhase() {
+  return phase2;
+}
+function getDunkPlayerVelY() {
+  return playerVelYOverride2;
+}
+function getDunkLandingLag() {
+  const lag = landingLagMs;
+  landingLagMs = 0;
+  return lag;
+}
+function updateDunkVisuals(dt) {
+  if (trailLine && trailLife > 0) {
+    trailLife -= dt * 1e3;
+    const opacity = Math.max(0, trailLife / 300) * 0.7;
+    trailLine.material.opacity = opacity;
+    if (trailLife <= 0) {
+      removeTrail();
+    }
+  }
+}
+function resetDunk() {
+  phase2 = "none";
+  target2 = null;
+  floatTimer2 = 0;
+  playerVelYOverride2 = null;
+  landingLagMs = 0;
+  landingX2 = 0;
+  landingZ2 = 0;
+  originX = 0;
+  originZ = 0;
+  slamStartY = 0;
+  slamStartX = 0;
+  slamStartZ = 0;
+  _gameState = null;
+  removeDecal2();
+  removeTrail();
+}
+
+// src/engine/entityCarrier.ts
+var GRAVITY = 25;
+var THROUGH_HIT_RADIUS = 1.5;
+var carriers = [];
+function createCarrier(payload, direction, config) {
+  const len = Math.sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z) || 1;
+  const nx = direction.x / len;
+  const ny = direction.y / len;
+  const nz = direction.z / len;
+  const hitSet = /* @__PURE__ */ new Set();
+  hitSet.add(payload);
+  payload.isCarrierPayload = true;
+  carriers.push({
+    payload,
+    vel: {
+      x: nx * config.speed,
+      y: ny * config.speed,
+      z: nz * config.speed
+    },
+    config,
+    hitSet
+  });
+}
+function updateCarriers(dt, gameState2) {
+  for (let i = carriers.length - 1; i >= 0; i--) {
+    const carrier = carriers[i];
+    const { payload, vel, config, hitSet } = carrier;
+    vel.y -= GRAVITY * config.gravityMult * dt;
+    payload.pos.x += vel.x * dt;
+    payload.pos.y += vel.y * dt;
+    payload.pos.z += vel.z * dt;
+    if (payload.mesh && payload.mesh.position) {
+      payload.mesh.position.set(payload.pos.x, payload.pos.y, payload.pos.z);
+    }
+    if (gameState2.enemies) {
+      for (let j = 0; j < gameState2.enemies.length; j++) {
+        const enemy = gameState2.enemies[j];
+        if (hitSet.has(enemy)) continue;
+        if (enemy.health <= 0) continue;
+        if (enemy.fellInPit) continue;
+        const dx = enemy.pos.x - payload.pos.x;
+        const dy = enemy.pos.y - payload.pos.y;
+        const dz = enemy.pos.z - payload.pos.z;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist < THROUGH_HIT_RADIUS) {
+          enemy.health -= config.throughDamage;
+          enemy.flashTimer = 100;
+          const xzDist = Math.sqrt(dx * dx + dz * dz) || 0.1;
+          enemy.vel.x += dx / xzDist * config.throughKnockback;
+          enemy.vel.z += dz / xzDist * config.throughKnockback;
+          hitSet.add(enemy);
+          emit({
+            type: "spikeThrough",
+            enemy,
+            damage: config.throughDamage,
+            position: { x: enemy.pos.x, z: enemy.pos.z }
+          });
+          spawnDamageNumber(enemy.pos.x, enemy.pos.z, config.throughDamage, "#ff8844");
+        }
+      }
+    }
+    const groundY = getGroundHeight(payload.pos.x, payload.pos.z);
+    if (payload.pos.y <= groundY) {
+      payload.pos.y = groundY;
+      if (gameState2.enemies) {
+        for (let j = 0; j < gameState2.enemies.length; j++) {
+          const enemy = gameState2.enemies[j];
+          if (enemy === payload) continue;
+          if (enemy.health <= 0) continue;
+          if (enemy.fellInPit) continue;
+          const dx = enemy.pos.x - payload.pos.x;
+          const dz = enemy.pos.z - payload.pos.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq < config.impactRadius * config.impactRadius) {
+            enemy.health -= config.impactDamage;
+            enemy.flashTimer = 100;
+            const dist = Math.sqrt(distSq) || 0.1;
+            enemy.vel.x += dx / dist * config.impactKnockback;
+            enemy.vel.z += dz / dist * config.impactKnockback;
+          }
+        }
+      }
+      payload.vel.x = 0;
+      payload.vel.y = 0;
+      payload.vel.z = 0;
+      payload.isCarrierPayload = false;
+      if (payload.mesh && payload.mesh.position) {
+        payload.mesh.position.set(payload.pos.x, payload.pos.y, payload.pos.z);
+      }
+      screenShake(config.impactShake);
+      emit({
+        type: "spikeImpact",
+        position: { x: payload.pos.x, z: payload.pos.z },
+        damage: config.impactDamage,
+        radius: config.impactRadius
+      });
+      spawnDamageNumber(payload.pos.x, payload.pos.z, "IMPACT!", "#ff4444");
+      carriers.splice(i, 1);
+    }
+  }
+}
+function clearCarriers() {
+  for (const c of carriers) {
+    c.payload.isCarrierPayload = false;
+  }
+  carriers.length = 0;
+}
+
+// src/verbs/spike.ts
+var phase3 = "none";
+var target3 = null;
+var phaseTimer = 0;
+var aimX = 0;
+var aimZ = 0;
+var playerVelYOverride3 = null;
+var fastFallActive = false;
+var spikeVerb = {
+  name: "spike",
+  tag: TAG.AERIAL_SPIKE,
+  interruptible: false,
+  canClaim(_entry, _playerPos, _inputState) {
+    return true;
+  },
+  onClaim(entry) {
+    phase3 = "windup";
+    target3 = entry.enemy;
+    phaseTimer = 0;
+    playerVelYOverride3 = 0;
+    fastFallActive = false;
+    setGravityOverride(entry.enemy, 0);
+    screenShake(0.5);
+  },
+  update(dt, entry, playerPos2, inputState2) {
+    const enemy = entry.enemy;
+    if (phase3 === "windup") {
+      return updateWindup(dt, enemy, playerPos2, inputState2);
+    } else if (phase3 === "recovery") {
+      return updateRecovery(dt);
+    }
+    return "cancel";
+  },
+  onCancel(entry) {
+    setGravityOverride(entry.enemy, 1);
+    resetState();
+  },
+  onComplete(entry) {
+    resetState();
+  }
+};
+function updateWindup(dt, enemy, playerPos2, inputState2) {
+  phaseTimer += dt * 1e3;
+  enemy.vel.y = 0;
+  if (phaseTimer <= dt * 1e3 + 0.1) {
+    aimX = inputState2.aimWorldPos.x;
+    aimZ = inputState2.aimWorldPos.z;
+  }
+  playerVelYOverride3 = 0;
+  if (phaseTimer >= SPIKE.windupDuration) {
+    executeStrike(enemy, playerPos2);
+    return "active";
+  }
+  return "active";
+}
+function executeStrike(enemy, playerPos2) {
+  enemy.health -= SPIKE.damage;
+  enemy.flashTimer = 150;
+  const dx = aimX - playerPos2.x;
+  const dz = aimZ - playerPos2.z;
+  const horizontalDist = Math.sqrt(dx * dx + dz * dz) || 0.01;
+  const nx = dx / horizontalDist;
+  const nz = dz / horizontalDist;
+  const angleRad = SPIKE.projectileAngle * Math.PI / 180;
+  const dirY = -Math.tan(angleRad);
+  const dirX = nx;
+  const dirZ = nz;
+  createCarrier(enemy, { x: dirX, y: dirY, z: dirZ }, {
+    speed: SPIKE.projectileSpeed,
+    gravityMult: 0.5,
+    // some gravity for arc feel
+    throughDamage: SPIKE.throughDamage,
+    throughKnockback: SPIKE.throughKnockback,
+    impactDamage: SPIKE.impactDamage,
+    impactRadius: SPIKE.impactRadius,
+    impactKnockback: SPIKE.impactKnockback,
+    impactShake: SPIKE.impactShake
+  });
+  screenShake(SPIKE.screenShake);
+  emit({
+    type: "spikeStrike",
+    enemy,
+    damage: SPIKE.damage,
+    position: { x: enemy.pos.x, z: enemy.pos.z }
+  });
+  spawnDamageNumber(enemy.pos.x, enemy.pos.z, `SPIKE! ${SPIKE.damage}`, "#ff4488");
+  phase3 = "recovery";
+  phaseTimer = 0;
+  playerVelYOverride3 = 0;
+  fastFallActive = true;
+}
+function updateRecovery(dt) {
+  phaseTimer += dt * 1e3;
+  playerVelYOverride3 = 0;
+  if (phaseTimer >= SPIKE.hangDuration) {
+    playerVelYOverride3 = null;
+    return "complete";
+  }
+  return "active";
+}
+function getSpikePlayerVelYOverride() {
+  return playerVelYOverride3;
+}
+function getSpikeFastFallActive() {
+  return fastFallActive;
+}
+function resetState() {
+  phase3 = "none";
+  target3 = null;
+  phaseTimer = 0;
+  aimX = 0;
+  aimZ = 0;
+  playerVelYOverride3 = null;
+  fastFallActive = false;
+}
+function resetSpike() {
+  resetState();
+}
+
+// src/config/physics.ts
+var PHYSICS = {
+  // Knockback velocity
+  friction: 25,
+  // deceleration rate (units/s²) — higher = snappier stop
+  minVelocity: 0.1,
+  // below this speed, zero out velocity
+  pushInstantRatio: 0,
+  // fraction of knockback as instant position offset (0 = pure velocity)
+  // Wall slam
+  wallSlamMinSpeed: 3,
+  // minimum impact speed for wall damage
+  wallSlamDamage: 8,
+  // damage per unit of impact speed above threshold
+  wallSlamStun: 400,
+  // ms stun on wall slam
+  wallSlamBounce: 0.4,
+  // velocity reflection coefficient (0 = dead stop, 1 = perfect bounce)
+  wallSlamShake: 3,
+  // screen shake intensity on wall slam
+  // Force push wave occlusion
+  pushWaveBlockRadius: 0.8,
+  // lateral distance for one enemy to block another from push wave
+  // Enemy-enemy collision
+  enemyBounce: 0.4,
+  // enemy-enemy restitution coefficient
+  impactMinSpeed: 2,
+  // minimum relative speed for collision damage
+  impactDamage: 5,
+  // damage per unit of relative speed above threshold
+  impactStun: 300,
+  // ms stun when hit by another enemy
+  // Y-axis / vertical physics
+  gravity: 25,
+  // units/s² downward acceleration
+  terminalVelocity: 20,
+  // max downward Y velocity
+  airControlMult: 1,
+  // XZ movement multiplier while airborne (1.0 = full control)
+  landingLagBase: 50,
+  // ms of landing lag (minimum)
+  landingLagPerSpeed: 10,
+  // ms of landing lag per unit of fall speed
+  groundEpsilon: 0.05
+  // height threshold for "grounded" detection
+};
+
+// src/effects/launchPillar.ts
+var sceneRef6;
+var activePillars = [];
+var pillarGeo;
+function initLaunchPillars(scene2) {
+  sceneRef6 = scene2;
+}
+function spawnLaunchPillar(x, z) {
+  if (!sceneRef6) return;
+  if (!pillarGeo) {
+    pillarGeo = new THREE.CylinderGeometry(
+      LAUNCH.pillarRadius * 0.7,
+      // top radius (tapered)
+      LAUNCH.pillarRadius,
+      // bottom radius
+      LAUNCH.pillarHeight,
+      6
+      // 6 sides — hexagonal for rocky look
+    );
+  }
+  const mat = new THREE.MeshStandardMaterial({
+    color: LAUNCH.pillarColor,
+    flatShading: true,
+    transparent: true,
+    opacity: 1
+  });
+  const mesh = new THREE.Mesh(pillarGeo, mat);
+  mesh.position.set(x, -LAUNCH.pillarHeight, z);
+  mesh.rotation.y = Math.random() * Math.PI * 2;
+  sceneRef6.add(mesh);
+  activePillars.push({
+    mesh,
+    material: mat,
+    elapsed: 0
+  });
+}
+function easeOutQuad3(t) {
+  return t * (2 - t);
+}
+function easeInQuad(t) {
+  return t * t;
+}
+function updateLaunchPillars(dt) {
+  const dtMs = dt * 1e3;
+  for (let i = activePillars.length - 1; i >= 0; i--) {
+    const p = activePillars[i];
+    p.elapsed += dtMs;
+    const { pillarRiseTime, pillarHoldTime, pillarDuration, pillarHeight } = LAUNCH;
+    const sinkStart = pillarRiseTime + pillarHoldTime;
+    const sinkDuration = pillarDuration - sinkStart;
+    if (p.elapsed < pillarRiseTime) {
+      const t = easeOutQuad3(p.elapsed / pillarRiseTime);
+      p.mesh.position.y = -pillarHeight + t * (pillarHeight * 0.5 + pillarHeight);
+    } else if (p.elapsed < sinkStart) {
+      p.mesh.position.y = pillarHeight * 0.5;
+    } else if (p.elapsed < pillarDuration) {
+      const sinkT = easeInQuad((p.elapsed - sinkStart) / sinkDuration);
+      p.mesh.position.y = pillarHeight * 0.5 - sinkT * (pillarHeight * 0.5 + pillarHeight);
+      p.material.opacity = 1 - sinkT;
+    } else {
+      p.material.dispose();
+      sceneRef6.remove(p.mesh);
+      activePillars.splice(i, 1);
+    }
+  }
+}
+function clearLaunchPillars() {
+  for (const p of activePillars) {
+    p.material.dispose();
+    sceneRef6.remove(p.mesh);
+  }
+  activePillars.length = 0;
+}
+
+// src/effects/launchIndicator.ts
+var sceneRef7;
+var ringGeo2;
+var ringMat;
+var ringMesh;
+var previousTarget = null;
+function initLaunchIndicator(scene2) {
+  sceneRef7 = scene2;
+}
+function findLaunchTarget(enemies, playerPos2) {
+  let closestEnemy = null;
+  let closestDistSq = LAUNCH.range * LAUNCH.range;
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
+    if (e.health <= 0 || e.fellInPit) continue;
+    const dx = e.pos.x - playerPos2.x;
+    const dz = e.pos.z - playerPos2.z;
+    const distSq = dx * dx + dz * dz;
+    if (distSq < closestDistSq) {
+      closestDistSq = distSq;
+      closestEnemy = e;
+    }
+  }
+  return closestEnemy;
+}
+function ensureRing() {
+  if (ringMesh) return;
+  if (!sceneRef7) return;
+  const innerRadius = LAUNCH.indicatorRingRadius * 0.65;
+  ringGeo2 = new THREE.RingGeometry(innerRadius, LAUNCH.indicatorRingRadius, 24);
+  ringGeo2.rotateX(-Math.PI / 2);
+  ringMat = new THREE.MeshBasicMaterial({
+    color: LAUNCH.indicatorColor,
+    transparent: true,
+    opacity: LAUNCH.indicatorOpacity,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  ringMesh = new THREE.Mesh(ringGeo2, ringMat);
+  ringMesh.renderOrder = -1;
+  ringMesh.visible = false;
+  sceneRef7.add(ringMesh);
+}
+function setTargetHighlight(enemy, intensity) {
+  if (!enemy || !enemy.bodyMesh) return;
+  enemy.bodyMesh.material.emissive.setHex(LAUNCH.indicatorColor);
+  enemy.bodyMesh.material.emissiveIntensity = intensity;
+  if (enemy.headMesh) {
+    enemy.headMesh.material.emissive.setHex(LAUNCH.indicatorColor);
+    enemy.headMesh.material.emissiveIntensity = intensity;
+  }
+}
+function restoreTargetEmissive(enemy) {
+  if (!enemy || !enemy.bodyMesh || !enemy.config) return;
+  enemy.bodyMesh.material.emissive.setHex(enemy.config.emissive);
+  enemy.bodyMesh.material.emissiveIntensity = enemy.config.emissiveIntensity || 0.3;
+  if (enemy.headMesh) {
+    enemy.headMesh.material.emissive.setHex(enemy.config.emissive);
+    enemy.headMesh.material.emissiveIntensity = enemy.config.emissiveIntensity || 0.3;
+  }
+}
+function updateLaunchIndicator(target4, windupProgress) {
+  ensureRing();
+  if (previousTarget && previousTarget !== target4) {
+    restoreTargetEmissive(previousTarget);
+  }
+  previousTarget = target4;
+  if (!target4) {
+    if (ringMesh) ringMesh.visible = false;
+    return;
+  }
+  if (ringMesh) {
+    ringMesh.position.set(target4.pos.x, 0.04, target4.pos.z);
+    ringMesh.visible = true;
+  }
+  if (windupProgress < 0) {
+    const pulse = 0.3 + 0.1 * Math.sin(performance.now() * 4e-3);
+    if (ringMat) {
+      ringMat.opacity = LAUNCH.indicatorOpacity * pulse / 0.3;
+    }
+    if (ringMesh) {
+      ringMesh.scale.setScalar(1);
+    }
+    setTargetHighlight(target4, 0.5);
+  } else {
+    const t = Math.min(windupProgress, 1);
+    const pulse = 0.8 + 0.2 * Math.sin(performance.now() * 0.015);
+    if (ringMat) {
+      ringMat.opacity = (LAUNCH.indicatorOpacity + (0.8 - LAUNCH.indicatorOpacity) * t) * pulse;
+    }
+    if (ringMesh) {
+      const scalePulse = 1 + 0.15 * Math.sin(performance.now() * 0.02) * t;
+      ringMesh.scale.setScalar(scalePulse);
+    }
+    setTargetHighlight(target4, 0.5 + 0.5 * t);
+  }
+}
+function clearLaunchIndicator() {
+  if (previousTarget) {
+    restoreTargetEmissive(previousTarget);
+    previousTarget = null;
+  }
+  if (ringMesh && sceneRef7) {
+    sceneRef7.remove(ringMesh);
+    ringMesh = null;
+  }
+  if (ringMat) {
+    ringMat.dispose();
+    ringMat = null;
+  }
+  if (ringGeo2) {
+    ringGeo2.dispose();
+    ringGeo2 = null;
   }
 }
 
@@ -2980,6 +5465,15 @@ var chargeTelegraphGroup = null;
 var chargeFillMesh = null;
 var chargeBorderMesh = null;
 var chargeBorderGeo = null;
+var playerVelY = 0;
+var isPlayerAirborne = false;
+var landingLagTimer = 0;
+var actionLockoutTimer = 0;
+var ACTION_LOCKOUT_MS = 300;
+var launchCooldownTimer = 0;
+var launchWindupTimer = 0;
+var launchWindupTarget = null;
+var isSlamming = false;
 var originGroup = null;
 var lastFireTime = 0;
 var DEFAULT_EMISSIVE = 2271846;
@@ -3089,8 +5583,84 @@ function updatePlayer(inputState2, dt, gameState2) {
   if (inputState2.dash && gameState2.abilities.dash.cooldownRemaining <= 0) {
     startDash(inputState2, gameState2);
   }
-  if (getActiveProfile() !== "origin" && inputState2.ultimate && gameState2.abilities.ultimate.cooldownRemaining <= 0 && !isCharging) {
+  if (getActiveProfile() !== "origin" && (inputState2.chargeStarted || inputState2.ultimate && getActiveProfile() !== "vertical") && gameState2.abilities.ultimate.cooldownRemaining <= 0 && !isCharging && !isPlayerAirborne && !playerHasTag(TAG.AERIAL) && actionLockoutTimer <= 0) {
     startCharge(inputState2, gameState2);
+  }
+  if (getActiveProfile() === "vertical") {
+    if (inputState2.jump && !isPlayerAirborne && !isDashing && landingLagTimer <= 0) {
+      playerVelY = JUMP.initialVelocity;
+      isPlayerAirborne = true;
+      emit({ type: "playerJump", position: { x: playerPos.x, z: playerPos.z } });
+    }
+    if (launchCooldownTimer > 0) {
+      launchCooldownTimer -= dt * 1e3;
+    }
+    if (launchWindupTimer > 0) {
+      if (isDashing || !launchWindupTarget || launchWindupTarget.health <= 0 || launchWindupTarget.fellInPit) {
+        updateLaunchIndicator(null, -1);
+        launchWindupTimer = 0;
+        launchWindupTarget = null;
+      }
+    }
+    if (launchWindupTimer > 0) {
+      launchWindupTimer -= dt * 1e3;
+      const progress = 1 - Math.max(0, launchWindupTimer) / LAUNCH.windupDuration;
+      updateLaunchIndicator(launchWindupTarget, progress);
+      if (launchWindupTimer <= 0) {
+        const closestEnemy = launchWindupTarget;
+        launchWindupTarget = null;
+        updateLaunchIndicator(null, -1);
+        const vel = closestEnemy.vel;
+        const launchVelY = JUMP.initialVelocity * LAUNCH.enemyVelMult;
+        if (vel) {
+          vel.y = launchVelY;
+          const arcDx = playerPos.x - closestEnemy.pos.x;
+          const arcDz = playerPos.z - closestEnemy.pos.z;
+          const arcDist = Math.sqrt(arcDx * arcDx + arcDz * arcDz);
+          if (arcDist > 0.1) {
+            const convergenceTime = launchVelY / PHYSICS.gravity;
+            const arcSpeed = arcDist * LAUNCH.arcFraction / convergenceTime;
+            vel.x = arcDx / arcDist * arcSpeed;
+            vel.z = arcDz / arcDist * arcSpeed;
+          }
+        }
+        spawnLaunchPillar(closestEnemy.pos.x, closestEnemy.pos.z);
+        closestEnemy.health -= LAUNCH.damage;
+        playerVelY = JUMP.initialVelocity * LAUNCH.playerVelMult;
+        isPlayerAirborne = true;
+        launchCooldownTimer = LAUNCH.cooldown;
+        registerLaunch(closestEnemy);
+        claimLaunched(closestEnemy, "floatSelector");
+        activateVerb("floatSelector", closestEnemy);
+        emit({
+          type: "enemyLaunched",
+          enemy: closestEnemy,
+          position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z },
+          velocity: JUMP.initialVelocity * LAUNCH.enemyVelMult
+        });
+        spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, `LAUNCH! ${LAUNCH.damage}`, "#ffaa00");
+        inputState2.launch = false;
+      }
+    } else if (inputState2.launch && !isPlayerAirborne && !isDashing && launchCooldownTimer <= 0) {
+      const closestEnemy = findLaunchTarget(gameState2.enemies || [], playerPos);
+      if (closestEnemy) {
+        launchWindupTarget = closestEnemy;
+        launchWindupTimer = LAUNCH.windupDuration;
+        const dx = closestEnemy.pos.x - playerPos.x;
+        const dz = closestEnemy.pos.z - playerPos.z;
+        playerGroup.rotation.y = Math.atan2(-dx, -dz);
+        inputState2.launch = false;
+      }
+    } else if (!isPlayerAirborne && !isDashing && launchCooldownTimer <= 0 && launchWindupTimer <= 0) {
+      const candidate = findLaunchTarget(gameState2.enemies || [], playerPos);
+      updateLaunchIndicator(candidate, -1);
+    } else if (launchWindupTimer <= 0) {
+      updateLaunchIndicator(null, -1);
+    }
+    if (inputState2.launch && isPlayerAirborne && !isSlamming && !playerHasTag(TAG.AERIAL)) {
+      isSlamming = true;
+      playerVelY = SELF_SLAM.slamVelocity;
+    }
   }
   if (Math.abs(inputState2.moveX) > 0.01 || Math.abs(inputState2.moveZ) > 0.01) {
     const chargeSlow = isCharging ? ABILITIES.ultimate.chargeMoveSpeedMult : 1;
@@ -3103,6 +5673,76 @@ function updatePlayer(inputState2, dt, gameState2) {
   const clampZ = ARENA_HALF_Z - 0.5;
   playerPos.x = Math.max(-clampX, Math.min(clampX, playerPos.x));
   playerPos.z = Math.max(-clampZ, Math.min(clampZ, playerPos.z));
+  if (getActiveProfile() === "vertical") {
+    if (!isPlayerAirborne) {
+      const groundBelow = getGroundHeight(playerPos.x, playerPos.z);
+      if (playerPos.y > groundBelow + PHYSICS.groundEpsilon) {
+        isPlayerAirborne = true;
+        playerVelY = 0;
+      }
+    }
+    if (isPlayerAirborne) {
+      const dunkVelY = getDunkPlayerVelY();
+      const selectorVelY = getFloatSelectorPlayerVelY();
+      const spikeVelY = getSpikePlayerVelYOverride();
+      const hasVerbOverride = dunkVelY !== null || selectorVelY !== null || spikeVelY !== null;
+      if (hasVerbOverride) {
+        if (dunkVelY !== null) playerVelY = dunkVelY;
+        else if (selectorVelY !== null) playerVelY = selectorVelY;
+        else if (spikeVelY !== null) playerVelY = spikeVelY;
+      } else {
+        playerVelY -= JUMP.gravity * dt;
+        if (getSpikeFastFallActive()) {
+          playerVelY -= JUMP.gravity * (SPIKE.fastFallGravityMult - 1) * dt;
+        }
+      }
+      playerPos.y += playerVelY * dt;
+      const groundHeight = getGroundHeight(playerPos.x, playerPos.z);
+      if (playerPos.y <= groundHeight) {
+        const fallSpeed = Math.abs(playerVelY);
+        playerPos.y = groundHeight;
+        playerVelY = 0;
+        isPlayerAirborne = false;
+        if (isSlamming) {
+          isSlamming = false;
+          landingLagTimer = SELF_SLAM.landingLag;
+          screenShake(SELF_SLAM.landingShake);
+          const enemies = gameState2.enemies;
+          if (enemies) {
+            for (let i = 0; i < enemies.length; i++) {
+              const e = enemies[i];
+              if (e.health <= 0 || e.fellInPit) continue;
+              const dx = e.pos.x - playerPos.x;
+              const dz = e.pos.z - playerPos.z;
+              const distSq = dx * dx + dz * dz;
+              if (distSq < SELF_SLAM.damageRadius * SELF_SLAM.damageRadius) {
+                e.health -= SELF_SLAM.damage;
+                e.flashTimer = 100;
+                const dist = Math.sqrt(distSq) || 0.1;
+                const vel = e.vel;
+                if (vel) {
+                  vel.x += dx / dist * SELF_SLAM.knockback;
+                  vel.z += dz / dist * SELF_SLAM.knockback;
+                }
+              }
+            }
+          }
+          emit({ type: "playerSlam", position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+          spawnDamageNumber(playerPos.x, playerPos.z, "SLAM!", "#ff8800");
+        } else if (getDunkPhase() === "slam") {
+          const lag = getDunkLandingLag();
+          if (lag > 0) landingLagTimer = lag;
+          actionLockoutTimer = ACTION_LOCKOUT_MS;
+        } else {
+          landingLagTimer = JUMP.landingLag;
+          emit({ type: "playerLand", position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+        }
+      }
+    }
+    if (landingLagTimer > 0) landingLagTimer -= dt * 1e3;
+    if (actionLockoutTimer > 0) actionLockoutTimer -= dt * 1e3;
+    updateDunkVisuals(dt);
+  }
   playerGroup.position.copy(playerPos);
   aimAtCursor(inputState2);
   if (getActiveProfile() === "origin") {
@@ -3118,7 +5758,12 @@ function updatePlayer(inputState2, dt, gameState2) {
       endLagTimer > 0,
       isDashing ? Math.min(dashTimer / dashDuration, 1) : 0,
       meleeSwinging,
-      meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0
+      meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0,
+      getActiveProfile() === "vertical" ? isPlayerAirborne : false,
+      getActiveProfile() === "vertical" ? playerVelY : 0,
+      getActiveProfile() === "vertical" ? isSlamming || getDunkPhase() === "slam" : false,
+      isCharging,
+      isCharging ? Math.min(chargeTimer / ABILITIES.ultimate.chargeTimeMs, 1) : 0
     );
   }
   if (getActiveProfile() === "origin" && !isDashing) {
@@ -3140,44 +5785,92 @@ function updatePlayer(inputState2, dt, gameState2) {
       meleeSwingTimer = 0;
     }
   }
-  if (getActiveProfile() !== "origin" && inputState2.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging) {
-    const enemies = gameState2.enemies;
-    if (enemies) {
-      let bestDist = MELEE.autoTargetRange * MELEE.autoTargetRange;
-      let bestEnemy = null;
-      const aimAngle = playerGroup.rotation.y;
-      for (let i = 0; i < enemies.length; i++) {
-        const e = enemies[i];
-        if (e.health <= 0 || e.fellInPit) continue;
-        const dx = e.pos.x - playerPos.x;
-        const dz = e.pos.z - playerPos.z;
-        const distSq = dx * dx + dz * dz;
-        if (distSq > bestDist) continue;
-        const angleToEnemy = Math.atan2(-dx, -dz);
-        let angleDiff = angleToEnemy - aimAngle;
-        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-        if (Math.abs(angleDiff) <= MELEE.autoTargetArc / 2) {
-          bestDist = distSq;
-          bestEnemy = e;
+  if (getActiveProfile() !== "origin" && inputState2.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging && !playerHasTag(TAG.AERIAL) && actionLockoutTimer <= 0) {
+    if (getActiveProfile() === "vertical" && isPlayerAirborne) {
+      const enemies = gameState2.enemies;
+      let closestEnemy = null;
+      let closestDistSq = AERIAL_STRIKE.range * AERIAL_STRIKE.range;
+      if (enemies) {
+        for (let i = 0; i < enemies.length; i++) {
+          const e = enemies[i];
+          if (e.health <= 0 || e.fellInPit) continue;
+          const dx = e.pos.x - playerPos.x;
+          const dz = e.pos.z - playerPos.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq < closestDistSq) {
+            closestDistSq = distSq;
+            closestEnemy = e;
+          }
         }
       }
-      if (bestEnemy) {
-        const dx = bestEnemy.pos.x - playerPos.x;
-        const dz = bestEnemy.pos.z - playerPos.z;
+      if (closestEnemy) {
+        closestEnemy.health -= AERIAL_STRIKE.damage;
+        closestEnemy.flashTimer = 120;
+        const vel = closestEnemy.vel;
+        if (vel) vel.y = AERIAL_STRIKE.slamVelocity;
+        const dx = closestEnemy.pos.x - playerPos.x;
+        const dz = closestEnemy.pos.z - playerPos.z;
         playerGroup.rotation.y = Math.atan2(-dx, -dz);
+        screenShake(AERIAL_STRIKE.screenShake);
+        meleeCooldownTimer = AERIAL_STRIKE.cooldown;
+        emit({
+          type: "aerialStrike",
+          enemy: closestEnemy,
+          damage: AERIAL_STRIKE.damage,
+          position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z }
+        });
+        spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, "SPIKE!", "#44ddff");
+      } else {
+        meleeSwinging = true;
+        meleeSwingTimer = 0;
+        meleeCooldownTimer = MELEE.cooldown;
+        meleeHitEnemies.clear();
+        meleeSwingDir = playerGroup.rotation.y;
+        emit({
+          type: "meleeSwing",
+          position: { x: playerPos.x, z: playerPos.z },
+          direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) }
+        });
       }
+    } else {
+      const enemies = gameState2.enemies;
+      if (enemies) {
+        let bestDist = MELEE.autoTargetRange * MELEE.autoTargetRange;
+        let bestEnemy = null;
+        const aimAngle = playerGroup.rotation.y;
+        for (let i = 0; i < enemies.length; i++) {
+          const e = enemies[i];
+          if (e.health <= 0 || e.fellInPit) continue;
+          const dx = e.pos.x - playerPos.x;
+          const dz = e.pos.z - playerPos.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq > bestDist) continue;
+          const angleToEnemy = Math.atan2(-dx, -dz);
+          let angleDiff = angleToEnemy - aimAngle;
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+          if (Math.abs(angleDiff) <= MELEE.autoTargetArc / 2) {
+            bestDist = distSq;
+            bestEnemy = e;
+          }
+        }
+        if (bestEnemy) {
+          const dx = bestEnemy.pos.x - playerPos.x;
+          const dz = bestEnemy.pos.z - playerPos.z;
+          playerGroup.rotation.y = Math.atan2(-dx, -dz);
+        }
+      }
+      meleeSwinging = true;
+      meleeSwingTimer = 0;
+      meleeCooldownTimer = MELEE.cooldown;
+      meleeHitEnemies.clear();
+      meleeSwingDir = playerGroup.rotation.y;
+      emit({
+        type: "meleeSwing",
+        position: { x: playerPos.x, z: playerPos.z },
+        direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) }
+      });
     }
-    meleeSwinging = true;
-    meleeSwingTimer = 0;
-    meleeCooldownTimer = MELEE.cooldown;
-    meleeHitEnemies.clear();
-    meleeSwingDir = playerGroup.rotation.y;
-    emit({
-      type: "meleeSwing",
-      position: { x: playerPos.x, z: playerPos.z },
-      direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) }
-    });
   }
   updateAfterimages(dt);
 }
@@ -3473,6 +6166,19 @@ function resetPlayer() {
   isCharging = false;
   chargeTimer = 0;
   pushEvent = null;
+  playerVelY = 0;
+  isPlayerAirborne = false;
+  landingLagTimer = 0;
+  actionLockoutTimer = 0;
+  launchCooldownTimer = 0;
+  launchWindupTimer = 0;
+  launchWindupTarget = null;
+  isSlamming = false;
+  clearLaunchIndicator();
+  resetDunk();
+  resetFloatSelector();
+  resetSpike();
+  clearPlayerTags();
   lastFireTime = 0;
   removeChargeTelegraph();
   restoreDefaultEmissive();
@@ -3497,10 +6203,15 @@ var inputState = {
   mouseNDC: { x: 0, y: 0 },
   dash: false,
   attack: false,
+  attackHeld: false,
+  // continuous: true while LMB is down
   ultimate: false,
   ultimateHeld: false,
   interact: false,
-  bulletTime: false
+  bulletTime: false,
+  jump: false,
+  launch: false,
+  chargeStarted: false
 };
 var INV_SQRT2 = 1 / Math.SQRT2;
 var ISO_RIGHT_X = INV_SQRT2;
@@ -3518,16 +6229,22 @@ var touchAimX = 0;
 var touchAimY = 0;
 var touchAimActive = false;
 var touchActive = false;
+var _checkMouseHold = () => {
+};
 function initInput() {
   window.addEventListener("keydown", (e) => {
     if (e.repeat) return;
     keys[e.code] = true;
     usingGamepad = false;
     if (e.code === "Space") {
-      inputState.dash = true;
+      inputState.jump = true;
       e.preventDefault();
     }
-    if (e.code === "KeyE") inputState.ultimate = true;
+    if (e.code === "ShiftLeft" || e.code === "ShiftRight") inputState.dash = true;
+    if (e.code === "KeyE") {
+      inputState.launch = true;
+      inputState.ultimate = true;
+    }
     if (e.code === "KeyF" || e.code === "Enter") inputState.interact = true;
     if (e.code === "KeyQ") inputState.bulletTime = true;
   });
@@ -3539,12 +6256,29 @@ function initInput() {
     inputState.mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
     usingGamepad = false;
   });
+  let mouseDownTime = 0;
+  let mouseIsDown = false;
+  const HOLD_THRESHOLD = 200;
   window.addEventListener("mousedown", (e) => {
     if (e.button === 0) {
       inputState.attack = true;
+      inputState.attackHeld = true;
+      mouseDownTime = performance.now();
+      mouseIsDown = true;
       usingGamepad = false;
     }
   });
+  window.addEventListener("mouseup", (e) => {
+    if (e.button === 0) {
+      mouseIsDown = false;
+      inputState.attackHeld = false;
+    }
+  });
+  _checkMouseHold = () => {
+    if (mouseIsDown && performance.now() - mouseDownTime > HOLD_THRESHOLD) {
+      inputState.chargeStarted = true;
+    }
+  };
   window.addEventListener("gamepadconnected", (e) => {
     console.log(`[input] Gamepad connected: ${e.gamepad.id}`);
     gamepadIndex = e.gamepad.index;
@@ -3697,7 +6431,8 @@ function updateInput() {
     inputState.moveX /= len;
     inputState.moveZ /= len;
   }
-  inputState.ultimateHeld = !!keys["KeyE"] || _touchUltHeld;
+  _checkMouseHold();
+  inputState.ultimateHeld = !!keys["KeyE"] || _touchUltHeld || inputState.chargeStarted;
   if ((!usingGamepad || !gamepadAimActive) && !touchAimActive && !_abilityAimActive) {
     const worldPos = screenToWorld(inputState.mouseNDC.x, inputState.mouseNDC.y);
     inputState.aimWorldPos.x = worldPos.x;
@@ -3713,6 +6448,9 @@ function consumeInput() {
   inputState.ultimate = false;
   inputState.interact = false;
   inputState.bulletTime = false;
+  inputState.jump = false;
+  inputState.launch = false;
+  inputState.chargeStarted = false;
 }
 function getInputState() {
   return inputState;
@@ -3726,6 +6464,23 @@ function triggerUltimate() {
 }
 function setUltimateHeld(held) {
   _touchUltHeld = held;
+}
+function triggerJump() {
+  inputState.jump = true;
+}
+function triggerLaunch() {
+  inputState.launch = true;
+}
+var _cancelRequested = false;
+function triggerCancel() {
+  _cancelRequested = true;
+}
+function consumeCancel() {
+  if (_cancelRequested) {
+    _cancelRequested = false;
+    return true;
+  }
+  return false;
 }
 var _abilityAimActive = false;
 function setAimFromScreenDrag(screenX, screenY) {
@@ -3754,11 +6509,13 @@ function autoAimClosestEnemy(enemies) {
   if (touchAimActive || _abilityAimActive) return;
   if (!enemies || enemies.length === 0) return;
   const pp = getPlayerPos();
+  const grabbed = getActiveEnemy();
   let closest = null;
   let closestDist = Infinity;
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i];
     if (e.fellInPit || e.health <= 0) continue;
+    if (e === grabbed) continue;
     const dx = e.pos.x - pp.x;
     const dz = e.pos.z - pp.z;
     const dist = dx * dx + dz * dz;
@@ -3875,8 +6632,194 @@ var ROOMS = [
       ]
     },
     playerStart: { x: 0, z: 18 }
+  },
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 4: "The Shadows" — patrol maze, vision cones, detection puzzle
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: "The Shadows",
+    profile: "assassin",
+    sandboxMode: true,
+    commentary: "What if the design question shifts from damage to detection?",
+    arenaHalfX: 14,
+    arenaHalfZ: 14,
+    obstacles: [
+      // Maze walls — creating lanes
+      { x: -5, z: 5, w: 8, h: 2, d: 1 },
+      // upper-left horizontal wall
+      { x: 5, z: -1, w: 8, h: 2, d: 1 },
+      // center-right horizontal wall
+      { x: -5, z: -7, w: 8, h: 2, d: 1 },
+      // lower-left horizontal wall
+      // Cover pillars at intersections
+      { x: 0, z: 8, w: 1.5, h: 2, d: 1.5 },
+      // top gap pillar
+      { x: -1, z: -4, w: 1.5, h: 2, d: 1.5 }
+      // center gap pillar
+    ],
+    pits: [
+      // Opportunistic push spots at corridor intersections
+      { x: 8, z: 5, w: 3, d: 3 },
+      // right side, near upper wall end
+      { x: -8, z: -1, w: 3, d: 3 },
+      // left side, center height
+      { x: 4, z: -5, w: 3, d: 2.5 }
+      // lower-right, between center and lower walls
+    ],
+    spawnBudget: {
+      maxConcurrent: 5,
+      telegraphDuration: 1500,
+      packs: [
+        // Pit 1 (x:8, z:5) — right side, 2 goblins on opposite corners
+        {
+          enemies: [
+            { type: "goblin", fixedPos: { x: 11, z: 3 }, patrolWaypoints: [{ x: 11, z: 3 }, { x: 11, z: 7 }, { x: 5, z: 7 }, { x: 5, z: 3 }] },
+            { type: "goblin", fixedPos: { x: 5, z: 7 }, patrolWaypoints: [{ x: 5, z: 7 }, { x: 5, z: 3 }, { x: 11, z: 3 }, { x: 11, z: 7 }] }
+          ],
+          spawnZone: "ahead"
+        },
+        // Pit 2 (x:-8, z:-1) — left side, 2 goblins on opposite corners
+        {
+          enemies: [
+            { type: "goblin", fixedPos: { x: -5, z: -3 }, patrolWaypoints: [{ x: -5, z: -3 }, { x: -5, z: 1 }, { x: -11, z: 1 }, { x: -11, z: -3 }] },
+            { type: "goblin", fixedPos: { x: -11, z: 1 }, patrolWaypoints: [{ x: -11, z: 1 }, { x: -11, z: -3 }, { x: -5, z: -3 }, { x: -5, z: 1 }] }
+          ],
+          spawnZone: "ahead"
+        },
+        // Pit 3 (x:4, z:-5) — lower center-right, 1 goblin
+        {
+          enemies: [
+            { type: "goblin", fixedPos: { x: 7, z: -3 }, patrolWaypoints: [{ x: 7, z: -3 }, { x: 7, z: -7 }, { x: 1, z: -7 }, { x: 1, z: -3 }] }
+          ],
+          spawnZone: "ahead"
+        }
+      ]
+    },
+    playerStart: { x: -10, z: 10 },
+    enableWallSlamDamage: false,
+    enableEnemyCollisionDamage: false,
+    highlights: [{ target: "pits" }]
+  },
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 5: "The Arena" — vertical combat: jump, launch, dunk, spike
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: "The Arena",
+    profile: "vertical",
+    sandboxMode: true,
+    commentary: "What if combat had a Y-axis? Jump, launch, dunk, spike \u2014 the current direction.",
+    arenaHalfX: 12,
+    arenaHalfZ: 12,
+    obstacles: [],
+    pits: [],
+    heightZones: [
+      { x: -6, z: -6, w: 4, d: 4, y: 1.5 },
+      { x: 6, z: 6, w: 4, d: 4, y: 1.5 }
+    ],
+    spawnBudget: {
+      maxConcurrent: 10,
+      telegraphDuration: 1500,
+      packs: [
+        pack(goblins(4), "ahead"),
+        pack(goblins(3), "sides")
+      ]
+    },
+    playerStart: { x: 0, z: 5 },
+    enableWallSlamDamage: true,
+    enableEnemyCollisionDamage: true,
+    frustumSize: 9.6,
+    highlights: [{ target: "platforms", color: 4491519 }]
   }
 ];
+
+// src/engine/groundShadows.ts
+var playerShadow = null;
+var enemyShadows = /* @__PURE__ */ new Map();
+var shadowGeo = null;
+var shadowMat = null;
+function getShadowGeo() {
+  if (!shadowGeo) {
+    shadowGeo = new THREE.CircleGeometry(1, 16);
+  }
+  return shadowGeo;
+}
+function getShadowMat() {
+  if (!shadowMat) {
+    shadowMat = new THREE.MeshBasicMaterial({
+      color: 0,
+      transparent: true,
+      opacity: 0.3,
+      depthWrite: false
+    });
+  }
+  return shadowMat;
+}
+function createShadowMesh(radius) {
+  const mesh = new THREE.Mesh(getShadowGeo(), getShadowMat().clone());
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.scale.set(radius * 0.8, radius * 0.8, 1);
+  mesh.renderOrder = -1;
+  return mesh;
+}
+function updateShadowForEntity(shadow, posX, posZ, posY, baseRadius) {
+  const groundHeight = getGroundHeight(posX, posZ);
+  const altitude = posY - groundHeight;
+  shadow.position.x = posX;
+  shadow.position.z = posZ;
+  shadow.position.y = groundHeight + 0.01;
+  const scale = Math.max(0.3, 1 - altitude * 0.1) * baseRadius * 0.8;
+  shadow.scale.set(scale, scale, 1);
+  shadow.material.opacity = Math.max(0.1, 0.3 - altitude * 0.03);
+  shadow.visible = altitude > PHYSICS.groundEpsilon || posY > 0;
+}
+function initGroundShadows() {
+  const scene2 = getScene();
+  playerShadow = createShadowMesh(0.35);
+  scene2.add(playerShadow);
+}
+function updateGroundShadows(gameState2) {
+  const scene2 = getScene();
+  if (playerShadow) {
+    const pp = getPlayerPos();
+    updateShadowForEntity(playerShadow, pp.x, pp.z, pp.y, 0.35);
+  }
+  const activeEnemies = /* @__PURE__ */ new Set();
+  for (const enemy of gameState2.enemies) {
+    if (enemy.health <= 0 && !enemyShadows.has(enemy)) continue;
+    activeEnemies.add(enemy);
+    let shadow = enemyShadows.get(enemy);
+    if (!shadow) {
+      shadow = createShadowMesh(enemy.config.size.radius);
+      scene2.add(shadow);
+      enemyShadows.set(enemy, shadow);
+    }
+    if (enemy.health <= 0 || enemy.fellInPit) {
+      shadow.visible = false;
+      continue;
+    }
+    updateShadowForEntity(shadow, enemy.pos.x, enemy.pos.z, enemy.pos.y, enemy.config.size.radius);
+  }
+  for (const [enemy, shadow] of enemyShadows) {
+    if (!activeEnemies.has(enemy)) {
+      scene2.remove(shadow);
+      shadow.material.dispose();
+      enemyShadows.delete(enemy);
+    }
+  }
+}
+function cleanupGroundShadows() {
+  const scene2 = getScene();
+  if (playerShadow) {
+    scene2.remove(playerShadow);
+    playerShadow.material.dispose();
+    playerShadow = null;
+  }
+  for (const [, shadow] of enemyShadows) {
+    scene2.remove(shadow);
+    shadow.material.dispose();
+  }
+  enemyShadows.clear();
+}
 
 // src/config/spawn.ts
 var SPAWN_CONFIG = {
@@ -3890,40 +6833,6 @@ var SPAWN_CONFIG = {
   // minimum distance ahead of player to spawn enemies (Z units)
   spawnAheadMax: 15
   // maximum distance ahead of player to spawn enemies (Z units)
-};
-
-// src/config/physics.ts
-var PHYSICS = {
-  // Knockback velocity
-  friction: 25,
-  // deceleration rate (units/s²) — higher = snappier stop
-  minVelocity: 0.1,
-  // below this speed, zero out velocity
-  pushInstantRatio: 0,
-  // fraction of knockback as instant position offset (0 = pure velocity)
-  // Wall slam
-  wallSlamMinSpeed: 3,
-  // minimum impact speed for wall damage
-  wallSlamDamage: 8,
-  // damage per unit of impact speed above threshold
-  wallSlamStun: 400,
-  // ms stun on wall slam
-  wallSlamBounce: 0.4,
-  // velocity reflection coefficient (0 = dead stop, 1 = perfect bounce)
-  wallSlamShake: 3,
-  // screen shake intensity on wall slam
-  // Force push wave occlusion
-  pushWaveBlockRadius: 0.8,
-  // lateral distance for one enemy to block another from push wave
-  // Enemy-enemy collision
-  enemyBounce: 0.4,
-  // enemy-enemy restitution coefficient
-  impactMinSpeed: 2,
-  // minimum relative speed for collision damage
-  impactDamage: 5,
-  // damage per unit of relative speed above threshold
-  impactStun: 300
-  // ms stun when hit by another enemy
 };
 
 // src/engine/meleemath.ts
@@ -4070,11 +6979,12 @@ function pointHitsTerrain(px, pz) {
   }
   return false;
 }
-function resolveMovementCollision(x, z, radius) {
+function resolveMovementCollision(x, z, radius, entityY = 0) {
   const bounds = getMoveBounds();
   let rx = x, rz = z;
   let wasDeflected = false;
   for (const box of bounds) {
+    if (box.maxY !== void 0 && entityY >= box.maxY) continue;
     const push = circleVsAABB(rx, rz, radius, box);
     if (push) {
       rx += push.x;
@@ -4084,12 +6994,13 @@ function resolveMovementCollision(x, z, radius) {
   }
   return { x: rx, z: rz, wasDeflected };
 }
-function resolveTerrainCollisionEx(x, z, radius) {
+function resolveTerrainCollisionEx(x, z, radius, entityY = 0) {
   const bounds = getBounds();
   let rx = x, rz = z;
   let hitWall = false;
   let totalNX = 0, totalNZ = 0;
   for (const box of bounds) {
+    if (box.maxY !== void 0 && entityY >= box.maxY) continue;
     const push = circleVsAABB(rx, rz, radius, box);
     if (push) {
       rx += push.x;
@@ -4113,73 +7024,98 @@ function applyVelocities(dt, gameState2) {
   for (const enemy of gameState2.enemies) {
     if (enemy.health <= 0) continue;
     if (enemy.isLeaping) continue;
+    if (enemy.isCarrierPayload) continue;
     const vel = enemy.vel;
     if (!vel) continue;
+    if (vel.y === void 0) vel.y = 0;
     const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-    if (speed < PHYSICS.minVelocity) {
+    const hasXZVelocity = speed >= PHYSICS.minVelocity;
+    if (!hasXZVelocity && vel.y === 0 && enemy.pos.y <= PHYSICS.groundEpsilon) {
       vel.x = 0;
       vel.z = 0;
       continue;
     }
-    const moveDist = speed * dt;
-    const enemyRadius = enemy.config.size.radius;
-    const moveSteps = Math.ceil(moveDist / enemyRadius);
-    const subDt = dt / Math.max(moveSteps, 1);
-    let result = { x: enemy.pos.x, z: enemy.pos.z, hitWall: false, normalX: 0, normalZ: 0 };
-    let fellInPit = false;
-    for (let s = 0; s < moveSteps; s++) {
-      enemy.pos.x += vel.x * subDt;
-      enemy.pos.z += vel.z * subDt;
-      if (pointInPit(enemy.pos.x, enemy.pos.z)) {
-        fellInPit = true;
-        break;
+    if (hasXZVelocity) {
+      const moveDist = speed * dt;
+      const enemyRadius = enemy.config.size.radius;
+      const moveSteps = Math.ceil(moveDist / enemyRadius);
+      const subDt = dt / Math.max(moveSteps, 1);
+      let fellInPit = false;
+      let result = { x: enemy.pos.x, z: enemy.pos.z, hitWall: false, normalX: 0, normalZ: 0 };
+      for (let s = 0; s < moveSteps; s++) {
+        enemy.pos.x += vel.x * subDt;
+        enemy.pos.z += vel.z * subDt;
+        const isGrounded = enemy.pos.y <= PHYSICS.groundEpsilon;
+        if (isGrounded && pointInPit(enemy.pos.x, enemy.pos.z)) {
+          fellInPit = true;
+          break;
+        }
+        result = resolveTerrainCollisionEx(enemy.pos.x, enemy.pos.z, enemyRadius, enemy.pos.y);
+        enemy.pos.x = result.x;
+        enemy.pos.z = result.z;
+        if (result.hitWall) break;
       }
-      result = resolveTerrainCollisionEx(enemy.pos.x, enemy.pos.z, enemyRadius);
-      enemy.pos.x = result.x;
-      enemy.pos.z = result.z;
-      if (result.hitWall) break;
+      if (fellInPit) {
+        spawnPitFallGhost(enemy);
+        emit({ type: "pitFall", position: { x: enemy.pos.x, z: enemy.pos.z }, isPlayer: false });
+        createAoeRing(enemy.pos.x, enemy.pos.z, 2.5, 500, 8930559);
+        enemy.health = 0;
+        enemy.fellInPit = true;
+        enemy.stunTimer = 9999;
+        spawnDamageNumber(enemy.pos.x, enemy.pos.z, "FELL!", "#8844ff");
+        screenShake(4, 200);
+        vel.x = 0;
+        vel.y = 0;
+        vel.z = 0;
+        continue;
+      }
+      if (result.hitWall && speed > PHYSICS.wallSlamMinSpeed) {
+        const room = getCurrentRoom();
+        const wallSlamEnabled = room?.enableWallSlamDamage ?? true;
+        if (wallSlamEnabled) {
+          const slamDamage = Math.round((speed - PHYSICS.wallSlamMinSpeed) * PHYSICS.wallSlamDamage);
+          applyDamageToEnemy(enemy, slamDamage, gameState2);
+          stunEnemy(enemy, PHYSICS.wallSlamStun);
+          emit({ type: "wallSlam", enemy, speed, damage: slamDamage, position: { x: enemy.pos.x, z: enemy.pos.z } });
+          spawnDamageNumber(enemy.pos.x, enemy.pos.z, slamDamage, "#ff8844");
+          screenShake(PHYSICS.wallSlamShake, 120);
+          enemy.flashTimer = 120;
+          if (enemy.bodyMesh) enemy.bodyMesh.material.emissive.setHex(16746564);
+          if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16746564);
+          createAoeRing(enemy.pos.x, enemy.pos.z, 1.5, 300, 16746564);
+        }
+        const dot = vel.x * result.normalX + vel.z * result.normalZ;
+        vel.x = (vel.x - 2 * dot * result.normalX) * PHYSICS.wallSlamBounce;
+        vel.z = (vel.z - 2 * dot * result.normalZ) * PHYSICS.wallSlamBounce;
+      }
+    } else {
+      vel.x = 0;
+      vel.z = 0;
+    }
+    const launchedEntry = getLaunchedEntry(enemy);
+    const gravMult = launchedEntry?.gravityMult ?? 1;
+    if (enemy.pos.y > PHYSICS.groundEpsilon || vel.y > 0) {
+      enemy.pos.y += vel.y * dt;
+      vel.y -= PHYSICS.gravity * gravMult * dt;
+      vel.y = Math.max(vel.y, -PHYSICS.terminalVelocity);
+    }
+    const groundHeight = getGroundHeight(enemy.pos.x, enemy.pos.z);
+    if (enemy.pos.y < groundHeight) {
+      enemy.pos.y = groundHeight;
+      vel.y = 0;
     }
     enemy.mesh.position.copy(enemy.pos);
-    if (fellInPit) {
-      spawnPitFallGhost(enemy);
-      emit({ type: "pitFall", position: { x: enemy.pos.x, z: enemy.pos.z }, isPlayer: false });
-      createAoeRing(enemy.pos.x, enemy.pos.z, 2.5, 500, 8930559);
-      enemy.health = 0;
-      enemy.fellInPit = true;
-      enemy.stunTimer = 9999;
-      spawnDamageNumber(enemy.pos.x, enemy.pos.z, "FELL!", "#8844ff");
-      screenShake(4, 200);
-      vel.x = 0;
-      vel.z = 0;
-      continue;
-    }
-    if (result.hitWall && speed > PHYSICS.wallSlamMinSpeed) {
-      const room = getCurrentRoom();
-      const wallSlamEnabled = room?.enableWallSlamDamage ?? true;
-      if (wallSlamEnabled) {
-        const slamDamage = Math.round((speed - PHYSICS.wallSlamMinSpeed) * PHYSICS.wallSlamDamage);
-        applyDamageToEnemy(enemy, slamDamage, gameState2);
-        stunEnemy(enemy, PHYSICS.wallSlamStun);
-        emit({ type: "wallSlam", enemy, speed, damage: slamDamage, position: { x: enemy.pos.x, z: enemy.pos.z } });
-        spawnDamageNumber(enemy.pos.x, enemy.pos.z, slamDamage, "#ff8844");
-        screenShake(PHYSICS.wallSlamShake, 120);
-        enemy.flashTimer = 120;
-        if (enemy.bodyMesh) enemy.bodyMesh.material.emissive.setHex(16746564);
-        if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16746564);
-        createAoeRing(enemy.pos.x, enemy.pos.z, 1.5, 300, 16746564);
+    const isGroundedNow = enemy.pos.y <= groundHeight + PHYSICS.groundEpsilon;
+    if (isGroundedNow && speed >= PHYSICS.minVelocity) {
+      const newSpeed = speed - PHYSICS.friction * dt;
+      if (newSpeed <= PHYSICS.minVelocity) {
+        vel.x = 0;
+        vel.z = 0;
+      } else {
+        const scale = newSpeed / speed;
+        vel.x *= scale;
+        vel.z *= scale;
       }
-      const dot = vel.x * result.normalX + vel.z * result.normalZ;
-      vel.x = (vel.x - 2 * dot * result.normalX) * PHYSICS.wallSlamBounce;
-      vel.z = (vel.z - 2 * dot * result.normalZ) * PHYSICS.wallSlamBounce;
-    }
-    const newSpeed = speed - PHYSICS.friction * dt;
-    if (newSpeed <= PHYSICS.minVelocity) {
-      vel.x = 0;
-      vel.z = 0;
-    } else {
-      const scale = newSpeed / speed;
-      vel.x *= scale;
-      vel.z *= scale;
     }
   }
 }
@@ -4190,10 +7126,13 @@ function resolveEnemyCollisions(gameState2) {
     const a = enemies[i];
     if (a.health <= 0) continue;
     if (a.isLeaping) continue;
+    if (a.isCarrierPayload) continue;
+    if (a.pos.y > PHYSICS.groundEpsilon) continue;
     for (let j = i + 1; j < len; j++) {
       const b = enemies[j];
       if (b.health <= 0) continue;
       if (b.isLeaping) continue;
+      if (b.pos.y > PHYSICS.groundEpsilon) continue;
       const dx = b.pos.x - a.pos.x;
       const dz = b.pos.z - a.pos.z;
       const distSq = dx * dx + dz * dz;
@@ -4384,9 +7323,9 @@ function checkCollisions(gameState2) {
   const playerPos2 = getPlayerPos();
   const playerR = PLAYER.size.radius;
   if (!isPlayerDashing()) {
-    const resolved = resolveMovementCollision(playerPos2.x, playerPos2.z, playerR);
-    playerPos2.x = resolved.x;
-    playerPos2.z = resolved.z;
+    const resolved2 = resolveMovementCollision(playerPos2.x, playerPos2.z, playerR, playerPos2.y);
+    playerPos2.x = resolved2.x;
+    playerPos2.z = resolved2.z;
   }
   for (const enemy of gameState2.enemies) {
     if (enemy.isLeaping) continue;
@@ -4397,6 +7336,7 @@ function checkCollisions(gameState2) {
     let rx = enemy.pos.x, rz = enemy.pos.z;
     let wasDeflected = false;
     for (const box of bounds) {
+      if (box.maxY !== void 0 && enemy.pos.y >= box.maxY) continue;
       const push = circleVsAABB(rx, rz, enemy.config.size.radius, box);
       if (push) {
         rx += push.x;
@@ -4655,13 +7595,91 @@ var DOOR_UNLOCK_BURST = {
   // float upward
   shape: "sphere"
 };
+var JUMP_DUST = {
+  count: 4,
+  lifetime: 0.2,
+  speed: 3,
+  spread: Math.PI,
+  size: 0.05,
+  color: 12298888,
+  fadeOut: true,
+  gravity: 2,
+  shape: "sphere"
+};
+var LAND_DUST = {
+  count: 6,
+  lifetime: 0.3,
+  speed: 4,
+  spread: Math.PI,
+  size: 0.06,
+  color: 12298888,
+  fadeOut: true,
+  gravity: 3,
+  shape: "sphere"
+};
+var LAUNCH_BURST = {
+  count: 6,
+  lifetime: 0.3,
+  speed: 7,
+  spread: Math.PI * 0.4,
+  size: 0.06,
+  color: 16755200,
+  fadeOut: true,
+  gravity: -2,
+  // float upward with the launch
+  shape: "box"
+};
+var AERIAL_SPIKE = {
+  count: 8,
+  lifetime: 0.25,
+  speed: 8,
+  spread: Math.PI * 0.6,
+  size: 0.07,
+  color: 4513279,
+  fadeOut: true,
+  gravity: 6,
+  shape: "box"
+};
+var SLAM_IMPACT = {
+  count: 10,
+  lifetime: 0.35,
+  speed: 8,
+  spread: Math.PI,
+  size: 0.07,
+  color: 16746496,
+  fadeOut: true,
+  gravity: 4,
+  shape: "box"
+};
+var DUNK_GRAB_SPARK = {
+  count: 5,
+  lifetime: 0.2,
+  speed: 5,
+  spread: Math.PI * 0.5,
+  size: 0.05,
+  color: 16729343,
+  fadeOut: true,
+  gravity: 0,
+  shape: "sphere"
+};
+var DUNK_IMPACT_BURST = {
+  count: 14,
+  lifetime: 0.4,
+  speed: 10,
+  spread: Math.PI,
+  size: 0.08,
+  color: 16720452,
+  fadeOut: true,
+  gravity: 5,
+  shape: "box"
+};
 var POOL_SIZE2 = 80;
 var pool2 = [];
-var sceneRef5 = null;
+var sceneRef8 = null;
 var boxGeo = null;
 var sphereGeo = null;
 function initParticles(scene2) {
-  sceneRef5 = scene2;
+  sceneRef8 = scene2;
   boxGeo = new THREE.BoxGeometry(1, 1, 1);
   sphereGeo = new THREE.SphereGeometry(0.5, 4, 3);
   for (let i = 0; i < POOL_SIZE2; i++) {
@@ -4821,7 +7839,7 @@ function clearEnemyArcDecals() {
   }
 }
 function burst(position, config, direction) {
-  if (!sceneRef5) return;
+  if (!sceneRef8) return;
   const y = position.y ?? 0.5;
   for (let i = 0; i < config.count; i++) {
     const p = acquireParticle();
@@ -5004,17 +8022,71 @@ function wireEventBus() {
       burst({ x: 0, y: 2, z: 0 }, DOOR_UNLOCK_BURST);
     }
   });
+  on("playerJump", (e) => {
+    if (e.type === "playerJump") {
+      burst({ x: e.position.x, y: 0.1, z: e.position.z }, JUMP_DUST);
+    }
+  });
+  on("playerLand", (e) => {
+    if (e.type === "playerLand") {
+      const intensity = Math.min(e.fallSpeed / 10, 2);
+      burst(
+        { x: e.position.x, y: 0.1, z: e.position.z },
+        { ...LAND_DUST, count: Math.round(3 + intensity * 4) }
+      );
+    }
+  });
+  on("enemyLaunched", (e) => {
+    if (e.type === "enemyLaunched") {
+      burst(
+        { x: e.position.x, y: 0.3, z: e.position.z },
+        LAUNCH_BURST
+      );
+    }
+  });
+  on("aerialStrike", (e) => {
+    if (e.type === "aerialStrike") {
+      burst(
+        { x: e.position.x, y: 0.5, z: e.position.z },
+        AERIAL_SPIKE
+      );
+    }
+  });
+  on("playerSlam", (e) => {
+    if (e.type === "playerSlam") {
+      burst(
+        { x: e.position.x, y: 0.1, z: e.position.z },
+        { ...SLAM_IMPACT, count: Math.round(8 + e.fallSpeed / 15 * 4) }
+      );
+    }
+  });
+  on("dunkGrab", (e) => {
+    if (e.type === "dunkGrab") {
+      burst(
+        { x: e.position.x, y: 0.8, z: e.position.z },
+        DUNK_GRAB_SPARK
+      );
+    }
+  });
+  on("dunkImpact", (e) => {
+    if (e.type === "dunkImpact") {
+      burst(
+        { x: e.position.x, y: 0.1, z: e.position.z },
+        DUNK_IMPACT_BURST
+      );
+    }
+  });
 }
 
 // src/engine/telegraph.ts
-var sceneRef6;
-var ringGeo2;
+var sceneRef9;
+var ringGeo3;
 var fillGeo;
 var typeGeos = {};
 function initTelegraph(scene2) {
-  sceneRef6 = scene2;
-  ringGeo2 = new THREE.RingGeometry(0.6, 0.8, 24);
-  ringGeo2.rotateX(-Math.PI / 2);
+  sceneRef9 = scene2;
+  ringGeo3 = new THREE.RingGeometry(0.6, 0.8, 24);
+  ringGeo3.rotateX(-Math.PI / 2);
   fillGeo = new THREE.CircleGeometry(0.6, 24);
   fillGeo.rotateX(-Math.PI / 2);
   typeGeos.goblin = new THREE.ConeGeometry(0.2, 0.4, 3);
@@ -5026,14 +8098,14 @@ function createTelegraph(x, z, typeName) {
   const color = ENEMY_TYPES[typeName] ? ENEMY_TYPES[typeName].color : 16777215;
   const group = new THREE.Group();
   group.position.set(x, 0, z);
-  const ringMat = new THREE.MeshBasicMaterial({
+  const ringMat2 = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
     opacity: 0.6,
     side: THREE.DoubleSide,
     depthWrite: false
   });
-  const ring = new THREE.Mesh(ringGeo2, ringMat);
+  const ring = new THREE.Mesh(ringGeo3, ringMat2);
   ring.position.y = 0.03;
   group.add(ring);
   const fillMat = new THREE.MeshBasicMaterial({
@@ -5060,11 +8132,11 @@ function createTelegraph(x, z, typeName) {
     typeIndicator.rotation.y = Math.PI / 4;
   }
   group.add(typeIndicator);
-  sceneRef6.add(group);
+  sceneRef9.add(group);
   return {
     group,
     ring,
-    ringMat,
+    ringMat: ringMat2,
     fill,
     fillMat,
     typeIndicator,
@@ -5091,7 +8163,7 @@ function updateTelegraph(telegraph, progress, dt) {
 }
 function removeTelegraph2(telegraph) {
   if (telegraph.group.parent) {
-    sceneRef6.remove(telegraph.group);
+    sceneRef9.remove(telegraph.group);
   }
   telegraph.ringMat.dispose();
   telegraph.fillMat.dispose();
@@ -5135,15 +8207,18 @@ function triggerRoomHighlights(highlights) {
 }
 var TARGET_COLORS = {
   pits: 16729190,
-  obstacles: 6719743
+  obstacles: 6719743,
+  platforms: 4491519
 };
-function getRectsForTarget(target, colorOverride) {
-  const color = colorOverride ?? TARGET_COLORS[target] ?? 16777215;
-  switch (target) {
+function getRectsForTarget(target4, colorOverride) {
+  const color = colorOverride ?? TARGET_COLORS[target4] ?? 16777215;
+  switch (target4) {
     case "pits":
       return PITS.map((p) => ({ x: p.x, z: p.z, w: p.w, d: p.d, color }));
     case "obstacles":
       return OBSTACLES.map((o) => ({ x: o.x, z: o.z, w: o.w, d: o.d, color }));
+    case "platforms":
+      return HEIGHT_ZONES.map((hz) => ({ x: hz.x, z: hz.z, w: hz.w, d: hz.d, color }));
     default:
       return [];
   }
@@ -5151,6 +8226,7 @@ function getRectsForTarget(target, colorOverride) {
 function spawnHighlight(rect, duration) {
   const scene2 = getScene();
   const allParts = [];
+  const baseY = rect.y ?? 0;
   const margin = 0.3;
   const planeGeo = new THREE.PlaneGeometry(rect.w + margin, rect.d + margin);
   const edgesGeo = new THREE.EdgesGeometry(planeGeo);
@@ -5163,7 +8239,7 @@ function spawnHighlight(rect, duration) {
   });
   const baseRing = new THREE.LineSegments(edgesGeo, baseMat);
   baseRing.rotation.x = -Math.PI / 2;
-  baseRing.position.set(rect.x, 0.06, rect.z);
+  baseRing.position.set(rect.x, baseY + 0.06, rect.z);
   scene2.add(baseRing);
   allParts.push(baseRing);
   const hw = rect.w / 2;
@@ -5174,7 +8250,7 @@ function spawnHighlight(rect, duration) {
     { x: rect.x + hw, z: rect.z + hd },
     { x: rect.x - hw, z: rect.z + hd }
   ];
-  const pillarGeo = new THREE.BoxGeometry(PILLAR_THICKNESS, PILLAR_HEIGHT, PILLAR_THICKNESS);
+  const pillarGeo2 = new THREE.BoxGeometry(PILLAR_THICKNESS, PILLAR_HEIGHT, PILLAR_THICKNESS);
   const pillars = [];
   for (const corner of corners) {
     const pillarMat = new THREE.MeshBasicMaterial({
@@ -5183,8 +8259,8 @@ function spawnHighlight(rect, duration) {
       opacity: 0,
       depthWrite: false
     });
-    const pillar = new THREE.Mesh(pillarGeo, pillarMat);
-    pillar.position.set(corner.x, PILLAR_HEIGHT / 2, corner.z);
+    const pillar = new THREE.Mesh(pillarGeo2, pillarMat);
+    pillar.position.set(corner.x, baseY + PILLAR_HEIGHT / 2, corner.z);
     scene2.add(pillar);
     allParts.push(pillar);
     pillars.push(pillar);
@@ -5222,7 +8298,7 @@ function spawnHighlight(rect, duration) {
     const wallMesh = new THREE.Mesh(wallGeo, wallMat);
     wallMesh.position.set(
       (c0.x + c1.x) / 2,
-      PILLAR_HEIGHT / 2,
+      baseY + PILLAR_HEIGHT / 2,
       (c0.z + c1.z) / 2
     );
     wallMesh.rotation.y = Math.atan2(-dz, dx);
@@ -5258,12 +8334,12 @@ function spawnHighlight(rect, duration) {
     for (const pillar of pillars) {
       pillar.material.opacity = alpha * 0.7;
       pillar.scale.y = Math.max(0.01, easedHeight);
-      pillar.position.y = PILLAR_HEIGHT * easedHeight / 2;
+      pillar.position.y = baseY + PILLAR_HEIGHT * easedHeight / 2;
     }
     for (const wall of wallPlanes) {
       wall.material.opacity = alpha * 0.35;
       wall.scale.y = Math.max(0.01, easedHeight);
-      wall.position.y = PILLAR_HEIGHT * easedHeight / 2;
+      wall.position.y = baseY + PILLAR_HEIGHT * easedHeight / 2;
     }
     if (t < 1) {
       const rafId2 = requestAnimationFrame(animate);
@@ -5275,7 +8351,7 @@ function spawnHighlight(rect, duration) {
         if (part.material) part.material.dispose();
       }
       edgesGeo.dispose();
-      pillarGeo.dispose();
+      pillarGeo2.dispose();
       for (const part of allParts) {
         const idx = activeMeshes.indexOf(part);
         if (idx >= 0) activeMeshes.splice(idx, 1);
@@ -5305,13 +8381,13 @@ var doorPanelMesh = null;
 var doorGlowMesh = null;
 var doorAnimTimer = 0;
 var doorRoomIndex = 0;
-var sceneRef7 = null;
+var sceneRef10 = null;
 var doorX = 0;
 var doorZ = 0;
 var promptEl = null;
 var promptVisible = false;
 function initDoor(scene2) {
-  sceneRef7 = scene2;
+  sceneRef10 = scene2;
   promptEl = document.getElementById("door-prompt");
   if (!promptEl) {
     promptEl = document.createElement("div");
@@ -5396,7 +8472,7 @@ function createDoor(arenaHalfX, arenaHalfZ, roomIndex) {
   );
   doorGlowMesh.position.set(0, 1.8, 0.2);
   doorGroup.add(doorGlowMesh);
-  sceneRef7.add(doorGroup);
+  sceneRef10.add(doorGroup);
 }
 function unlockDoor() {
   if (doorState !== "locked") return;
@@ -5461,8 +8537,8 @@ function hidePrompt() {
 }
 function removeDoor() {
   hidePrompt();
-  if (doorGroup && sceneRef7) {
-    sceneRef7.remove(doorGroup);
+  if (doorGroup && sceneRef10) {
+    sceneRef10.remove(doorGroup);
     doorGroup.traverse((child) => {
       if (child.geometry) child.geometry.dispose();
       if (child.material) child.material.dispose();
@@ -5486,9 +8562,9 @@ var finalWaveAnnounced = false;
 var restRoomTimer = 0;
 var activeTelegraphs2 = [];
 var announceEl = null;
-var sceneRef8 = null;
+var sceneRef11 = null;
 function initRoomManager(scene2) {
-  sceneRef8 = scene2;
+  sceneRef11 = scene2;
   announceEl = document.getElementById("wave-announce");
   initTelegraph(scene2);
   initDoor(scene2);
@@ -5524,9 +8600,19 @@ function loadRoom(index, gameState2) {
   clearEffectGhosts();
   clearParticles();
   removeDoor();
+  resetAerialVerbs();
+  clearAllTags();
+  clearCarriers();
+  clearLaunchPillars();
+  clearLaunchIndicator();
+  cleanupGroundShadows();
+  clearVisionCones();
   setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);
+  setHeightZones(room.heightZones ?? []);
   invalidateCollisionBounds();
   rebuildArenaVisuals();
+  setFrustumSize(room.frustumSize ?? 12);
+  initGroundShadows();
   setPlayerPosition(room.playerStart.x, room.playerStart.z);
   gameState2.currentWave = index + 1;
   showAnnounce(room.name);
@@ -5592,7 +8678,7 @@ function updateRoomManager(dt, gameState2) {
         const enemy = tg.pack.enemies[j];
         const pos = tg.positions[j];
         const spawnPos = new THREE.Vector3(pos.x, 0, pos.z);
-        spawnEnemy(enemy.type, spawnPos, gameState2);
+        spawnEnemy(enemy.type, spawnPos, gameState2, enemy.patrolWaypoints);
       }
       emit({ type: "spawnPackSpawned", packIndex: tg.packIdx, roomIndex: currentRoomIndex });
       activeTelegraphs2.splice(i, 1);
@@ -5653,7 +8739,10 @@ function resolveSpawnPositions(pack2, room) {
   const playerX = playerPos2 ? playerPos2.x : room.playerStart.x;
   const hx = room.arenaHalfX - 1.5;
   const hz = room.arenaHalfZ - 1.5;
-  return pack2.enemies.map(() => {
+  return pack2.enemies.map((enemyDef) => {
+    if (enemyDef.fixedPos) {
+      return { x: enemyDef.fixedPos.x, z: enemyDef.fixedPos.z };
+    }
     let x, z;
     for (let attempt = 0; attempt < 10; attempt++) {
       switch (pack2.spawnZone) {
@@ -5746,75 +8835,31 @@ function hideAnnounce() {
   announceEl.classList.remove("visible");
 }
 
-// src/engine/bulletTime.ts
-var BULLET_TIME = {
-  timeScale: 0.25,
-  // how slow the world runs (0.25 = 25% speed)
-  maxResource: 3e3,
-  // ms of bullet time available at full bar
-  drainRate: 1e3,
-  // resource drained per real second while active
-  killRefill: 600,
-  // resource refilled per enemy kill
-  activationMinimum: 300,
-  // minimum resource required to activate
-  infinite: 1
-  // 1 = infinite resource (skip drain), 0 = normal drain
+// src/config/mobileControls.ts
+var MOBILE_CONTROLS = {
+  // Layout
+  primarySize: 95,
+  // px — Attack/Push button
+  fanSize: 66,
+  // px — Dash, Jump, Launch
+  cancelSize: 45,
+  // px — Cancel button
+  arcRadius: 100,
+  // px — distance from primary center to fan buttons
+  arcStartAngle: -5,
+  // degrees — 0=left, 90=up; -5 puts Dash near horizontal
+  arcSpread: 95,
+  // degrees — total angle spread: Dash=-5°, Jump=42.5°, Launch=90°
+  edgeMargin: 20,
+  // px — offset from screen edge
+  // Behavior
+  holdThreshold: 180,
+  // ms — tap vs hold on Attack/Push button
+  dragThreshold: 15,
+  // px — min distance to register as drag
+  dragMaxRadius: 80
+  // px — full deflection range for drag-to-aim
 };
-var resource = BULLET_TIME.maxResource;
-var active = false;
-var initialized = false;
-function initBulletTime() {
-  if (initialized) return;
-  initialized = true;
-  on("enemyDied", () => {
-    refillBulletTime(BULLET_TIME.killRefill);
-  });
-}
-function activateBulletTime() {
-  if (active) return;
-  if (resource >= BULLET_TIME.activationMinimum) {
-    active = true;
-    emit({ type: "bulletTimeActivated" });
-  }
-}
-function toggleBulletTime() {
-  if (active) {
-    active = false;
-    emit({ type: "bulletTimeDeactivated" });
-  } else {
-    activateBulletTime();
-  }
-}
-function updateBulletTime(realDt) {
-  if (!active) return;
-  if (BULLET_TIME.infinite >= 1) return;
-  resource -= BULLET_TIME.drainRate * realDt;
-  if (resource <= 0) {
-    resource = 0;
-    active = false;
-    emit({ type: "bulletTimeDeactivated" });
-  }
-}
-function getBulletTimeScale() {
-  return active ? BULLET_TIME.timeScale : 1;
-}
-function refillBulletTime(amount) {
-  resource = Math.min(resource + amount, BULLET_TIME.maxResource);
-}
-function resetBulletTime() {
-  resource = BULLET_TIME.maxResource;
-  active = false;
-}
-function isBulletTimeActive() {
-  return active;
-}
-function getBulletTimeResource() {
-  return resource;
-}
-function getBulletTimeMax() {
-  return BULLET_TIME.maxResource;
-}
 
 // src/ui/hud.ts
 var PROFILE_ABILITIES = {
@@ -5836,6 +8881,10 @@ var btCeremony;
 var btCeremonyTimeout = null;
 var mobileBtnDash;
 var mobileBtnUlt;
+var mobileBtnJump;
+var mobileBtnLaunch;
+var mobileBtnCancel;
+var lastMobileProfile = "";
 function initHUD() {
   healthBar = document.getElementById("health-bar");
   healthText = document.getElementById("health-text");
@@ -5951,7 +9000,10 @@ var ISO_UP_Z2 = -INV_SQRT22;
 function initMobileButtons() {
   mobileBtnDash = document.getElementById("mobile-btn-dash");
   mobileBtnUlt = document.getElementById("mobile-btn-ultimate");
-  if (!mobileBtnDash || !mobileBtnUlt) return;
+  mobileBtnJump = document.getElementById("mobile-btn-jump");
+  mobileBtnLaunch = document.getElementById("mobile-btn-launch");
+  mobileBtnCancel = document.getElementById("mobile-btn-cancel");
+  if (!mobileBtnDash) return;
   setupDragToAim(mobileBtnDash, {
     onDragStart: () => {
     },
@@ -5969,23 +9021,94 @@ function initMobileButtons() {
       clearAbilityDirOverride();
     }
   });
-  setupDragToAim(mobileBtnUlt, {
-    onDragStart: () => {
-      triggerUltimate();
-      setUltimateHeld(true);
-    },
-    onDragMove: (normX, normY) => {
-      setAimFromScreenDrag(normX, normY);
-    },
-    onRelease: () => {
-      setUltimateHeld(false);
-      clearAbilityDirOverride();
-    },
-    onCancel: () => {
-      setUltimateHeld(false);
-      clearAbilityDirOverride();
-    }
-  });
+  if (mobileBtnUlt) {
+    setupDragToAim(mobileBtnUlt, {
+      onDragStart: () => {
+        triggerUltimate();
+        setUltimateHeld(true);
+      },
+      onDragMove: (normX, normY) => {
+        setAimFromScreenDrag(normX, normY);
+      },
+      onRelease: () => {
+        setUltimateHeld(false);
+        clearAbilityDirOverride();
+      },
+      onCancel: () => {
+        setUltimateHeld(false);
+        clearAbilityDirOverride();
+      }
+    });
+  }
+  if (mobileBtnJump) {
+    mobileBtnJump.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      triggerJump();
+    });
+  }
+  if (mobileBtnLaunch) {
+    mobileBtnLaunch.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      triggerLaunch();
+    });
+  }
+  if (mobileBtnCancel) {
+    mobileBtnCancel.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      triggerCancel();
+    });
+  }
+  updateMobileButtons();
+}
+function updateMobileButtons() {
+  const profile = getActiveProfile();
+  if (profile === lastMobileProfile) return;
+  lastMobileProfile = profile;
+  const allBtns = [mobileBtnDash, mobileBtnUlt, mobileBtnJump, mobileBtnLaunch, mobileBtnCancel];
+  for (const btn of allBtns) {
+    if (btn) btn.classList.remove("visible");
+  }
+  let visibleBtns = [];
+  if (profile === "vertical") {
+    visibleBtns = [
+      { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
+      { el: mobileBtnJump, size: MOBILE_CONTROLS.fanSize },
+      { el: mobileBtnLaunch, size: MOBILE_CONTROLS.fanSize },
+      { el: mobileBtnCancel, size: MOBILE_CONTROLS.cancelSize }
+    ];
+  } else if (profile === "origin") {
+    visibleBtns = [];
+  } else {
+    visibleBtns = [
+      { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
+      { el: mobileBtnUlt, size: MOBILE_CONTROLS.primarySize }
+    ];
+  }
+  const mc = MOBILE_CONTROLS;
+  const anchorRight = mc.edgeMargin;
+  const anchorBottom = window.innerHeight * 0.2;
+  const container = document.getElementById("mobile-actions");
+  if (container) {
+    container.style.right = "0px";
+    container.style.bottom = "0px";
+    container.style.width = "100%";
+    container.style.height = "100%";
+  }
+  const count = visibleBtns.length;
+  for (let i = 0; i < count; i++) {
+    const { el, size } = visibleBtns[i];
+    if (!el) continue;
+    el.classList.add("visible");
+    el.style.width = size + "px";
+    el.style.height = size + "px";
+    const angleDeg = mc.arcStartAngle + (count > 1 ? mc.arcSpread * i / (count - 1) : 0);
+    const angleRad = angleDeg * Math.PI / 180;
+    const dx = -Math.cos(angleRad) * mc.arcRadius;
+    const dy = -Math.sin(angleRad) * mc.arcRadius;
+    el.style.right = anchorRight - dx + "px";
+    el.style.bottom = anchorBottom - dy + "px";
+    el.style.transform = "translate(50%, 50%)";
+  }
 }
 function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel }) {
   let touchId = null;
@@ -6038,6 +9161,7 @@ function findTouch(touchList, id) {
   return null;
 }
 function updateHUD(gameState2) {
+  updateMobileButtons();
   const pct = Math.max(0, gameState2.playerHealth / gameState2.playerMaxHealth);
   healthBar.style.width = pct * 100 + "%";
   if (pct > 0.5) {
@@ -6229,6 +9353,14 @@ var AUDIO_CONFIG = {
   meleeHitVolume: 0.45,
   wallSlamVolume: 0.5,
   enemyImpactVolume: 0.4,
+  // Vertical combat
+  jumpVolume: 0.25,
+  landVolume: 0.3,
+  launchVolume: 0.4,
+  aerialStrikeVolume: 0.45,
+  slamVolume: 0.5,
+  dunkGrabVolume: 0.35,
+  dunkImpactVolume: 0.55,
   enabled: true
 };
 var ctx2 = null;
@@ -6594,6 +9726,188 @@ function playHeal() {
   osc.start(now);
   osc.stop(now + 0.5);
 }
+function playJump() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.1;
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(600, now);
+  filter.frequency.exponentialRampToValueAtTime(2500, now + duration);
+  filter.Q.value = 2;
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.jumpVolume, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playLand(fallSpeed) {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const intensity = Math.min(fallSpeed / 15, 1.5);
+  const duration = 0.08 + intensity * 0.04;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(60 + intensity * 30, now);
+  osc.frequency.exponentialRampToValueAtTime(25, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.landVolume * intensity, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+}
+function playLaunch() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.15;
+  const osc = ctx2.createOscillator();
+  osc.type = "square";
+  osc.frequency.setValueAtTime(120, now);
+  osc.frequency.exponentialRampToValueAtTime(600, now + duration * 0.7);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.launchVolume * 0.3, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.5);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "highpass";
+  filter.frequency.value = 2e3;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.launchVolume * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.5);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playAerialStrike() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.1;
+  const osc = ctx2.createOscillator();
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(500, now);
+  osc.frequency.exponentialRampToValueAtTime(100, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.aerialStrikeVolume * 0.4, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = 4e3;
+  filter.Q.value = 4;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.aerialStrikeVolume * 0.5, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.6);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playSlam(fallSpeed) {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const intensity = Math.min(fallSpeed / 20, 1.5);
+  const duration = 0.2 + intensity * 0.05;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(50 + intensity * 20, now);
+  osc.frequency.exponentialRampToValueAtTime(20, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.slamVolume * (0.4 + intensity * 0.3), now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.7);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 1500;
+  filter.Q.value = 2;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.slamVolume * 0.4, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.7);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+}
+function playDunkGrab() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.1;
+  const osc = ctx2.createOscillator();
+  osc.type = "triangle";
+  osc.frequency.value = 1200;
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.dunkGrabVolume * 0.4, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+}
+function playDunkImpact() {
+  if (!ctx2 || !masterGain || !AUDIO_CONFIG.enabled) return;
+  const now = ctx2.currentTime;
+  const duration = 0.25;
+  const osc = ctx2.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(40, now);
+  osc.frequency.exponentialRampToValueAtTime(15, now + duration);
+  const gain = ctx2.createGain();
+  gain.gain.setValueAtTime(AUDIO_CONFIG.dunkImpactVolume * 0.6, now);
+  gain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + duration);
+  const noise = ctx2.createBufferSource();
+  noise.buffer = createNoiseBuffer(duration * 0.6);
+  const filter = ctx2.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 2e3;
+  filter.Q.value = 3;
+  const nGain = ctx2.createGain();
+  nGain.gain.setValueAtTime(AUDIO_CONFIG.dunkImpactVolume * 0.5, now);
+  nGain.gain.exponentialRampToValueAtTime(1e-3, now + duration * 0.6);
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+  const sub = ctx2.createOscillator();
+  sub.type = "sine";
+  sub.frequency.value = 25;
+  const subGain = ctx2.createGain();
+  subGain.gain.setValueAtTime(AUDIO_CONFIG.dunkImpactVolume * 0.3, now);
+  subGain.gain.exponentialRampToValueAtTime(1e-3, now + duration);
+  sub.connect(subGain);
+  subGain.connect(masterGain);
+  sub.start(now);
+  sub.stop(now + duration);
+}
 function wireEventBus2() {
   on("enemyHit", (e) => {
     if (e.type === "enemyHit") playHit(e.damage / 15);
@@ -6617,6 +9931,17 @@ function wireEventBus2() {
   on("enemyImpact", (e) => {
     if (e.type === "enemyImpact") playEnemyImpact(e.speed / 5);
   });
+  on("playerJump", () => playJump());
+  on("playerLand", (e) => {
+    if (e.type === "playerLand") playLand(e.fallSpeed);
+  });
+  on("enemyLaunched", () => playLaunch());
+  on("aerialStrike", () => playAerialStrike());
+  on("playerSlam", (e) => {
+    if (e.type === "playerSlam") playSlam(e.fallSpeed);
+  });
+  on("dunkGrab", () => playDunkGrab());
+  on("dunkImpact", () => playDunkImpact());
 }
 
 // src/config/boss.ts
@@ -6745,12 +10070,20 @@ function gameLoop(timestamp) {
     return;
   }
   updateInput();
+  if (consumeCancel()) {
+    cancelActiveVerb();
+    setUltimateHeld(false);
+  }
   autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
   if (input.bulletTime) toggleBulletTime();
   updateBulletTime(dt);
   const gameDt = dt * getBulletTimeScale();
   updatePlayer(input, dt, gameState);
+  input._gameState = gameState;
+  updateAerialVerbs(gameDt, getPlayerPos(), input);
+  updateCarriers(dt, gameState);
+  updateLaunchPillars(dt);
   updateProjectiles(gameDt);
   updateRoomManager(gameDt, gameState);
   updateEnemies(gameDt, getPlayerPos(), gameState);
@@ -6768,6 +10101,7 @@ function gameLoop(timestamp) {
     showGameOver(gameState);
   }
   updateCamera(getPlayerPos(), dt);
+  updateGroundShadows(gameState);
   updateHUD(gameState);
   consumeInput();
   getRendererInstance().render(getScene(), getCamera());
@@ -6786,6 +10120,11 @@ function restart() {
   gameState.abilities.ultimate.charging = false;
   gameState.abilities.ultimate.chargeT = 0;
   resetPlayer();
+  resetAerialVerbs();
+  clearCarriers();
+  clearLaunchPillars();
+  clearLaunchIndicator();
+  clearAllTags();
   resetRoomManager();
   resetBulletTime();
   loadRoom(0, gameState);
@@ -6805,8 +10144,16 @@ function init() {
     initAudio();
     initParticles(scene2);
     initBulletTime();
+    initVisionCones(scene2, raycastTerrainDist);
+    initAerialVerbs([floatSelectorVerb, dunkVerb, spikeVerb]);
+    initLaunchPillars(scene2);
+    initLaunchIndicator(scene2);
+    initGroundShadows();
     on("meleeHit", () => {
       hitPauseTimer = MELEE.hitPause;
+    });
+    on("dunkGrab", () => {
+      hitPauseTimer = DUNK.grabPause;
     });
     initHUD();
     initDamageNumbers();

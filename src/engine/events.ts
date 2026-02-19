@@ -32,6 +32,8 @@ export type GameEvent =
   | { type: 'wallSlam'; enemy: any; speed: number; damage: number; position: { x: number; z: number } }
   | { type: 'enemyImpact'; enemyA: any; enemyB: any; speed: number; damage: number; position: { x: number; z: number } }
   | { type: 'enemyAggroed'; enemy: any; position: { x: number; z: number } }
+  | { type: 'detectionStarted'; enemy: any; position: { x: number; z: number } }
+  | { type: 'detectionCleared'; enemy: any; position: { x: number; z: number } }
   | { type: 'bulletTimeActivated' }
   | { type: 'bulletTimeDeactivated' }
   | { type: 'playerJump'; position: { x: number; z: number } }

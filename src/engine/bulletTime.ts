@@ -17,7 +17,8 @@ export const BULLET_TIME = {
 let resource = BULLET_TIME.maxResource;
 let active = false;
 let initialized = false;
-let _autoEngaged = false;  // true when BT was auto-activated by a verb (dunk hold)
+let _autoEngaged = false;  // true when BT was auto-activated by a verb or detection
+let _detectingCount = 0;   // number of enemies currently detecting the player
 
 // Exit ramp state — smooth transition from BT scale → 1.0
 let _rampActive = false;
@@ -32,6 +33,22 @@ export function initBulletTime() {
   on('enemyDied', () => {
     refillBulletTime(BULLET_TIME.killRefill);
   });
+
+  // Auto-activate bullet time when player enters a vision cone (detection starts)
+  // Gives the player a slow-mo reaction window to escape before aggro.
+  on('detectionStarted', () => {
+    _detectingCount++;
+    activateBulletTimeAuto();
+  });
+
+  // Deactivate when all cones are clear (player escaped all detection)
+  on('detectionCleared', () => {
+    _detectingCount = Math.max(0, _detectingCount - 1);
+    if (_detectingCount === 0) {
+      deactivateBulletTimeAuto();
+    }
+  });
+
 }
 
 /** Activate bullet time (no-op if already active). */
@@ -105,6 +122,7 @@ export function resetBulletTime() {
   active = false;
   _rampActive = false;
   _autoEngaged = false;
+  _detectingCount = 0;
 }
 
 export function isBulletTimeActive(): boolean {

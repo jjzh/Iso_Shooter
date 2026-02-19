@@ -459,9 +459,15 @@ export interface WaveDefinition {
 
 export type SpawnZone = 'ahead' | 'sides' | 'far' | 'behind';
 
+export interface SpawnPackEnemy {
+  type: string;
+  fixedPos?: { x: number; z: number };            // override zone-based position
+  patrolWaypoints?: { x: number; z: number }[];   // waypoint circuit for assassin patrol
+}
+
 export interface SpawnPack {
-  enemies: { type: string }[];   // 2-3 enemies per pack
-  spawnZone: SpawnZone;          // where to spawn relative to player
+  enemies: SpawnPackEnemy[];     // 2-3 enemies per pack
+  spawnZone: SpawnZone;          // where to spawn relative to player (ignored when fixedPos set)
 }
 
 export interface RoomSpawnBudget {

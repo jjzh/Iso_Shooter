@@ -8,7 +8,7 @@ import { spawnDamageNumber } from '../ui/damageNumbers';
 import { fireMortarProjectile, getIceEffects } from './mortarProjectile';
 import { fireProjectile } from './projectile';
 import { buildEnemyModel, createHitReaction, triggerHitReaction, updateHitReaction } from './enemyRig';
-import { emit } from '../engine/events';
+import { emit, on } from '../engine/events';
 import { hasTag, TAG } from '../engine/tags';
 import { getActiveProfile } from '../engine/profileManager';
 import {
@@ -109,8 +109,19 @@ function clearAggroIndicators() {
   aggroIndicators.length = 0;
 }
 
+const PUSH_AGGRO_DELAY = 250; // ms after being pushed before goblin aggros
+
 export function initEnemySystem(scene: any) {
   sceneRef = scene;
+
+  // Delayed aggro when pushed — assassin goblins aggro 250ms after force push
+  on('enemyPushed', (e) => {
+    if (e.type !== 'enemyPushed') return;
+    const enemy = e.enemy;
+    if (!enemy.aggroed && enemy.config.aggroRadius && getActiveProfile() === 'assassin') {
+      enemy.pushAggroTimer = PUSH_AGGRO_DELAY;
+    }
+  });
 }
 
 function createShieldMesh(cfg: any) {
@@ -131,7 +142,7 @@ function createShieldMesh(cfg: any) {
   return mesh;
 }
 
-export function spawnEnemy(typeName: string, position: any, gameState: any) {
+export function spawnEnemy(typeName: string, position: any, gameState: any, patrolWaypoints?: { x: number; z: number }[]) {
   const cfg = ENEMY_TYPES[typeName];
   if (!cfg) return null;
 
@@ -205,12 +216,17 @@ export function spawnEnemy(typeName: string, position: any, gameState: any) {
     allMaterials: model.allMaterials,
     // Assassin profile state
     aggroed: true,  // default true — non-assassin rooms skip detection
+    detecting: false, // true while player is in cone + LOS (detection building)
     detectionTimer: 0,
+    pushAggroTimer: 0, // ms remaining until push-triggered aggro (0 = inactive)
     patrolOriginX: position.x,
     patrolOriginZ: position.z,
     patrolDir: 1,
     patrolPauseTimer: 0,
     patrolTargetAngle: null as number | null,
+    // Waypoint patrol (assassin rooms with fixed patrol circuits)
+    patrolWaypoints: patrolWaypoints || null,
+    patrolWaypointIdx: 0,
   };
 
   // Initialize shield if config has one
@@ -227,7 +243,15 @@ export function spawnEnemy(typeName: string, position: any, gameState: any) {
   // Assassin profile: initialize facing + vision cone
   if (getActiveProfile() === 'assassin' && cfg.aggroRadius) {
     enemy.aggroed = false;  // override — assassin enemies start unaware
-    enemy.mesh.rotation.y = (Math.random() - 0.5) * Math.PI * 2;
+    // Face toward first waypoint if available, otherwise random
+    if (patrolWaypoints && patrolWaypoints.length > 1) {
+      const wp = patrolWaypoints[1]; // face toward second waypoint (first is spawn pos)
+      const dx = wp.x - position.x;
+      const dz = wp.z - position.z;
+      enemy.mesh.rotation.y = rotationToFace(dx, dz);
+    } else {
+      enemy.mesh.rotation.y = (Math.random() - 0.5) * Math.PI * 2;
+    }
     enemy.idleBaseRotY = enemy.mesh.rotation.y;
     enemy.idleScanPhase = Math.random() * Math.PI * 2;
     enemy._facingInitialized = true;
@@ -407,7 +431,52 @@ function turnToward(enemy: any, targetRotY: number, dt: number): void {
 
 // ─── Patrol Behavior (assassin profile) ───
 
+const WAYPOINT_TURN_SPEED = 1.2; // rad/s — slow turns at corners for readable vision cone sweeps
+const WAYPOINT_ARRIVAL_DIST = 0.5; // units — snap to next waypoint when this close
+
+function updateWaypointPatrol(enemy: any, dt: number) {
+  const wps = enemy.patrolWaypoints;
+  const target = wps[enemy.patrolWaypointIdx];
+  const dx = target.x - enemy.pos.x;
+  const dz = target.z - enemy.pos.z;
+  const dist = Math.sqrt(dx * dx + dz * dz);
+
+  // Arrived at waypoint — advance to next
+  if (dist < WAYPOINT_ARRIVAL_DIST) {
+    enemy.patrolWaypointIdx = (enemy.patrolWaypointIdx + 1) % wps.length;
+    return;
+  }
+
+  // Turn toward waypoint (slow, readable rotation)
+  const targetRot = rotationToFace(dx, dz);
+  let diff = targetRot - enemy.mesh.rotation.y;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  const maxStep = WAYPOINT_TURN_SPEED * dt;
+  if (Math.abs(diff) <= maxStep) {
+    enemy.mesh.rotation.y = targetRot;
+  } else {
+    enemy.mesh.rotation.y += Math.sign(diff) * maxStep;
+  }
+
+  // Only walk when roughly facing the waypoint (within ~45°)
+  if (Math.abs(diff) < Math.PI / 4) {
+    const speed = (enemy.config.patrol?.speed || 1.2) * (enemy.slowMult || 1);
+    const fwd = getForward(enemy.mesh.rotation.y);
+    enemy.pos.x += fwd.x * speed * dt;
+    enemy.pos.z += fwd.z * speed * dt;
+    enemy.pos.x = Math.max(-ARENA_HALF_X + 1, Math.min(ARENA_HALF_X - 1, enemy.pos.x));
+    enemy.pos.z = Math.max(-ARENA_HALF_Z + 1, Math.min(ARENA_HALF_Z - 1, enemy.pos.z));
+  }
+}
+
 function updatePatrol(enemy: any, dt: number) {
+  // Waypoint circuit patrol (fixed routes around pits)
+  if (enemy.patrolWaypoints && enemy.patrolWaypoints.length > 0) {
+    return updateWaypointPatrol(enemy, dt);
+  }
+
+  // Fallback: linear back-and-forth patrol
   const cfg = enemy.config.patrol;
   if (!cfg) return;
 
@@ -459,6 +528,38 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
 
     // ─── Assassin Profile: Detection + Patrol ───
     if (isAssassin && !enemy.aggroed && enemy.config.aggroRadius) {
+      // Push aggro timer — delayed aggro after being force-pushed
+      if (enemy.pushAggroTimer > 0) {
+        enemy.pushAggroTimer -= dt * 1000;
+        if (enemy.pushAggroTimer <= 0) {
+          enemy.pushAggroTimer = 0;
+          enemy.aggroed = true;
+          emit({ type: 'enemyAggroed', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+          showAggroIndicator(enemy);
+          if (playerPos) {
+            const toDx = playerPos.x - enemy.pos.x;
+            const toDz = playerPos.z - enemy.pos.z;
+            enemy.mesh.rotation.y = rotationToFace(toDx, toDz);
+          }
+          // Fall through to normal behavior
+        }
+      }
+
+      // Aggro lock: taking any damage immediately triggers aggro
+      if (!enemy.aggroed && enemy.health < enemy.config.health) {
+        enemy.aggroed = true;
+        emit({ type: 'enemyAggroed', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+        showAggroIndicator(enemy);
+        if (playerPos) {
+          const toDx = playerPos.x - enemy.pos.x;
+          const toDz = playerPos.z - enemy.pos.z;
+          enemy.mesh.rotation.y = rotationToFace(toDx, toDz);
+        }
+        // Fall through to normal behavior (don't continue)
+      }
+
+      // If still not aggroed, run patrol + detection
+      if (!enemy.aggroed) {
       if (enemy.config.patrol && !enemy.isLeaping) {
         updatePatrol(enemy, dt);
       }
@@ -483,8 +584,15 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
         }
 
         if (inCone && inLOS) {
+          // Transition: not detecting → detecting (player just entered cone)
+          if (!enemy.detecting) {
+            enemy.detecting = true;
+            emit({ type: 'detectionStarted', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+          }
           enemy.detectionTimer += dt * 1000;
           if (enemy.detectionTimer >= VISION_CONE_CONFIG.detectionThreshold) {
+            // Transition: detecting → aggroed (skip detectionCleared to avoid BT flicker)
+            enemy.detecting = false;
             enemy.aggroed = true;
             emit({ type: 'enemyAggroed', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
             showAggroIndicator(enemy);
@@ -494,7 +602,29 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
           }
         } else {
           enemy.detectionTimer = Math.max(0, enemy.detectionTimer - dt * 1500);
+          // Transition: detecting → clear (player escaped cone, timer decayed to 0)
+          if (enemy.detecting && enemy.detectionTimer === 0) {
+            enemy.detecting = false;
+            emit({ type: 'detectionCleared', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+          }
         }
+      }
+
+      // Death check — damage/pit kills still apply to non-aggroed enemies
+      if (enemy.health <= 0) {
+        if (enemy.detecting) {
+          enemy.detecting = false;
+          emit({ type: 'detectionCleared', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+        }
+        emit({ type: 'enemyDied', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+        removeVisionCone(enemy);
+        sceneRef.remove(enemy.mesh);
+        gameState.enemies.splice(i, 1);
+        const drops = enemy.config.drops;
+        gameState.currency += Math.floor(
+          drops.currency.min + Math.random() * (drops.currency.max - drops.currency.min + 1)
+        );
+        continue;
       }
 
       // Non-aggroed: sync mesh position but skip normal behavior
@@ -502,6 +632,7 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
       enemy.pos.z = Math.max(-ARENA_HALF_Z, Math.min(ARENA_HALF_Z, enemy.pos.z));
       enemy.mesh.position.copy(enemy.pos);
       continue;
+      } // close if (!enemy.aggroed) — patrol + detect + continue
     }
 
     // Pit leap update — runs independently of stun (can't stun mid-air)

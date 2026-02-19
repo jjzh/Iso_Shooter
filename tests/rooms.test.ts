@@ -161,46 +161,10 @@ describe('Room 3: Physics Playground', () => {
   });
 });
 
-// ─── Room 4 specifics: The Arena (Vertical) ───
+// ─── Room 4 specifics: The Shadows (Assassin) ───
 
-describe('Room 4: The Arena', () => {
+describe('Room 4: The Shadows', () => {
   const room = ROOMS[3];
-
-  it('should have vertical profile', () => {
-    expect(room.profile).toBe('vertical');
-  });
-
-  it('should have heightZones', () => {
-    expect(room.heightZones).toBeDefined();
-    expect(room.heightZones!.length).toBeGreaterThan(0);
-  });
-
-  it('should have tighter frustum', () => {
-    expect(room.frustumSize).toBeDefined();
-    expect(room.frustumSize).toBeLessThan(12);
-  });
-
-  it('should only have goblins', () => {
-    const types = new Set(
-      room.spawnBudget.packs.flatMap(p => p.enemies.map(e => e.type))
-    );
-    expect(types.size).toBe(1);
-    expect(types.has('goblin')).toBe(true);
-  });
-
-  it('should have no pits (vertical is the hazard)', () => {
-    expect(room.pits.length).toBe(0);
-  });
-
-  it('should have no obstacles (open for aerial combat)', () => {
-    expect(room.obstacles.length).toBe(0);
-  });
-});
-
-// ─── Room 5 specifics: The Shadows (Assassin) ───
-
-describe('Room 5: The Shadows', () => {
-  const room = ROOMS[4];
 
   it('should have assassin profile', () => {
     expect(room.profile).toBe('assassin');
@@ -232,6 +196,42 @@ describe('Room 5: The Shadows', () => {
   it('player starts in corner of maze', () => {
     expect(room.playerStart.x).toBeLessThan(0);
     expect(room.playerStart.z).toBeGreaterThan(0);
+  });
+});
+
+// ─── Room 5 specifics: The Arena (Vertical) ───
+
+describe('Room 5: The Arena', () => {
+  const room = ROOMS[4];
+
+  it('should have vertical profile', () => {
+    expect(room.profile).toBe('vertical');
+  });
+
+  it('should have heightZones', () => {
+    expect(room.heightZones).toBeDefined();
+    expect(room.heightZones!.length).toBeGreaterThan(0);
+  });
+
+  it('should have tighter frustum', () => {
+    expect(room.frustumSize).toBeDefined();
+    expect(room.frustumSize).toBeLessThan(12);
+  });
+
+  it('should only have goblins', () => {
+    const types = new Set(
+      room.spawnBudget.packs.flatMap(p => p.enemies.map(e => e.type))
+    );
+    expect(types.size).toBe(1);
+    expect(types.has('goblin')).toBe(true);
+  });
+
+  it('should have no pits (vertical is the hazard)', () => {
+    expect(room.pits.length).toBe(0);
+  });
+
+  it('should have no obstacles (open for aerial combat)', () => {
+    expect(room.obstacles.length).toBe(0);
   });
 });
 

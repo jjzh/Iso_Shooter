@@ -219,7 +219,7 @@ export function updateRoomManager(dt: number, gameState: any) {
         const enemy = tg.pack.enemies[j];
         const pos = tg.positions[j];
         const spawnPos = new THREE.Vector3(pos.x, 0, pos.z);
-        spawnEnemy(enemy.type, spawnPos, gameState);
+        spawnEnemy(enemy.type, spawnPos, gameState, enemy.patrolWaypoints);
       }
       emit({ type: 'spawnPackSpawned', packIndex: tg.packIdx, roomIndex: currentRoomIndex });
       activeTelegraphs.splice(i, 1);
@@ -303,7 +303,12 @@ function resolveSpawnPositions(pack: SpawnPack, room: RoomDefinition): { x: numb
   const hx = room.arenaHalfX - 1.5;  // margin from walls
   const hz = room.arenaHalfZ - 1.5;
 
-  return pack.enemies.map(() => {
+  return pack.enemies.map((enemyDef) => {
+    // Fixed position overrides zone-based spawning
+    if (enemyDef.fixedPos) {
+      return { x: enemyDef.fixedPos.x, z: enemyDef.fixedPos.z };
+    }
+
     let x: number, z: number;
 
     for (let attempt = 0; attempt < 10; attempt++) {

@@ -57,7 +57,7 @@ export function initInput() {
     // Edge-triggered ability inputs
     if (e.code === 'Space') { inputState.jump = true; e.preventDefault(); }
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') inputState.dash = true;
-    if (e.code === 'KeyE') inputState.launch = true;
+    if (e.code === 'KeyE') { inputState.launch = true; inputState.ultimate = true; }
     if (e.code === 'KeyF' || e.code === 'Enter') inputState.interact = true;
     if (e.code === 'KeyQ') inputState.bulletTime = true;
   });
