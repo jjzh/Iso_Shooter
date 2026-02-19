@@ -8,8 +8,8 @@ import { ENEMY_TYPES } from '../src/config/enemies';
 // ─── Demo Room Definitions ───
 
 describe('Demo room definitions', () => {
-  it('should have 5 rooms', () => {
-    expect(ROOMS.length).toBe(5);
+  it('should have 6 rooms', () => {
+    expect(ROOMS.length).toBe(6);
   });
 
   ROOMS.forEach((room, i) => {
@@ -199,10 +199,43 @@ describe('Room 4: The Shadows', () => {
   });
 });
 
-// ─── Room 5 specifics: The Arena (Vertical) ───
+// ─── Room 5 specifics: The Workshop (Rule-Bending) ───
 
-describe('Room 5: The Arena', () => {
+describe('Room 5: The Workshop', () => {
   const room = ROOMS[4];
+
+  it('should have rule-bending profile', () => {
+    expect(room.profile).toBe('rule-bending');
+  });
+
+  it('should have physics objects', () => {
+    expect(room.physicsObjects).toBeDefined();
+    expect(room.physicsObjects!.length).toBe(2);
+  });
+
+  it('should have a rock and a crate', () => {
+    const types = room.physicsObjects!.map(o => o.meshType);
+    expect(types).toContain('rock');
+    expect(types).toContain('crate');
+  });
+
+  it('should have 2 pits', () => {
+    expect(room.pits.length).toBe(2);
+  });
+
+  it('should have wall slam enabled', () => {
+    expect(room.enableWallSlamDamage).toBe(true);
+  });
+
+  it('should have sandbox mode', () => {
+    expect(room.sandboxMode).toBe(true);
+  });
+});
+
+// ─── Room 6 specifics: The Arena (Vertical) ───
+
+describe('Room 6: The Arena', () => {
+  const room = ROOMS[5];
 
   it('should have vertical profile', () => {
     expect(room.profile).toBe('vertical');
