@@ -73,7 +73,7 @@ function getRectsForTarget(target: string, colorOverride?: number): HighlightRec
     case 'obstacles':
       return OBSTACLES.map(o => ({ x: o.x, z: o.z, w: o.w, d: o.d, color }));
     case 'platforms':
-      return HEIGHT_ZONES.map(hz => ({ x: hz.x, z: hz.z, w: hz.w, d: hz.d, color, y: hz.y }));
+      return HEIGHT_ZONES.map(hz => ({ x: hz.x, z: hz.z, w: hz.w, d: hz.d, color }));
     default:
       return [];
   }
