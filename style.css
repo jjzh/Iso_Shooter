@@ -254,6 +254,59 @@ canvas {
   box-shadow: 0 0 15px rgba(68, 255, 136, 0.3);
 }
 
+/* ── Room Selector ── */
+#room-selector {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 400px;
+}
+
+.room-selector-label {
+  font-size: 11px !important;
+  color: rgba(255, 255, 255, 0.3) !important;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 4px !important;
+}
+
+.room-selector-btn {
+  width: 100%;
+  padding: 10px 20px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(20, 20, 40, 0.6);
+  border: 1px solid rgba(100, 100, 160, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+  pointer-events: all;
+}
+
+.room-selector-btn:hover {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(40, 40, 80, 0.8);
+  border-color: rgba(136, 187, 255, 0.6);
+}
+
+.room-selector-btn .room-name {
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.room-selector-btn .room-desc {
+  display: block;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  margin-top: 2px;
+  font-style: italic;
+}
+
 /* Wave announcement overlay */
 #wave-announce {
   position: fixed;

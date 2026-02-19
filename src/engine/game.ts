@@ -195,6 +195,12 @@ function init(): void {
       document.getElementById('hud')!.style.visibility = 'visible';
       loadRoom(0, gameState);
       lastTime = performance.now();
+    }, (roomIndex: number) => {
+      resumeAudio();
+      gameState.phase = 'playing';
+      document.getElementById('hud')!.style.visibility = 'visible';
+      loadRoom(roomIndex, gameState);
+      lastTime = performance.now();
     });
 
     document.getElementById('hud')!.style.visibility = 'hidden';
