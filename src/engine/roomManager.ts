@@ -4,6 +4,7 @@
 // Door is at -Z end; unlocks when room is cleared, requires interact to enter
 
 import { ROOMS, RoomDefinition } from '../config/rooms';
+import { setProfile } from './profileManager';
 import { setArenaConfig, ARENA_HALF_X, ARENA_HALF_Z } from '../config/arena';
 import { SPAWN_CONFIG } from '../config/spawn';
 import { spawnEnemy, clearEnemies } from '../entities/enemy';
@@ -111,6 +112,9 @@ export function loadRoom(index: number, gameState: any) {
   showAnnounce(room.name);
   setTimeout(hideAnnounce, 2000);
 
+  // Profile switch (before special room handling so it applies to all rooms)
+  setProfile(room.profile);
+
   // Handle special rooms
   if (room.isRestRoom) {
     // Heal player
@@ -137,6 +141,11 @@ export function loadRoom(index: number, gameState: any) {
   // Combat room — create locked door at far end
   if (index + 1 < ROOMS.length) {
     createDoor(room.arenaHalfX, room.arenaHalfZ, index);
+  }
+
+  // Sandbox mode — door starts unlocked, enemies still spawn
+  if (room.sandboxMode) {
+    unlockDoor();
   }
 }
 
