@@ -53,7 +53,8 @@ export type GameEvent =
   | { type: 'objectPitFall'; object: any; position: { x: number; z: number } }
   | { type: 'objectWallSlam'; object: any; speed: number; damage: number; position: { x: number; z: number } }
   | { type: 'objectDestroyed'; object: any; position: { x: number; z: number } }
-  | { type: 'objectImpact'; objectA: any; objectB: any; speed: number; damage: number; position: { x: number; z: number } };
+  | { type: 'objectImpact'; objectA: any; objectB: any; speed: number; damage: number; position: { x: number; z: number } }
+  | { type: 'objectPushed'; object: any; position: { x: number; z: number } };
 
 // ─── Bus Implementation ───
 

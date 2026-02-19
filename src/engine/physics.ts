@@ -398,6 +398,139 @@ export function applyVelocities(dt: number, gameState: GameState): void {
   }
 }
 
+// ─── PhysicsObject Velocity Integration ───
+
+export function applyObjectVelocities(dt: number, gameState: GameState): void {
+  for (const obj of gameState.physicsObjects) {
+    if (obj.destroyed) continue;
+
+    const vel = obj.vel;
+    const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    if (speed < PHYSICS.minVelocity) {
+      vel.x = 0;
+      vel.z = 0;
+      continue;
+    }
+
+    // Stepped movement to prevent wall tunneling
+    const moveDist = speed * dt;
+    const moveSteps = Math.ceil(moveDist / obj.radius);
+    const subDt = dt / Math.max(moveSteps, 1);
+    let result: CollisionResult = { x: obj.pos.x, z: obj.pos.z, hitWall: false, normalX: 0, normalZ: 0 };
+
+    let fellInPit = false;
+    for (let s = 0; s < moveSteps; s++) {
+      obj.pos.x += vel.x * subDt;
+      obj.pos.z += vel.z * subDt;
+
+      if (pointInPit(obj.pos.x, obj.pos.z)) {
+        fellInPit = true;
+        break;
+      }
+
+      result = resolveTerrainCollisionEx(obj.pos.x, obj.pos.z, obj.radius);
+      obj.pos.x = result.x;
+      obj.pos.z = result.z;
+
+      if (result.hitWall) {
+        // Slide along wall: remove velocity component into the wall normal
+        const dot = vel.x * result.normalX + vel.z * result.normalZ;
+        if (dot < 0) {
+          vel.x -= dot * result.normalX;
+          vel.z -= dot * result.normalZ;
+        }
+        const slideSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+        if (slideSpeed < PHYSICS.minVelocity) break;
+      }
+
+      // Check collision with other physics objects during stepping.
+      // This prevents a fast-moving object from tunneling through another.
+      let hitObject = false;
+      for (const other of gameState.physicsObjects) {
+        if (other === obj || other.destroyed) continue;
+        const odx = obj.pos.x - other.pos.x;
+        const odz = obj.pos.z - other.pos.z;
+        const oDistSq = odx * odx + odz * odz;
+        const oMinDist = obj.radius + other.radius;
+        if (oDistSq < oMinDist * oMinDist && oDistSq > 0.0001) {
+          // Push this object back out and stop stepping
+          const oDist = Math.sqrt(oDistSq);
+          const oOverlap = oMinDist - oDist;
+          const onx = odx / oDist;
+          const onz = odz / oDist;
+          obj.pos.x += onx * oOverlap;
+          obj.pos.z += onz * oOverlap;
+
+          // Remove velocity component into the other object
+          const vDot = vel.x * (-onx) + vel.z * (-onz);
+          if (vDot > 0) {
+            vel.x += vDot * onx;
+            vel.z += vDot * onz;
+          }
+          hitObject = true;
+          break;
+        }
+      }
+      if (hitObject) break;
+    }
+
+    // Sync mesh position
+    if (obj.mesh) {
+      obj.mesh.position.set(obj.pos.x, 0, obj.pos.z);
+    }
+
+    // Pit fall
+    if (fellInPit) {
+      obj.destroyed = true;
+      obj.fellInPit = true;
+      emit({ type: 'objectPitFall', object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+      if (obj.mesh) obj.mesh.visible = false;
+      vel.x = 0;
+      vel.z = 0;
+      continue;
+    }
+
+    // Wall slam — uses original speed (before wall slide) for damage calculation
+    if (result.hitWall && speed > PHYSICS.objectWallSlamMinSpeed) {
+      const slamDamage = Math.round((speed - PHYSICS.objectWallSlamMinSpeed) * PHYSICS.objectWallSlamDamage);
+
+      // Damage the object itself
+      obj.health -= slamDamage;
+      if (obj.health <= 0) {
+        obj.health = 0;
+        obj.destroyed = true;
+        if (obj.mesh) obj.mesh.visible = false;
+        emit({ type: 'objectDestroyed', object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+      }
+
+      emit({ type: 'objectWallSlam', object: obj, speed, damage: slamDamage, position: { x: obj.pos.x, z: obj.pos.z } });
+      screenShake(PHYSICS.objectWallSlamShake, 120);
+
+      // Apply bounce damping to remaining (slid) velocity — energy is lost on wall impact
+      const bounce = obj.restitution ?? PHYSICS.objectWallSlamBounce;
+      vel.x *= bounce;
+      vel.z *= bounce;
+    }
+
+    // Friction — based on current velocity (may have been modified by wall slide/bounce)
+    const currentSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    if (currentSpeed > PHYSICS.minVelocity) {
+      const newSpeed = currentSpeed - PHYSICS.objectFriction * dt;
+      if (newSpeed <= PHYSICS.minVelocity) {
+        vel.x = 0;
+        vel.z = 0;
+      } else {
+        const scale = newSpeed / currentSpeed;
+        vel.x *= scale;
+        vel.z *= scale;
+      }
+    } else {
+      vel.x = 0;
+      vel.z = 0;
+    }
+  }
+}
+
 // ─── Enemy-Enemy Collision + Momentum Transfer ───
 
 export function resolveEnemyCollisions(gameState: GameState): void {
@@ -511,6 +644,215 @@ export function resolveEnemyCollisions(gameState: GameState): void {
       // Sync mesh positions
       (a as any).mesh.position.copy(a.pos);
       (b as any).mesh.position.copy(b.pos);
+    }
+  }
+}
+
+// ─── PhysicsObject Collisions (Object-Object + Object-Enemy) ───
+
+export function resolveObjectCollisions(gameState: GameState): void {
+  const objects = gameState.physicsObjects;
+  const enemies = gameState.enemies;
+
+  // Object-Object collisions — run multiple iterations to handle chain/wall cases
+  for (let iter = 0; iter < 3; iter++) {
+    for (let i = 0; i < objects.length; i++) {
+      const a = objects[i];
+      if (a.destroyed) continue;
+
+      for (let j = i + 1; j < objects.length; j++) {
+        const b = objects[j];
+        if (b.destroyed) continue;
+
+        const dx = b.pos.x - a.pos.x;
+        const dz = b.pos.z - a.pos.z;
+        const distSq = dx * dx + dz * dz;
+        const minDist = a.radius + b.radius;
+
+        if (distSq >= minDist * minDist) continue;
+
+        const dist = Math.sqrt(distSq);
+        if (dist < 0.01) continue;
+
+        const overlap = minDist - dist;
+        const nx = dx / dist;
+        const nz = dz / dist;
+
+        // Check which objects are terrain-blocked (can't move in separation direction)
+        const aTerrainCheck = resolveTerrainCollisionEx(
+          a.pos.x - nx * 0.05, a.pos.z - nz * 0.05, a.radius);
+        const bTerrainCheck = resolveTerrainCollisionEx(
+          b.pos.x + nx * 0.05, b.pos.z + nz * 0.05, b.radius);
+        const aBlocked = aTerrainCheck.hitWall;
+        const bBlocked = bTerrainCheck.hitWall;
+
+        // Distribute separation: blocked objects get 0 share
+        let ratioA: number, ratioB: number;
+        if (aBlocked && !bBlocked) {
+          ratioA = 0; ratioB = 1;
+        } else if (!aBlocked && bBlocked) {
+          ratioA = 1; ratioB = 0;
+        } else {
+          const totalMass = a.mass + b.mass;
+          ratioA = b.mass / totalMass;
+          ratioB = a.mass / totalMass;
+        }
+
+        a.pos.x -= nx * overlap * ratioA;
+        a.pos.z -= nz * overlap * ratioA;
+        b.pos.x += nx * overlap * ratioB;
+        b.pos.z += nz * overlap * ratioB;
+
+        // Momentum transfer (only on first iteration to avoid double-counting)
+        if (iter === 0) {
+          const totalMass = a.mass + b.mass;
+          const relVelX = a.vel.x - b.vel.x;
+          const relVelZ = a.vel.z - b.vel.z;
+          const relVelDotN = relVelX * nx + relVelZ * nz;
+          if (relVelDotN > 0) {
+            const e = PHYSICS.objectWallSlamBounce;
+            const impulse = (1 + e) * relVelDotN / totalMass;
+
+            a.vel.x -= impulse * b.mass * nx;
+            a.vel.z -= impulse * b.mass * nz;
+            b.vel.x += impulse * a.mass * nx;
+            b.vel.z += impulse * a.mass * nz;
+          }
+        }
+
+        // Sync meshes
+        if (a.mesh) a.mesh.position.set(a.pos.x, 0, a.pos.z);
+        if (b.mesh) b.mesh.position.set(b.pos.x, 0, b.pos.z);
+      }
+    }
+  }
+
+  // Object-Enemy collisions
+  for (const obj of objects) {
+    if (obj.destroyed) continue;
+
+    for (const enemy of enemies) {
+      if (enemy.health <= 0) continue;
+      if ((enemy as any).isLeaping) continue;
+
+      const dx = enemy.pos.x - obj.pos.x;
+      const dz = enemy.pos.z - obj.pos.z;
+      const distSq = dx * dx + dz * dz;
+      const radObj = obj.radius;
+      const radEnemy = enemy.config.size.radius;
+      const minDist = radObj + radEnemy;
+
+      if (distSq >= minDist * minDist) continue;
+
+      const dist = Math.sqrt(distSq);
+      if (dist < 0.01) continue;
+
+      const overlap = minDist - dist;
+      const nx = dx / dist;
+      const nz = dz / dist;
+
+      const massObj = obj.mass;
+      const massEnemy = enemy.config.mass ?? 1.0;
+      const totalMass = massObj + massEnemy;
+      const ratioObj = massEnemy / totalMass;
+      const ratioEnemy = massObj / totalMass;
+
+      // Separate
+      obj.pos.x -= nx * overlap * ratioObj;
+      obj.pos.z -= nz * overlap * ratioObj;
+      enemy.pos.x += nx * overlap * ratioEnemy;
+      enemy.pos.z += nz * overlap * ratioEnemy;
+
+      // Momentum transfer
+      const velEnemy = (enemy as any).vel;
+      if (!velEnemy) continue;
+
+      const relVelX = obj.vel.x - velEnemy.x;
+      const relVelZ = obj.vel.z - velEnemy.z;
+      const relVelDotN = relVelX * nx + relVelZ * nz;
+      if (relVelDotN <= 0) continue;
+
+      const e = obj.restitution ?? PHYSICS.enemyBounce;
+      const impulse = (1 + e) * relVelDotN / totalMass;
+
+      obj.vel.x -= impulse * massEnemy * nx;
+      obj.vel.z -= impulse * massEnemy * nz;
+      velEnemy.x += impulse * massObj * nx;
+      velEnemy.z += impulse * massObj * nz;
+
+      // Impact damage to enemy (if relative speed high enough)
+      const relSpeed = Math.sqrt(relVelX * relVelX + relVelZ * relVelZ);
+      if (relSpeed > PHYSICS.objectImpactMinSpeed) {
+        const dmg = Math.round((relSpeed - PHYSICS.objectImpactMinSpeed) * PHYSICS.objectImpactDamage);
+        if (dmg > 0) {
+          applyDamageToEnemy(enemy, dmg, gameState);
+          enemy.flashTimer = 100;
+          if ((enemy as any).bodyMesh) (enemy as any).bodyMesh.material.emissive.setHex(0xffaa44);
+          if ((enemy as any).headMesh) (enemy as any).headMesh.material.emissive.setHex(0xffaa44);
+          spawnDamageNumber(enemy.pos.x, enemy.pos.z, dmg, '#ffaa44');
+          screenShake(2, 80);
+
+          emit({
+            type: 'objectImpact',
+            objectA: obj, objectB: enemy,
+            speed: relSpeed, damage: dmg,
+            position: { x: (obj.pos.x + enemy.pos.x) / 2, z: (obj.pos.z + enemy.pos.z) / 2 }
+          });
+        }
+      }
+
+      // Sync mesh positions
+      if (obj.mesh) obj.mesh.position.set(obj.pos.x, 0, obj.pos.z);
+      (enemy as any).mesh.position.copy(enemy.pos);
+    }
+  }
+}
+
+// ─── Physics Object Body Collisions ───
+// Prevents player and enemies from walking through physics objects.
+// Objects act as solid cylindrical blockers. The entity is always the one
+// pushed out (objects only move via force push velocity, not body collision).
+
+export function resolvePhysicsObjectBodyCollisions(gameState: GameState): void {
+  const objects = gameState.physicsObjects;
+  const playerPos = getPlayerPos();
+  const playerR = PLAYER.size.radius;
+
+  for (const obj of objects) {
+    if (obj.destroyed) continue;
+
+    // ─── Player vs Object ───
+    const pdx = playerPos.x - obj.pos.x;
+    const pdz = playerPos.z - obj.pos.z;
+    const pDistSq = pdx * pdx + pdz * pdz;
+    const pMinDist = playerR + obj.radius;
+
+    if (pDistSq < pMinDist * pMinDist && pDistSq > 0.0001) {
+      const pDist = Math.sqrt(pDistSq);
+      const pOverlap = pMinDist - pDist;
+      // Push player out entirely (object stays put)
+      playerPos.x += (pdx / pDist) * pOverlap;
+      playerPos.z += (pdz / pDist) * pOverlap;
+    }
+
+    // ─── Enemy vs Object ───
+    for (const enemy of gameState.enemies) {
+      if (enemy.health <= 0) continue;
+      if ((enemy as any).isLeaping) continue;
+
+      const edx = enemy.pos.x - obj.pos.x;
+      const edz = enemy.pos.z - obj.pos.z;
+      const eDistSq = edx * edx + edz * edz;
+      const eRadEnemy = enemy.config.size.radius;
+      const eMinDist = eRadEnemy + obj.radius;
+
+      if (eDistSq < eMinDist * eMinDist && eDistSq > 0.0001) {
+        const eDist = Math.sqrt(eDistSq);
+        const eOverlap = eMinDist - eDist;
+        // Push enemy out entirely (object stays put)
+        enemy.pos.x += (edx / eDist) * eOverlap;
+        enemy.pos.z += (edz / eDist) * eOverlap;
+      }
     }
   }
 }
@@ -813,8 +1155,10 @@ export function checkCollisions(gameState: GameState): void {
     const playerX = pushEvt.x - dirX * halfLen;
     const playerZ = pushEvt.z - dirZ * halfLen;
 
-    // 1. Collect all enemies in push rectangle with push-local coordinates
-    const candidates: { enemy: any; forward: number; lateral: number }[] = [];
+    // 1. Collect all enemies AND physics objects in push rectangle
+    const candidates: { enemy: any; obj: any; forward: number; lateral: number }[] = [];
+
+    // Enemies
     for (const enemy of gameState.enemies) {
       if (enemy.health <= 0) continue;
       if ((enemy as any).isLeaping) continue;
@@ -825,7 +1169,20 @@ export function checkCollisions(gameState: GameState): void {
         const dz = enemy.pos.z - playerZ;
         const forward = dx * dirX + dz * dirZ;  // distance along push axis
         const lateral = dx * perpX + dz * perpZ; // offset perpendicular to push
-        candidates.push({ enemy, forward, lateral });
+        candidates.push({ enemy, obj: null, forward, lateral });
+      }
+    }
+
+    // Physics objects
+    for (const obj of gameState.physicsObjects) {
+      if (obj.destroyed) continue;
+      if (isInRotatedRect(obj.pos.x, obj.pos.z, pushEvt.x, pushEvt.z,
+                           pushEvt.width, pushEvt.length, pushEvt.rotation, obj.radius)) {
+        const dx = obj.pos.x - playerX;
+        const dz = obj.pos.z - playerZ;
+        const forward = dx * dirX + dz * dirZ;
+        const lateral = dx * perpX + dz * perpZ;
+        candidates.push({ enemy: null, obj, forward, lateral });
       }
     }
 
@@ -833,12 +1190,11 @@ export function checkCollisions(gameState: GameState): void {
     candidates.sort((a, b) => a.forward - b.forward);
 
     // 3. Apply knockback with wave occlusion
-    // Track pushed enemies' lateral positions for blocking checks
     const pushedLaterals: number[] = [];
     const blockRadius = PHYSICS.pushWaveBlockRadius;
 
-    for (const { enemy, lateral } of candidates) {
-      // Check if this enemy is blocked by any already-pushed enemy
+    for (const { enemy, obj, lateral } of candidates) {
+      // Check if blocked by any already-pushed target
       let blocked = false;
       for (const pushedLat of pushedLaterals) {
         if (Math.abs(lateral - pushedLat) < blockRadius) {
@@ -846,30 +1202,46 @@ export function checkCollisions(gameState: GameState): void {
           break;
         }
       }
-      if (blocked) continue; // Wave absorbed — this enemy gets no direct push
+      if (blocked) continue;
 
-      // Not blocked — apply knockback as velocity
-      // All knockback goes through the velocity system so it naturally interacts
-      // with walls (slam), enemies (collision), and pits. No teleport.
-      const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-      const kbMult = 1 - ((enemy as any).knockbackResist ?? enemy.config.knockbackResist ?? 0);
-      const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
+      if (enemy) {
+        // Enemy push (existing behavior)
+        const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
+        const kbMult = 1 - ((enemy as any).knockbackResist ?? enemy.config.knockbackResist ?? 0);
+        const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
 
-      // v0 = sqrt(2 * friction * distance) — velocity that decays to zero over exactly kbDist
-      if (kbDist > 0) {
-        const v0 = Math.sqrt(2 * PHYSICS.friction * kbDist);
-        (enemy as any).vel.x = dirX * v0;
-        (enemy as any).vel.z = dirZ * v0;
+        if (kbDist > 0) {
+          const v0 = Math.sqrt(2 * PHYSICS.friction * kbDist);
+          (enemy as any).vel.x = dirX * v0;
+          (enemy as any).vel.z = dirZ * v0;
+        }
+        emit({ type: 'enemyPushed', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+
+        enemy.flashTimer = 100;
+        (enemy as any).bodyMesh.material.emissive.setHex(0x44ffaa);
+        if ((enemy as any).headMesh) (enemy as any).headMesh.material.emissive.setHex(0x44ffaa);
+
+        spawnDamageNumber(enemy.pos.x, enemy.pos.z, 'PUSH', '#44ffaa');
+      } else if (obj) {
+        // Object push: velocity = sqrt(2 * friction * (force / mass))
+        const kbDist = pushEvt.force / obj.mass;
+        if (kbDist > 0) {
+          const v0 = Math.sqrt(2 * PHYSICS.objectFriction * kbDist);
+          obj.vel.x = dirX * v0;
+          obj.vel.z = dirZ * v0;
+
+          // Nudge object off wall before velocity
+          const nudgeResult = resolveTerrainCollisionEx(obj.pos.x, obj.pos.z, obj.radius);
+          if (nudgeResult.hitWall) {
+            obj.pos.x = nudgeResult.x + nudgeResult.normalX * 0.1;
+            obj.pos.z = nudgeResult.z + nudgeResult.normalZ * 0.1;
+            if (obj.mesh) obj.mesh.position.set(obj.pos.x, 0, obj.pos.z);
+          }
+        }
+        emit({ type: 'objectPushed', object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+        spawnDamageNumber(obj.pos.x, obj.pos.z, 'PUSH', '#44ffaa');
       }
-      emit({ type: 'enemyPushed', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
 
-      enemy.flashTimer = 100;
-      (enemy as any).bodyMesh.material.emissive.setHex(0x44ffaa);
-      if ((enemy as any).headMesh) (enemy as any).headMesh.material.emissive.setHex(0x44ffaa);
-
-      spawnDamageNumber(enemy.pos.x, enemy.pos.z, 'PUSH', '#44ffaa');
-
-      // Record this enemy's lateral position for blocking checks
       pushedLaterals.push(lateral);
     }
   }
