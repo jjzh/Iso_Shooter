@@ -1,5 +1,5 @@
 import { initRenderer, updateCamera, getScene, getRendererInstance, getCamera } from './renderer';
-import { initInput, updateInput, consumeInput, getInputState, autoAimClosestEnemy } from './input';
+import { initInput, updateInput, consumeInput, getInputState, autoAimClosestEnemy, consumeCancel, setUltimateHeld } from './input';
 import { createPlayer, updatePlayer, getPlayerPos, resetPlayer } from '../entities/player';
 import { initProjectilePool, updateProjectiles } from '../entities/projectile';
 import { initEnemySystem, updateEnemies } from '../entities/enemy';
@@ -13,7 +13,16 @@ import { initDamageNumbers, updateDamageNumbers } from '../ui/damageNumbers';
 import { initAudio, resumeAudio } from './audio';
 import { initParticles, updateParticles } from './particles';
 import { initBulletTime, toggleBulletTime, updateBulletTime, getBulletTimeScale, resetBulletTime } from './bulletTime';
-import { PLAYER, MELEE } from '../config/player';
+import { initAerialVerbs, updateAerialVerbs, resetAerialVerbs, cancelActiveVerb } from './aerialVerbs';
+import { clearAllTags } from './tags';
+import { dunkVerb } from '../verbs/dunk';
+import { floatSelectorVerb } from '../verbs/floatSelector';
+import { spikeVerb } from '../verbs/spike';
+import { updateCarriers, clearCarriers } from './entityCarrier';
+import { initGroundShadows, updateGroundShadows } from './groundShadows';
+import { initLaunchPillars, updateLaunchPillars, clearLaunchPillars } from '../effects/launchPillar';
+import { initLaunchIndicator, clearLaunchIndicator } from '../effects/launchIndicator';
+import { PLAYER, MELEE, DUNK } from '../config/player';
 import { on } from './events';
 import { applyUrlParams, snapshotDefaults } from './urlParams';
 import { GameState } from '../types/index';
@@ -62,6 +71,13 @@ function gameLoop(timestamp: number): void {
 
   // 1. Input
   updateInput();
+
+  // 1a. Cancel — release aerial verb + force push charge
+  if (consumeCancel()) {
+    cancelActiveVerb();
+    setUltimateHeld(false);
+  }
+
   autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
 
@@ -72,6 +88,16 @@ function gameLoop(timestamp: number): void {
 
   // 2. Player (uses real dt — player moves at normal speed)
   updatePlayer(input, dt, gameState);
+
+  // 2b. Aerial verbs (dunk, spike, etc.) — uses gameDt so bullet time slows
+  (input as any)._gameState = gameState;
+  updateAerialVerbs(gameDt, getPlayerPos(), input);
+
+  // 2c. Entity carriers (spiked enemies as projectiles) — real dt like player
+  updateCarriers(dt, gameState);
+
+  // 2d. Launch pillars (visual only, real dt)
+  updateLaunchPillars(dt);
 
   // 3. Projectiles (slowed)
   updateProjectiles(gameDt);
@@ -118,6 +144,9 @@ function gameLoop(timestamp: number): void {
   // 10. Camera (real dt — smooth camera)
   updateCamera(getPlayerPos(), dt);
 
+  // 10b. Ground shadows (track entity positions)
+  updateGroundShadows(gameState);
+
   // 11. HUD
   updateHUD(gameState);
 
@@ -145,6 +174,11 @@ function restart(): void {
   gameState.abilities.ultimate.chargeT = 0;
 
   resetPlayer();
+  resetAerialVerbs();
+  clearCarriers();
+  clearLaunchPillars();
+  clearLaunchIndicator();
+  clearAllTags();
   resetRoomManager();
   resetBulletTime();
   loadRoom(0, gameState);
@@ -167,10 +201,17 @@ function init(): void {
     initAudio();
     initParticles(scene);
     initBulletTime();
+    initAerialVerbs([floatSelectorVerb, dunkVerb, spikeVerb]);
+    initLaunchPillars(scene);
+    initLaunchIndicator(scene);
+    initGroundShadows();
 
-    // Melee hit pause — subscribe to meleeHit event
+    // Hit pause — subscribe to impact events
     on('meleeHit', () => {
       hitPauseTimer = MELEE.hitPause;
+    });
+    on('dunkGrab', () => {
+      hitPauseTimer = DUNK.grabPause;
     });
     initHUD();
     initDamageNumbers();

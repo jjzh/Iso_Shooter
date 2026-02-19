@@ -30,6 +30,8 @@ export interface RoomDefinition {
   highlights?: RoomHighlight[];
   isRestRoom?: boolean;
   isVictoryRoom?: boolean;
+  heightZones?: Array<{ x: number; z: number; w: number; d: number; y: number }>;
+  frustumSize?: number;
 }
 
 // ─── Helper: build packs of N enemies ───

@@ -4,6 +4,13 @@
 // Door is at -Z end; unlocks when room is cleared, requires interact to enter
 
 import { ROOMS, RoomDefinition } from '../config/rooms';
+import { setHeightZones } from '../config/terrain';
+import { resetAerialVerbs } from './aerialVerbs';
+import { clearAllTags } from './tags';
+import { clearCarriers } from './entityCarrier';
+import { cleanupGroundShadows, initGroundShadows } from './groundShadows';
+import { clearLaunchPillars } from '../effects/launchPillar';
+import { clearLaunchIndicator } from '../effects/launchIndicator';
 import { setProfile } from './profileManager';
 import { setArenaConfig, ARENA_HALF_X, ARENA_HALF_Z } from '../config/arena';
 import { SPAWN_CONFIG } from '../config/spawn';
@@ -98,11 +105,19 @@ export function loadRoom(index: number, gameState: any) {
   clearEffectGhosts();
   clearParticles();
   removeDoor();
+  resetAerialVerbs();
+  clearAllTags();
+  clearCarriers();
+  clearLaunchPillars();
+  clearLaunchIndicator();
+  cleanupGroundShadows();
 
   // Swap arena layout
   setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);
+  setHeightZones(room.heightZones ?? []);
   invalidateCollisionBounds();
   rebuildArenaVisuals();
+  initGroundShadows();
 
   // Set player position
   setPlayerPosition(room.playerStart.x, room.playerStart.z);
