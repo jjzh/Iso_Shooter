@@ -1268,7 +1268,6 @@ function updateFloat(dt, enemy, playerPos2, inputState2) {
     lmbPressed = true;
     lmbHoldTimer = 0;
     createChargeRing(playerPos2);
-    activateBulletTimeAuto();
   }
   if (lmbPressed) {
     if (inputState2.attackHeld) {
@@ -1276,12 +1275,12 @@ function updateFloat(dt, enemy, playerPos2, inputState2) {
       const fillT = Math.min(lmbHoldTimer / FLOAT_SELECTOR.holdThreshold, 1);
       updateChargeRing(playerPos2, fillT);
       if (lmbHoldTimer >= FLOAT_SELECTOR.holdThreshold) {
+        activateBulletTimeAuto();
         transferClaim(enemy, "dunk");
         resolved = true;
         return "complete";
       }
     } else {
-      deactivateBulletTimeAuto();
       transferClaim(enemy, "spike");
       resolved = true;
       return "complete";

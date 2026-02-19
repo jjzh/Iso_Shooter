@@ -337,8 +337,6 @@ function updateFloat(dt: number, enemy: any, playerPos: any, inputState: any): '
     lmbPressed = true;
     lmbHoldTimer = 0;
     createChargeRing(playerPos);
-    // Auto-engage bullet time so player has time to aim for dunk
-    activateBulletTimeAuto();
   }
 
   if (lmbPressed) {
@@ -349,14 +347,14 @@ function updateFloat(dt: number, enemy: any, playerPos: any, inputState: any): '
       updateChargeRing(playerPos, fillT);
 
       if (lmbHoldTimer >= FLOAT_SELECTOR.holdThreshold) {
-        // Hold past threshold → transfer to dunk
+        // Hold past threshold → confirmed dunk, engage BT for aim time
+        activateBulletTimeAuto();
         transferClaim(enemy, 'dunk');
         resolved = true;
         return 'complete';
       }
     } else {
       // LMB was released before threshold → tap → transfer to spike
-      deactivateBulletTimeAuto();
       transferClaim(enemy, 'spike');
       resolved = true;
       return 'complete';
