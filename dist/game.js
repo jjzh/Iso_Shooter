@@ -736,6 +736,9 @@ var activeEnemy = null;
 function registerVerb(verb) {
   verbs.set(verb.name, verb);
 }
+function getActiveEnemy() {
+  return activeEnemy;
+}
 function activateVerb(verbName, enemy) {
   const verb = verbs.get(verbName);
   if (!verb) return;
@@ -5922,12 +5925,13 @@ function autoAimClosestEnemy(enemies) {
   if (touchAimActive || _abilityAimActive) return;
   if (!enemies || enemies.length === 0) return;
   const pp = getPlayerPos();
+  const grabbed = getActiveEnemy();
   let closest = null;
   let closestDist = Infinity;
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i];
     if (e.fellInPit || e.health <= 0) continue;
-    if (hasTag(e, TAG.STUNNED)) continue;
+    if (e === grabbed) continue;
     const dx = e.pos.x - pp.x;
     const dz = e.pos.z - pp.z;
     const dist = dx * dx + dz * dz;
