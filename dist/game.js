@@ -860,13 +860,18 @@ var BULLET_TIME = {
   // resource refilled per enemy kill
   activationMinimum: 300,
   // minimum resource required to activate
-  infinite: 1
+  infinite: 1,
   // 1 = infinite resource (skip drain), 0 = normal drain
+  exitRampDuration: 250
+  // ms to ramp from BT scale → 1.0 on deactivation
 };
 var resource = BULLET_TIME.maxResource;
 var active = false;
 var initialized = false;
 var _autoEngaged = false;
+var _rampActive = false;
+var _rampTimer = 0;
+var _rampFromScale = 0.25;
 function initBulletTime() {
   if (initialized) return;
   initialized = true;
@@ -878,29 +883,48 @@ function activateBulletTime() {
   if (active) return;
   if (resource >= BULLET_TIME.activationMinimum) {
     active = true;
+    _rampActive = false;
     emit({ type: "bulletTimeActivated" });
   }
 }
 function toggleBulletTime() {
   if (active) {
-    active = false;
-    emit({ type: "bulletTimeDeactivated" });
+    startExitRamp();
   } else {
     activateBulletTime();
   }
 }
+function startExitRamp() {
+  _rampFromScale = active ? BULLET_TIME.timeScale : getBulletTimeScale();
+  active = false;
+  _autoEngaged = false;
+  _rampActive = true;
+  _rampTimer = 0;
+  emit({ type: "bulletTimeDeactivated" });
+}
 function updateBulletTime(realDt) {
+  if (_rampActive) {
+    _rampTimer += realDt * 1e3;
+    if (_rampTimer >= BULLET_TIME.exitRampDuration) {
+      _rampActive = false;
+    }
+  }
   if (!active) return;
   if (BULLET_TIME.infinite >= 1) return;
   resource -= BULLET_TIME.drainRate * realDt;
   if (resource <= 0) {
     resource = 0;
-    active = false;
-    emit({ type: "bulletTimeDeactivated" });
+    startExitRamp();
   }
 }
 function getBulletTimeScale() {
-  return active ? BULLET_TIME.timeScale : 1;
+  if (active) return BULLET_TIME.timeScale;
+  if (_rampActive) {
+    const t = Math.min(_rampTimer / BULLET_TIME.exitRampDuration, 1);
+    const eased = t * t;
+    return _rampFromScale + (1 - _rampFromScale) * eased;
+  }
+  return 1;
 }
 function refillBulletTime(amount) {
   resource = Math.min(resource + amount, BULLET_TIME.maxResource);
@@ -908,9 +932,11 @@ function refillBulletTime(amount) {
 function resetBulletTime() {
   resource = BULLET_TIME.maxResource;
   active = false;
+  _rampActive = false;
+  _autoEngaged = false;
 }
 function isBulletTimeActive() {
-  return active;
+  return active || _rampActive;
 }
 function getBulletTimeResource() {
   return resource;
@@ -925,11 +951,7 @@ function activateBulletTimeAuto() {
 }
 function deactivateBulletTimeAuto() {
   if (!_autoEngaged) return;
-  _autoEngaged = false;
-  if (active) {
-    active = false;
-    emit({ type: "bulletTimeDeactivated" });
-  }
+  startExitRamp();
 }
 
 // src/ui/damageNumbers.ts
@@ -9546,6 +9568,16 @@ var SECTIONS = [
         step: 1,
         unit: "",
         tip: "1 = infinite bullet time (no drain). 0 = normal drain."
+      },
+      {
+        label: "Exit Ramp",
+        config: () => BULLET_TIME,
+        key: "exitRampDuration",
+        min: 0,
+        max: 800,
+        step: 25,
+        unit: "ms",
+        tip: "Duration of speed ramp when exiting BT (0 = snap)."
       }
     ]
   },

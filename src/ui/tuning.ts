@@ -162,6 +162,8 @@ const SECTIONS: SliderSection[] = [
         unit: 'ms', tip: 'Minimum resource required to activate bullet time.' },
       { label: 'Infinite',      config: () => BULLET_TIME, key: 'infinite',           min: 0,    max: 1,     step: 1,
         unit: '', tip: '1 = infinite bullet time (no drain). 0 = normal drain.' },
+      { label: 'Exit Ramp',     config: () => BULLET_TIME, key: 'exitRampDuration',   min: 0,    max: 800,   step: 25,
+        unit: 'ms', tip: 'Duration of speed ramp when exiting BT (0 = snap).' },
     ]
   },
 

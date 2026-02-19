@@ -11,12 +11,18 @@ export const BULLET_TIME = {
   killRefill: 600,           // resource refilled per enemy kill
   activationMinimum: 300,    // minimum resource required to activate
   infinite: 1,               // 1 = infinite resource (skip drain), 0 = normal drain
+  exitRampDuration: 250,     // ms to ramp from BT scale → 1.0 on deactivation
 };
 
 let resource = BULLET_TIME.maxResource;
 let active = false;
 let initialized = false;
 let _autoEngaged = false;  // true when BT was auto-activated by a verb (dunk hold)
+
+// Exit ramp state — smooth transition from BT scale → 1.0
+let _rampActive = false;
+let _rampTimer = 0;        // ms elapsed since ramp started
+let _rampFromScale = 0.25; // scale at the moment ramp began
 
 export function initBulletTime() {
   if (initialized) return;
@@ -33,21 +39,38 @@ export function activateBulletTime() {
   if (active) return;
   if (resource >= BULLET_TIME.activationMinimum) {
     active = true;
+    _rampActive = false; // cancel any exit ramp
     emit({ type: 'bulletTimeActivated' });
   }
 }
 
 export function toggleBulletTime() {
   if (active) {
-    // Deactivate
-    active = false;
-    emit({ type: 'bulletTimeDeactivated' });
+    startExitRamp();
   } else {
     activateBulletTime();
   }
 }
 
+/** Begin the exit ramp instead of snapping to 1.0. */
+function startExitRamp() {
+  _rampFromScale = active ? BULLET_TIME.timeScale : getBulletTimeScale();
+  active = false;
+  _autoEngaged = false;
+  _rampActive = true;
+  _rampTimer = 0;
+  emit({ type: 'bulletTimeDeactivated' });
+}
+
 export function updateBulletTime(realDt: number) {
+  // Advance exit ramp (uses real time so duration is consistent)
+  if (_rampActive) {
+    _rampTimer += realDt * 1000;
+    if (_rampTimer >= BULLET_TIME.exitRampDuration) {
+      _rampActive = false;
+    }
+  }
+
   if (!active) return;
 
   // Skip drain when infinite mode is on
@@ -58,13 +81,19 @@ export function updateBulletTime(realDt: number) {
 
   if (resource <= 0) {
     resource = 0;
-    active = false;
-    emit({ type: 'bulletTimeDeactivated' });
+    startExitRamp();
   }
 }
 
 export function getBulletTimeScale(): number {
-  return active ? BULLET_TIME.timeScale : 1;
+  if (active) return BULLET_TIME.timeScale;
+  if (_rampActive) {
+    const t = Math.min(_rampTimer / BULLET_TIME.exitRampDuration, 1);
+    // Ease-in quadratic: world "winds up" gradually then snaps to full speed
+    const eased = t * t;
+    return _rampFromScale + (1 - _rampFromScale) * eased;
+  }
+  return 1;
 }
 
 export function refillBulletTime(amount: number) {
@@ -74,10 +103,12 @@ export function refillBulletTime(amount: number) {
 export function resetBulletTime() {
   resource = BULLET_TIME.maxResource;
   active = false;
+  _rampActive = false;
+  _autoEngaged = false;
 }
 
 export function isBulletTimeActive(): boolean {
-  return active;
+  return active || _rampActive;
 }
 
 export function getBulletTimeResource(): number {
@@ -98,9 +129,5 @@ export function activateBulletTimeAuto() {
 /** Disengage auto-BT. No-op if player manually activated BT (preserves their choice). */
 export function deactivateBulletTimeAuto() {
   if (!_autoEngaged) return;
-  _autoEngaged = false;
-  if (active) {
-    active = false;
-    emit({ type: 'bulletTimeDeactivated' });
-  }
+  startExitRamp();
 }
