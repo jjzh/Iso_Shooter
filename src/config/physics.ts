@@ -30,4 +30,13 @@ export const PHYSICS = {
   landingLagBase: 50,        // ms of landing lag (minimum)
   landingLagPerSpeed: 10,    // ms of landing lag per unit of fall speed
   groundEpsilon: 0.05,       // height threshold for "grounded" detection
+
+  // Physics objects
+  objectFriction: 25,
+  objectWallSlamMinSpeed: 3,
+  objectWallSlamDamage: 8,
+  objectWallSlamBounce: 0.4,
+  objectWallSlamShake: 2,
+  objectImpactMinSpeed: 2,
+  objectImpactDamage: 5,
 };

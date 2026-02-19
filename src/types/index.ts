@@ -423,6 +423,9 @@ export interface GameState {
   currency: number;
   currentWave: number;
   enemies: Enemy[];
+  physicsObjects: PhysicsObject[];
+  bendMode: boolean;
+  bendsPerRoom: number;
   abilities: {
     dash: AbilityState;
     ultimate: AbilityState;
@@ -504,6 +507,40 @@ export interface AABB {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// PHYSICS OBJECTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type ObstacleMaterial = 'stone' | 'wood' | 'metal' | 'ice';
+
+export interface PhysicsObject {
+  id: number;
+  pos: { x: number; z: number };
+  vel: { x: number; z: number };
+  radius: number;
+  mass: number;
+  health: number;
+  maxHealth: number;
+  material: ObstacleMaterial;
+  meshType: 'rock' | 'crate' | 'barrel' | 'pillar';
+  scale: number;
+  restitution?: number;
+  mesh: any;
+  destroyed: boolean;
+  fellInPit: boolean;
+}
+
+export interface PhysicsObjectPlacement {
+  meshType: 'rock' | 'crate' | 'barrel' | 'pillar';
+  material: ObstacleMaterial;
+  x: number;
+  z: number;
+  mass: number;
+  health: number;
+  radius: number;
+  scale?: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // INPUT
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -522,6 +559,7 @@ export interface InputState {
   launch: boolean;
   attackHeld: boolean;
   chargeStarted: boolean;
+  bendMode: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
