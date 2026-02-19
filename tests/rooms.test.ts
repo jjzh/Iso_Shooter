@@ -8,8 +8,8 @@ import { ENEMY_TYPES } from '../src/config/enemies';
 // ─── Demo Room Definitions ───
 
 describe('Demo room definitions', () => {
-  it('should have 4 rooms', () => {
-    expect(ROOMS.length).toBe(4);
+  it('should have 5 rooms', () => {
+    expect(ROOMS.length).toBe(5);
   });
 
   ROOMS.forEach((room, i) => {
@@ -194,6 +194,44 @@ describe('Room 4: The Arena', () => {
 
   it('should have no obstacles (open for aerial combat)', () => {
     expect(room.obstacles.length).toBe(0);
+  });
+});
+
+// ─── Room 5 specifics: The Shadows (Assassin) ───
+
+describe('Room 5: The Shadows', () => {
+  const room = ROOMS[4];
+
+  it('should have assassin profile', () => {
+    expect(room.profile).toBe('assassin');
+  });
+
+  it('should have maze obstacles and pits', () => {
+    expect(room.obstacles.length).toBeGreaterThanOrEqual(3);
+    expect(room.pits.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('should disable wall slam and collision damage', () => {
+    expect(room.enableWallSlamDamage).toBe(false);
+    expect(room.enableEnemyCollisionDamage).toBe(false);
+  });
+
+  it('should highlight pits', () => {
+    expect(room.highlights).toBeDefined();
+    expect(room.highlights!.some(h => h.target === 'pits')).toBe(true);
+  });
+
+  it('should only have goblins', () => {
+    const types = new Set(
+      room.spawnBudget.packs.flatMap(p => p.enemies.map(e => e.type))
+    );
+    expect(types.size).toBe(1);
+    expect(types.has('goblin')).toBe(true);
+  });
+
+  it('player starts in corner of maze', () => {
+    expect(room.playerStart.x).toBeLessThan(0);
+    expect(room.playerStart.z).toBeGreaterThan(0);
   });
 });
 
