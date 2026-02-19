@@ -34,7 +34,7 @@ import { initDoor, createDoor, unlockDoor, updateDoor, removeDoor } from './door
 import { DOOR_CONFIG } from '../config/door';
 import { SpawnPack } from '../types/index';
 import { createPhysicsObject, createPhysicsObjectMesh, clearPhysicsObjects, resetPhysicsObjectIds } from '../entities/physicsObject';
-import { resetBendMode } from './bendMode';
+import { resetBendMode, setLockedBends } from './bendMode';
 import { createPressurePlate, createPressurePlateMesh, clearPressurePlates } from './pressurePlate';
 
 // ─── State ───
@@ -119,6 +119,9 @@ export function loadRoom(index: number, gameState: any) {
   clearPhysicsObjects(gameState, sceneRef);
   clearPressurePlates(gameState, sceneRef);
   resetBendMode();
+  if (room.lockedBends && room.lockedBends.length > 0) {
+    setLockedBends(room.lockedBends);
+  }
   resetPhysicsObjectIds();
 
   // Swap arena layout

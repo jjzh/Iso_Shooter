@@ -10,13 +10,14 @@
 - **Last updated:** 2026-02-19
 
 ## Current State
-**Phase 3 complete + playtested. 5 playable demo rooms with iterated assassin detection mechanics. 817 tests pass across 25 test files.**
+**Phase 4 complete. 6 playable demo rooms — all prototype branches integrated. 851 tests pass across 27 test files.**
 
 - Room 1 ("The Origin") — cylinder+sphere player, auto-fire projectiles, no melee/force push, goblins, no pits
 - Room 2 ("The Foundation") — fist rig, melee + dash + force push, goblins, 3 pits, pit highlights on entry, no wall slam/collision damage
 - Room 3 ("Physics Playground") — fist rig, 3 pits, 4 obstacles, wall slams + enemy collision damage + spatial force push
 - Room 4 ("The Shadows") — assassin profile: vision cones, waypoint patrol circuits around pits, detection-based bullet time (cone overlap triggers BT before aggro), push aggro with 250ms delay, 3 pits for force push kills, LOS occlusion
-- Room 5 ("The Arena") — vertical combat: jump (Space), launch (E), dunk (hold LMB), spike (tap LMB), aerial strike, 2 raised platforms, tighter camera (9.6 frustum), blue platform highlights on entry
+- Room 5 ("The Workshop") — rule-bending profile: Q-toggle bend mode, radial menu (enlarge/shrink), physics objects (rock + crate), pressure plate puzzle, 20×20 arena, wall slams + collision damage
+- Room 6 ("The Arena") — vertical combat: jump (Space), launch (E), dunk (hold LMB), spike (tap LMB), aerial strike, 2 raised platforms, tighter camera (9.6 frustum), blue platform highlights on entry
 - All rooms are sandbox mode (door starts unlocked, enemies still spawn)
 - Room selector on start screen lets you jump to any room
 - Player visual swaps between origin model (cylinder+sphere) and fist rig based on room profile
@@ -32,6 +33,8 @@ Phase 1 implementation plan: `docs/plans/2026-02-18-portfolio-phase1-foundation.
 Phase 2 integration plan: `.claude/plans/gentle-purring-otter.md`
 Phase 3 design: `docs/plans/2026-02-19-the-shadows-room-design.md`
 Phase 3 implementation: `docs/plans/2026-02-19-the-shadows-implementation.md`
+Phase 4 design: `docs/plans/2026-02-19-the-workshop-room-design.md`
+Phase 4 implementation: `docs/plans/2026-02-19-the-workshop-implementation.md`
 
 ## Vision
 6 rooms, each showcasing a different stage of Jeff's design exploration:
@@ -39,8 +42,8 @@ Phase 3 implementation: `docs/plans/2026-02-19-the-shadows-implementation.md`
 2. **The Foundation** — base combat (melee, dash, pit + force push) ✅
 3. **Physics Playground** — wall slams, enemy collisions, force push as spatial tool ✅
 4. **The Shadows** — assassin branch (vision cones, patrol maze, bullet time) ✅
-5. **The Arena** — vertical branch (Y-axis, jump, launch, dunk, spike) ✅
-6. **The Workshop** — rule-bending branch (physics objects, enlarge/shrink)
+5. **The Workshop** — rule-bending branch (physics objects, enlarge/shrink, pressure plate) ✅
+6. **The Arena** — vertical branch (Y-axis, jump, launch, dunk, spike) ✅
 
 Architecture: profile-gated superset (`'origin' | 'base' | 'assassin' | 'rule-bending' | 'vertical'`). Each room declares its profile. Sandbox mode (no required combat). Room selector UI to jump anywhere.
 
@@ -90,6 +93,36 @@ Key architecture decisions:
 - Fixed-position spawning: `SpawnPackEnemy.fixedPos` overrides zone-based spawn resolution
 - Detection timer decays faster than it builds (1500ms/s decay vs 1000ms/s build) — forgiving
 
+## Phase 4 Integration Summary (Rule-Bending / The Workshop)
+8 commits in a single session:
+1. Added PhysicsObject/PressurePlate types, physics config constants, 9 new event types (bend + object + pressure plate)
+2. Copied 5 files from `explore/rule-bending`: physicsObject.ts, bends.ts, bendSystem.ts, radialMenu.ts, bendMode.ts
+3. Added bendMode input binding (Q key triggers both bulletTime and bendMode)
+4. Added physics object velocity, collision, and force push integration to physics.ts (applyObjectVelocities, resolveObjectCollisions, resolvePhysicsObjectBodyCollisions, unified wave occlusion)
+5. Wired bend mode in game.ts (profile-gated Q toggle, targeting click/hover, combat input gating during bend mode), room spawning for objects/plates
+6. Added Room 5 "The Workshop" definition: 20×20 arena, 3 obstacles, 2 pits, 1 rock (mass 2.0), 1 crate (mass 5.0), 1 pressure plate (threshold 3.5), 3 goblins
+7. Added bend system tests, physics object tests, Workshop room tests (including pressure plate mass threshold logic)
+8. HUD bend counter (BENDS: X/3) + mobile bend toggle button
+9. Pressure plate system: floor zone with mass threshold check, ceremony on activation (glow + screen shake + event)
+
+Key architecture decisions:
+- `getActiveProfile() === 'rule-bending'` gates bend mode (Q key becomes bend toggle instead of bullet time toggle)
+- Physics objects share force push wave with enemies (unified occlusion)
+- Pressure plate activates when object with mass >= threshold rests on it (velocity < 0.5)
+- Enlarge doubles mass (2.0 → 4.0, exceeds 3.5 threshold), shrink halves mass (5.0 → 1.5, becomes pushable)
+- Bend system is a factory: `createBendSystem(maxBends)` with 3 bends per room, opposite-pole enforcement
+- Room arena expanded from 14×14 to 20×20 after playtest feedback
+
+## New Files Created (Phase 4)
+- `src/entities/physicsObject.ts` — physics object entity (creation, mesh, bend visuals, cleanup)
+- `src/config/bends.ts` — enlarge/shrink bend definitions (scale, mass, radius, color multipliers)
+- `src/engine/bendSystem.ts` — bend system factory (apply, undo, reset, tracking)
+- `src/ui/radialMenu.ts` — DOM overlay radial menu (enlarge left, shrink right)
+- `src/engine/bendMode.ts` — Q-toggle controller (bullet time, radial menu, raycasted targeting, highlight pulsing)
+- `src/engine/pressurePlate.ts` — pressure plate system (create, mesh, update, ceremony, cleanup)
+- `tests/bends.test.ts` — 10 tests for bend config and system
+- `tests/physics-objects-demo.test.ts` — 5 tests for physics object creation
+
 ## New Files Created (Phase 3)
 - `src/engine/visionCone.ts` — vision cone rendering, color ramp, LOS occlusion, idle scan, `isInsideVisionCone` pure function
 - `tests/vision-cone.test.ts` — 8 tests for config + cone geometry
@@ -109,24 +142,25 @@ Key architecture decisions:
 - 13 new test files (tags, terrain, aerial-verbs, dunk-verb, float-selector, spike-verb, entity-carrier, ground-shadows, player-jump, launch, ledge, vertical-physics, input-remap)
 
 ## What To Do Next
-5 rooms complete. Choose next step:
-- **Option A: "The Workshop" (rule-bending room 6)** — physics objects, enlarge/shrink. Requires explore branch work (least mature branch)
-- **Option B: Polish pass** — playtest all 5 rooms, tune feel, add commentary UI, room transitions
-- **Option C: Deploy** — get the 5-room demo hosted and shareable
-- **Option D: Playtest Room 5** — specifically tune vision cone angle, detection timer, patrol distance, maze layout
+All 6 rooms complete. Choose next step:
+- **Option A: Polish pass** — playtest all 6 rooms end-to-end, tune feel, add commentary UI, room transitions
+- **Option B: Deploy** — get the 6-room demo hosted and shareable
+- **Option C: Playtest The Workshop** — tune pressure plate position, physics object placement, arena layout, bend feel
+- **Option D: Commentary/narrative UI** — add the design exploration narration that makes this a portfolio piece
 
-**Recommendation:** Playtest Room 5 first (Option D) to tune the detection puzzle feel, then decide between more rooms vs. deploy.
+**Recommendation:** Quick playtest of The Workshop (Option C) to validate the pressure plate puzzle flow, then deploy (Option B).
 
 ## Open Questions
 - [ ] Whether to include archers in any rooms (adds ranged pressure but more complexity)
 - [ ] Room highlight timing/color tuning — current defaults feel good but may want to adjust per room
 - [ ] Commentary UI — how to present the design narrative text per room
 - [x] ~~Room 5 detection tuning~~ — playtested, iterated: waypoint patrols, detection-based BT, push aggro delay, fixed spawns near pits
-- [ ] Whether Room 6 adds enough value vs. polishing existing 5 and deploying
+- [x] ~~Whether Room 6 adds enough value~~ — resolved: Workshop added as Room 5, all 6 rooms complete
 - [x] ~~Vertical integration approach~~ — resolved: profile-gated superset, 15-task plan executed successfully
 - [x] ~~Assassin integration approach~~ — resolved: profile-gated, bullet time already wired, 8-task plan executed
 
 ## Session Log
+- **2026-02-19 (session 7)** — Completed Phase 4: The Workshop (rule-bending room). Designed enlarge/shrink puzzle room with physics objects and pressure plate. Executed 17-task implementation plan via subagent-driven development: copied 5 files from explore/rule-bending, added physics object velocity/collision/force push integration to physics.ts, wired bend mode (profile-gated Q toggle), added Room 5 definition, pressure plate system, HUD bend counter, mobile button. User playtested, requested larger arena (7→10 half-extents) and pressure plate addition. Key decisions: enlarge rock to exceed pressure plate mass threshold (2.0→4.0 > 3.5), shrink crate to make pushable (5.0→1.5); bend mode reuses bullet time visual but gates differently per profile. All 6 rooms now complete. 851 tests across 27 files. Next: playtest Workshop puzzle flow, then deploy.
 - **2026-02-19 (session 6)** — Playtested Room 4 "The Shadows" and iterated. Fixed 3 bugs from Phase 3 (force push E-key binding, enemy death in detection block, room 4/5 ordering). Added waypoint patrol system (slow rectangular circuits around pits instead of quick snap-turns). Fixed-position spawning (goblins near each pit). Refactored bullet time to trigger on vision cone overlap (detectionStarted/detectionCleared events with reference counting) instead of aggro — gives slow-mo reaction window before aggro fires. Added push aggro with 250ms delay (doesn't trigger BT). Fixed dash label. Key decisions: BT should feel like a reaction window to cone detection, not a consequence of aggro; push should aggro enemies but not trigger BT. Next: more playtesting, polish pass, or Room 6.
 - **2026-02-19 (session 5)** — Completed assassin detection room integration (Phase 3). Designed patrol maze with vision cones as portfolio's detection puzzle room. Executed 8-task plan: copied visionCone.ts, extended types/events/config, added patrol+detection+aggro to enemy.ts (profile-gated), wired systems, added Room 5 "The Shadows" (14×14 maze, 3 walls, 2 pillars, 3 pits, 5 goblins). Key discovery: bullet time was already fully integrated from Phase 2 — just needed to emit `enemyAggroed` event. 817 tests across 25 files all pass. Next: playtest Room 5 to tune detection feel.
 - **2026-02-19 (session 4)** — Completed full vertical combat integration (Phase 2). Executed 15-task plan: copied 11 files from explore/vertical, built profile-gated superset versions of player.ts/physics.ts/enemy.ts/game.ts/roomManager.ts, added Room 4 ("The Arena") with heightZones and platform rendering, profile-gated mobile buttons, 7 audio + 7 particle presets, bullet time exit ramp. Added blue platform highlights rendering at ground level. 793 tests across 24 files all pass. Key decisions: fists replace sword globally; Space=jump/Shift=dash/E=launch globally (no-op in non-vertical rooms); per-room physics flags preserved. PR: #3.

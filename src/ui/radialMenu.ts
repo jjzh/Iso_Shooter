@@ -7,6 +7,7 @@ let optionEls: HTMLDivElement[] = [];
 let visible = false;
 let selectedBendId: string | null = null;
 let onBendSelectedCallback: ((bendId: string) => void) | null = null;
+let lockedBendIds: Set<string> = new Set();
 
 // ─── Constants ───
 
@@ -135,6 +136,7 @@ function createOptionElement(bend: RuleBend, offsetX: number, offsetY: number): 
   el.addEventListener('mousedown', (e) => {
     e.stopPropagation();
     e.preventDefault();
+    if (lockedBendIds.has(bend.id)) return; // locked — ignore click
     selectBend(bend.id);
   });
 
@@ -176,16 +178,28 @@ export function showRadialMenu(): void {
   selectedBendId = null;
   containerEl.style.display = 'block';
 
-  // Reset option visuals
+  // Reset option visuals (locked bends grayed out)
   for (const optEl of optionEls) {
     const id = optEl.dataset.bendId || '';
     const bend = BENDS.find(b => b.id === id);
     if (!bend) continue;
     const colorHex = '#' + bend.tintColor.toString(16).padStart(6, '0');
-    optEl.style.borderColor = colorHex + '44';
-    optEl.style.boxShadow = 'none';
-    optEl.style.transform = 'scale(1)';
-    optEl.style.opacity = '1';
+
+    if (lockedBendIds.has(id)) {
+      optEl.style.borderColor = '#44444466';
+      optEl.style.boxShadow = 'none';
+      optEl.style.transform = 'scale(0.85)';
+      optEl.style.opacity = '0.3';
+      optEl.style.pointerEvents = 'none';
+      optEl.style.filter = 'grayscale(1)';
+    } else {
+      optEl.style.borderColor = colorHex + '44';
+      optEl.style.boxShadow = 'none';
+      optEl.style.transform = 'scale(1)';
+      optEl.style.opacity = '1';
+      optEl.style.pointerEvents = 'auto';
+      optEl.style.filter = 'none';
+    }
   }
 }
 
@@ -206,6 +220,37 @@ export function getSelectedBendId(): string | null {
 
 export function setOnBendSelected(callback: (bendId: string) => void): void {
   onBendSelectedCallback = callback;
+}
+
+export function updateLockedBends(ids: string[]): void {
+  lockedBendIds = new Set(ids);
+}
+
+export function unlockBendUI(bendId: string): void {
+  lockedBendIds.delete(bendId);
+
+  // Flash the unlocked option
+  const optEl = optionEls.find(el => el.dataset.bendId === bendId);
+  if (!optEl) return;
+  const bend = BENDS.find(b => b.id === bendId);
+  if (!bend) return;
+  const colorHex = '#' + bend.tintColor.toString(16).padStart(6, '0');
+
+  // Restore interactive styling
+  optEl.style.pointerEvents = 'auto';
+  optEl.style.filter = 'none';
+  optEl.style.opacity = '1';
+  optEl.style.transform = 'scale(1)';
+  optEl.style.borderColor = colorHex;
+
+  // Unlock flash animation — bright glow then settle
+  optEl.style.boxShadow = `0 0 24px ${colorHex}, 0 0 48px ${colorHex}88`;
+  optEl.style.transform = 'scale(1.3)';
+  setTimeout(() => {
+    optEl.style.boxShadow = 'none';
+    optEl.style.transform = 'scale(1)';
+    optEl.style.borderColor = colorHex + '44';
+  }, 800);
 }
 
 export function clearSelectedBend(): void {

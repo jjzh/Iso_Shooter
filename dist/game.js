@@ -6721,19 +6721,29 @@ var ROOMS = [
     profile: "rule-bending",
     sandboxMode: true,
     commentary: "What if you could bend the rules? Enlarge a rock, shrink a crate...",
-    arenaHalfX: 7,
-    arenaHalfZ: 7,
+    arenaHalfX: 14,
+    arenaHalfZ: 14,
     obstacles: [
-      { x: -4, z: 0, w: 1, h: 2, d: 6 },
-      { x: 4, z: -2, w: 1, h: 2, d: 4 }
+      // Left wall segment — creates wall slam opportunities
+      { x: -8, z: 0, w: 1, h: 2, d: 10 },
+      // Right wall segment
+      { x: 8, z: -4, w: 1, h: 2, d: 7 }
     ],
     pits: [
-      { x: 3, z: 4, w: 2.5, d: 2.5 },
-      { x: -3, z: -4, w: 2.5, d: 2.5 }
+      { x: 8, z: 7, w: 3, d: 3 },
+      // right-back pit
+      { x: -8, z: -7, w: 3, d: 3 }
+      // left-front pit
     ],
     physicsObjects: [
-      { meshType: "rock", material: "stone", x: 0, z: 1, mass: 2, health: 50, radius: 0.6 },
-      { meshType: "crate", material: "wood", x: 2, z: -1, mass: 5, health: 80, radius: 0.8 }
+      // Rock: enlarge to reach pressure plate mass threshold (2.0 → 4.0)
+      { meshType: "rock", material: "stone", x: -3, z: 4, mass: 2, health: 50, radius: 0.6 },
+      // Crate: blocks the door at -Z end, too heavy to push (mass 5.0), shrink to move aside
+      { meshType: "crate", material: "wood", x: 0, z: -12, mass: 5, health: 80, radius: 1.5 }
+    ],
+    pressurePlates: [
+      // Pressure plate: center of room, needs mass >= 3.5 (enlarged rock = 4.0)
+      { x: 0, z: 0, radius: 1.2, massThreshold: 3.5 }
     ],
     spawnBudget: {
       maxConcurrent: 6,
@@ -6742,12 +6752,13 @@ var ROOMS = [
         { enemies: [{ type: "goblin" }, { type: "goblin" }, { type: "goblin" }], spawnZone: "ahead" }
       ]
     },
-    playerStart: { x: 0, z: 5 },
+    playerStart: { x: 0, z: 11 },
     enableWallSlamDamage: true,
     enableEnemyCollisionDamage: true,
     highlights: [
       { target: "pits", color: 16729156 }
-    ]
+    ],
+    lockedBends: ["shrink"]
   },
   // ══════════════════════════════════════════════════════════════════════
   // Room 6: "The Arena" — vertical combat: jump, launch, dunk, spike
@@ -9115,6 +9126,7 @@ var optionEls = [];
 var visible = false;
 var selectedBendId = null;
 var onBendSelectedCallback = null;
+var lockedBendIds = /* @__PURE__ */ new Set();
 var MENU_SIZE = 200;
 var OPTION_SIZE = 72;
 var OPTION_DISTANCE = 60;
@@ -9219,6 +9231,7 @@ function createOptionElement(bend, offsetX, offsetY) {
   el.addEventListener("mousedown", (e) => {
     e.stopPropagation();
     e.preventDefault();
+    if (lockedBendIds.has(bend.id)) return;
     selectBend(bend.id);
   });
   return el;
@@ -9255,10 +9268,21 @@ function showRadialMenu() {
     const bend = BENDS.find((b) => b.id === id);
     if (!bend) continue;
     const colorHex = "#" + bend.tintColor.toString(16).padStart(6, "0");
-    optEl.style.borderColor = colorHex + "44";
-    optEl.style.boxShadow = "none";
-    optEl.style.transform = "scale(1)";
-    optEl.style.opacity = "1";
+    if (lockedBendIds.has(id)) {
+      optEl.style.borderColor = "#44444466";
+      optEl.style.boxShadow = "none";
+      optEl.style.transform = "scale(0.85)";
+      optEl.style.opacity = "0.3";
+      optEl.style.pointerEvents = "none";
+      optEl.style.filter = "grayscale(1)";
+    } else {
+      optEl.style.borderColor = colorHex + "44";
+      optEl.style.boxShadow = "none";
+      optEl.style.transform = "scale(1)";
+      optEl.style.opacity = "1";
+      optEl.style.pointerEvents = "auto";
+      optEl.style.filter = "none";
+    }
   }
 }
 function hideRadialMenu() {
@@ -9271,6 +9295,29 @@ function getSelectedBendId() {
 }
 function setOnBendSelected(callback) {
   onBendSelectedCallback = callback;
+}
+function updateLockedBends(ids) {
+  lockedBendIds = new Set(ids);
+}
+function unlockBendUI(bendId) {
+  lockedBendIds.delete(bendId);
+  const optEl = optionEls.find((el) => el.dataset.bendId === bendId);
+  if (!optEl) return;
+  const bend = BENDS.find((b) => b.id === bendId);
+  if (!bend) return;
+  const colorHex = "#" + bend.tintColor.toString(16).padStart(6, "0");
+  optEl.style.pointerEvents = "auto";
+  optEl.style.filter = "none";
+  optEl.style.opacity = "1";
+  optEl.style.transform = "scale(1)";
+  optEl.style.borderColor = colorHex;
+  optEl.style.boxShadow = `0 0 24px ${colorHex}, 0 0 48px ${colorHex}88`;
+  optEl.style.transform = "scale(1.3)";
+  setTimeout(() => {
+    optEl.style.boxShadow = "none";
+    optEl.style.transform = "scale(1)";
+    optEl.style.borderColor = colorHex + "44";
+  }, 800);
 }
 function clearSelectedBend() {
   selectedBendId = null;
@@ -9294,9 +9341,17 @@ var maxBends = 3;
 var highlightedObjects = /* @__PURE__ */ new Set();
 var hoveredObject = null;
 var highlightPulseTime = 0;
+var lockedBends = /* @__PURE__ */ new Set();
 function initBendMode() {
   maxBends = 3;
   bendSystem = createBendSystem(maxBends);
+  on("pressurePlateActivated", () => {
+    if (lockedBends.size === 0) return;
+    const unlocking = [...lockedBends];
+    for (const bendId of unlocking) {
+      unlockBend(bendId);
+    }
+  });
 }
 function toggleBendMode() {
   if (active2) {
@@ -9500,6 +9555,10 @@ function handleBendClick(mouseNDC, gameState2) {
 function tryApplyBendToTarget(target4, targetType) {
   const selectedBend = getSelectedBendId();
   if (!selectedBend) return;
+  if (lockedBends.has(selectedBend)) {
+    emit({ type: "bendFailed", bendId: selectedBend, reason: "locked" });
+    return;
+  }
   const result = bendSystem.applyBend(selectedBend, targetType, target4);
   if (result.success) {
     highlightedObjects.delete(target4);
@@ -9537,6 +9596,23 @@ function tryApplyBendToTarget(target4, targetType) {
     });
   }
 }
+function setLockedBends(ids) {
+  lockedBends = new Set(ids);
+  updateLockedBends(ids);
+}
+function unlockBend(bendId) {
+  lockedBends.delete(bendId);
+  updateLockedBends([...lockedBends]);
+  unlockBendUI(bendId);
+  const announceEl2 = document.getElementById("wave-announce");
+  if (announceEl2) {
+    const label = bendId.toUpperCase();
+    announceEl2.textContent = `${label} UNLOCKED`;
+    announceEl2.classList.add("visible");
+    setTimeout(() => announceEl2.classList.remove("visible"), 2e3);
+  }
+  screenShake(3, 200);
+}
 function getBendsRemaining() {
   return bendSystem.bendsRemaining();
 }
@@ -9557,6 +9633,102 @@ function resetBendMode() {
   highlightPulseTime = 0;
   hideRadialMenu();
   clearSelectedBend();
+  lockedBends.clear();
+  updateLockedBends([]);
+}
+
+// src/engine/pressurePlate.ts
+function createPressurePlate(placement) {
+  return {
+    x: placement.x,
+    z: placement.z,
+    radius: placement.radius,
+    massThreshold: placement.massThreshold,
+    activated: false,
+    mesh: null
+  };
+}
+function createPressurePlateMesh(plate, scene2) {
+  const group = new THREE.Group();
+  const ringGeo4 = new THREE.RingGeometry(plate.radius * 0.6, plate.radius, 32);
+  const ringMat2 = new THREE.MeshBasicMaterial({
+    color: 4521864,
+    transparent: true,
+    opacity: 0.4,
+    side: THREE.DoubleSide
+  });
+  const ring = new THREE.Mesh(ringGeo4, ringMat2);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.02;
+  group.add(ring);
+  const discGeo = new THREE.CircleGeometry(plate.radius * 0.6, 32);
+  const discMat = new THREE.MeshBasicMaterial({
+    color: 2254404,
+    transparent: true,
+    opacity: 0.3,
+    side: THREE.DoubleSide
+  });
+  const disc = new THREE.Mesh(discGeo, discMat);
+  disc.rotation.x = -Math.PI / 2;
+  disc.position.y = 0.01;
+  group.add(disc);
+  group.position.set(plate.x, 0, plate.z);
+  scene2.add(group);
+  plate.mesh = group;
+}
+function updatePressurePlates(gameState2) {
+  for (const plate of gameState2.pressurePlates) {
+    if (plate.activated) continue;
+    for (const obj of gameState2.physicsObjects) {
+      if (obj.destroyed || obj.fellInPit) continue;
+      const dx = obj.pos.x - plate.x;
+      const dz = obj.pos.z - plate.z;
+      const distSq = dx * dx + dz * dz;
+      const maxDist = plate.radius + obj.radius;
+      if (distSq > maxDist * maxDist) continue;
+      if (obj.mass < plate.massThreshold) continue;
+      const speed = Math.sqrt(obj.vel.x * obj.vel.x + obj.vel.z * obj.vel.z);
+      if (speed > 0.5) continue;
+      plate.activated = true;
+      activatePlateCeremony(plate);
+      break;
+    }
+  }
+  for (const plate of gameState2.pressurePlates) {
+    if (plate.activated || !plate.mesh) continue;
+    const t = performance.now() / 1e3;
+    const pulse = 0.3 + 0.15 * Math.sin(t * 2.5);
+    const ring = plate.mesh.children[0];
+    if (ring && ring.material) {
+      ring.material.opacity = pulse;
+    }
+  }
+}
+function activatePlateCeremony(plate) {
+  if (!plate.mesh) return;
+  plate.mesh.children.forEach((child) => {
+    if (child.material) {
+      child.material.color.setHex(8978380);
+      child.material.opacity = 0.8;
+    }
+  });
+  screenShake(4, 300);
+  emit({
+    type: "pressurePlateActivated",
+    position: { x: plate.x, z: plate.z }
+  });
+}
+function clearPressurePlates(gameState2, scene2) {
+  for (const plate of gameState2.pressurePlates) {
+    if (plate.mesh) {
+      scene2.remove(plate.mesh);
+      plate.mesh.traverse((child) => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      });
+    }
+  }
+  gameState2.pressurePlates = [];
 }
 
 // src/engine/roomManager.ts
@@ -9616,7 +9788,11 @@ function loadRoom(index, gameState2) {
   cleanupGroundShadows();
   clearVisionCones();
   clearPhysicsObjects(gameState2, sceneRef11);
+  clearPressurePlates(gameState2, sceneRef11);
   resetBendMode();
+  if (room.lockedBends && room.lockedBends.length > 0) {
+    setLockedBends(room.lockedBends);
+  }
   resetPhysicsObjectIds();
   setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);
   setHeightZones(room.heightZones ?? []);
@@ -9629,6 +9805,13 @@ function loadRoom(index, gameState2) {
       const obj = createPhysicsObject(placement);
       createPhysicsObjectMesh(obj, sceneRef11);
       gameState2.physicsObjects.push(obj);
+    }
+  }
+  if (room.pressurePlates) {
+    for (const placement of room.pressurePlates) {
+      const plate = createPressurePlate(placement);
+      createPressurePlateMesh(plate, sceneRef11);
+      gameState2.pressurePlates.push(plate);
     }
   }
   setPlayerPosition(room.playerStart.x, room.playerStart.z);
@@ -9886,6 +10069,9 @@ var PROFILE_ABILITIES = {
   assassin: ["dash", "ultimate"],
   "rule-bending": ["dash", "ultimate"],
   vertical: ["dash", "ultimate"]
+};
+var PROFILE_ABILITY_LABELS = {
+  vertical: { ultimate: "Launch / Dunk" }
 };
 var healthBar;
 var healthText;
@@ -10248,7 +10434,9 @@ function updateHUD(gameState2) {
       bulletTimeMeter.style.borderColor = btActive ? "rgba(255, 204, 68, 0.6)" : "rgba(100, 140, 255, 0.3)";
     }
   }
-  const activeAbilities = PROFILE_ABILITIES[getActiveProfile()] ?? ["dash", "ultimate"];
+  const profile = getActiveProfile();
+  const activeAbilities = PROFILE_ABILITIES[profile] ?? ["dash", "ultimate"];
+  const labelOverrides = PROFILE_ABILITY_LABELS[profile] ?? {};
   for (const key of Object.keys(ABILITIES)) {
     const slot = document.getElementById(`ability-${key}`);
     if (slot) {
@@ -10256,6 +10444,10 @@ function updateHUD(gameState2) {
         slot.classList.remove("disabled");
       } else {
         slot.classList.add("disabled");
+      }
+      const nameEl = slot.querySelector(".ability-name");
+      if (nameEl) {
+        nameEl.textContent = labelOverrides[key] ?? ABILITIES[key].name;
       }
     }
   }
@@ -11120,6 +11312,7 @@ var gameState = {
   physicsObjects: [],
   bendMode: false,
   bendsPerRoom: 3,
+  pressurePlates: [],
   abilities: {
     dash: { cooldownRemaining: 0 },
     ultimate: { cooldownRemaining: 0, active: false, activeRemaining: 0, charging: false, chargeT: 0 }
@@ -11186,6 +11379,7 @@ function gameLoop(timestamp) {
   applyObjectVelocities(gameDt, gameState);
   resolveObjectCollisions(gameState);
   resolvePhysicsObjectBodyCollisions(gameState);
+  updatePressurePlates(gameState);
   checkPitFalls(gameState);
   updateEffectGhosts(gameDt);
   updateParticles(gameDt);

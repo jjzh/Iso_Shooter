@@ -22,6 +22,11 @@ const PROFILE_ABILITIES: Record<string, string[]> = {
   vertical:       ['dash', 'ultimate'],
 };
 
+// Per-profile label overrides for ability slots (key → display name)
+const PROFILE_ABILITY_LABELS: Record<string, Record<string, string>> = {
+  vertical: { ultimate: 'Launch / Dunk' },
+};
+
 let healthBar: any, healthText: any, waveIndicator: any, currencyCount: any, abilityBar: any;
 let bulletTimeMeter: any, bulletTimeFill: any;
 let btVignette: any, btCeremony: any;
@@ -480,7 +485,9 @@ export function updateHUD(gameState: any) {
   }
 
   // Ability availability — gray out abilities not active for this profile
-  const activeAbilities = PROFILE_ABILITIES[getActiveProfile()] ?? ['dash', 'ultimate'];
+  const profile = getActiveProfile();
+  const activeAbilities = PROFILE_ABILITIES[profile] ?? ['dash', 'ultimate'];
+  const labelOverrides = PROFILE_ABILITY_LABELS[profile] ?? {};
   for (const key of Object.keys(ABILITIES)) {
     const slot = document.getElementById(`ability-${key}`);
     if (slot) {
@@ -488,6 +495,11 @@ export function updateHUD(gameState: any) {
         slot.classList.remove('disabled');
       } else {
         slot.classList.add('disabled');
+      }
+      // Apply per-profile label overrides
+      const nameEl = slot.querySelector('.ability-name') as HTMLElement;
+      if (nameEl) {
+        nameEl.textContent = labelOverrides[key] ?? (ABILITIES as any)[key].name;
       }
     }
   }

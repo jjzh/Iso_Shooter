@@ -5,10 +5,11 @@
 import { createBendSystem } from './bendSystem';
 import { getBendById } from '../config/bends';
 import { activateBulletTime, isBulletTimeActive, toggleBulletTime } from './bulletTime';
-import { showRadialMenu, hideRadialMenu, isRadialMenuVisible, getSelectedBendId, clearSelectedBend } from '../ui/radialMenu';
+import { showRadialMenu, hideRadialMenu, isRadialMenuVisible, getSelectedBendId, clearSelectedBend, updateLockedBends, unlockBendUI } from '../ui/radialMenu';
 import { applyBendVisuals, clearBendVisuals } from '../entities/physicsObject';
 import { getCamera } from './renderer';
-import { emit } from './events';
+import { emit, on } from './events';
+import { screenShake } from './renderer';
 
 // ─── State ───
 
@@ -23,12 +24,22 @@ let maxBends = 3;
 let highlightedObjects: Set<any> = new Set();
 let hoveredObject: any = null;
 let highlightPulseTime = 0;  // accumulates for pulsing animation
+let lockedBends: Set<string> = new Set();
 
 // ─── Init ───
 
 export function initBendMode(): void {
   maxBends = 3;
   bendSystem = createBendSystem(maxBends);
+
+  // Pressure plate unlocks all locked bends
+  on('pressurePlateActivated', () => {
+    if (lockedBends.size === 0) return;
+    const unlocking = [...lockedBends];
+    for (const bendId of unlocking) {
+      unlockBend(bendId);
+    }
+  });
 }
 
 // ─── Toggle ───
@@ -299,6 +310,11 @@ export function tryApplyBendToTarget(target: any, targetType: 'physicsObject' | 
   const selectedBend = getSelectedBendId();
   if (!selectedBend) return;
 
+  if (lockedBends.has(selectedBend)) {
+    emit({ type: 'bendFailed', bendId: selectedBend, reason: 'locked' });
+    return;
+  }
+
   const result = bendSystem.applyBend(selectedBend, targetType, target);
 
   if (result.success) {
@@ -347,6 +363,35 @@ export function tryApplyBendToTarget(target: any, targetType: 'physicsObject' | 
   }
 }
 
+// ─── Locked Bends ───
+
+export function setLockedBends(ids: string[]): void {
+  lockedBends = new Set(ids);
+  updateLockedBends(ids);
+}
+
+export function isBendLocked(bendId: string): boolean {
+  return lockedBends.has(bendId);
+}
+
+function unlockBend(bendId: string): void {
+  lockedBends.delete(bendId);
+  updateLockedBends([...lockedBends]);
+  unlockBendUI(bendId);
+
+  // Announce
+  const announceEl = document.getElementById('wave-announce');
+  if (announceEl) {
+    const label = bendId.toUpperCase();
+    announceEl.textContent = `${label} UNLOCKED`;
+    announceEl.classList.add('visible');
+    setTimeout(() => announceEl.classList.remove('visible'), 2000);
+  }
+
+  // Screen shake for emphasis
+  screenShake(3, 200);
+}
+
 // ─── Queries ───
 
 export function getBendsRemaining(): number {
@@ -379,4 +424,6 @@ export function resetBendMode(): void {
   highlightPulseTime = 0;
   hideRadialMenu();
   clearSelectedBend();
+  lockedBends.clear();
+  updateLockedBends([]);
 }
