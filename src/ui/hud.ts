@@ -5,6 +5,7 @@ import {
   setAimFromScreenDrag, setAbilityDirOverride, clearAbilityDirOverride
 } from '../engine/input';
 import { isBulletTimeActive, getBulletTimeResource, getBulletTimeMax } from '../engine/bulletTime';
+import { getCurrentRoomIndex, getCurrentRoomName } from '../engine/roomManager';
 import { on } from '../engine/events';
 
 let healthBar: any, healthText: any, waveIndicator: any, currencyCount: any, abilityBar: any;
@@ -282,8 +283,8 @@ export function updateHUD(gameState: any) {
 
   healthText.textContent = Math.ceil(gameState.playerHealth) + ' / ' + gameState.playerMaxHealth;
 
-  // Wave indicator
-  waveIndicator.textContent = 'Wave ' + gameState.currentWave;
+  // Room indicator
+  waveIndicator.textContent = `${getCurrentRoomIndex() + 1}. ${getCurrentRoomName()}`;
 
   // Currency
   currencyCount.textContent = gameState.currency;

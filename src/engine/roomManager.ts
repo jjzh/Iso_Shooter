@@ -359,6 +359,11 @@ export function getCurrentRoomIndex(): number {
   return currentRoomIndex;
 }
 
+export function getCurrentRoomName(): string {
+  const room = ROOMS[currentRoomIndex];
+  return room ? room.name : '';
+}
+
 export function getRoomCount(): number {
   return ROOMS.length;
 }
