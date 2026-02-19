@@ -175,4 +175,44 @@ export const ROOMS: RoomDefinition[] = [
     frustumSize: 9.6,
     highlights: [{ target: 'platforms', color: 0x4488ff }],
   },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 5: "The Shadows" — patrol maze, vision cones, detection puzzle
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: 'The Shadows',
+    profile: 'assassin' as PlayerProfile,
+    sandboxMode: true,
+    commentary: "What if the design question shifts from damage to detection?",
+    arenaHalfX: 14,
+    arenaHalfZ: 14,
+    obstacles: [
+      // Maze walls — creating lanes
+      { x: -5, z: 5, w: 8, h: 2, d: 1 },     // upper-left horizontal wall
+      { x: 5, z: -1, w: 8, h: 2, d: 1 },      // center-right horizontal wall
+      { x: -5, z: -7, w: 8, h: 2, d: 1 },     // lower-left horizontal wall
+      // Cover pillars at intersections
+      { x: 0, z: 8, w: 1.5, h: 2, d: 1.5 },   // top gap pillar
+      { x: -1, z: -4, w: 1.5, h: 2, d: 1.5 }, // center gap pillar
+    ],
+    pits: [
+      // Opportunistic push spots at corridor intersections
+      { x: 8, z: 5, w: 3, d: 3 },     // right side, near upper wall end
+      { x: -8, z: -1, w: 3, d: 3 },    // left side, center height
+      { x: 4, z: -10, w: 3, d: 2.5 },  // lower-right dead end
+    ],
+    spawnBudget: {
+      maxConcurrent: 5,
+      telegraphDuration: 1500,
+      packs: [
+        pack(goblins(2), 'ahead'),
+        pack(goblins(2), 'sides'),
+        pack(goblins(1), 'far'),
+      ],
+    },
+    playerStart: { x: -10, z: 10 },
+    enableWallSlamDamage: false,
+    enableEnemyCollisionDamage: false,
+    highlights: [{ target: 'pits' }],
+  },
 ];

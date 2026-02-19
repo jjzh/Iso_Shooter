@@ -9,6 +9,7 @@ import { resetAerialVerbs } from './aerialVerbs';
 import { clearAllTags } from './tags';
 import { clearCarriers } from './entityCarrier';
 import { cleanupGroundShadows, initGroundShadows } from './groundShadows';
+import { clearVisionCones } from './visionCone';
 import { clearLaunchPillars } from '../effects/launchPillar';
 import { clearLaunchIndicator } from '../effects/launchIndicator';
 import { setProfile } from './profileManager';
@@ -111,6 +112,7 @@ export function loadRoom(index: number, gameState: any) {
   clearLaunchPillars();
   clearLaunchIndicator();
   cleanupGroundShadows();
+  clearVisionCones();
 
   // Swap arena layout
   setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);

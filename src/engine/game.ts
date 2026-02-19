@@ -20,8 +20,10 @@ import { floatSelectorVerb } from '../verbs/floatSelector';
 import { spikeVerb } from '../verbs/spike';
 import { updateCarriers, clearCarriers } from './entityCarrier';
 import { initGroundShadows, updateGroundShadows } from './groundShadows';
+import { initVisionCones } from './visionCone';
 import { initLaunchPillars, updateLaunchPillars, clearLaunchPillars } from '../effects/launchPillar';
 import { initLaunchIndicator, clearLaunchIndicator } from '../effects/launchIndicator';
+import { raycastTerrainDist } from '../entities/enemy';
 import { PLAYER, MELEE, DUNK } from '../config/player';
 import { on } from './events';
 import { applyUrlParams, snapshotDefaults } from './urlParams';
@@ -201,6 +203,7 @@ function init(): void {
     initAudio();
     initParticles(scene);
     initBulletTime();
+    initVisionCones(scene, raycastTerrainDist);
     initAerialVerbs([floatSelectorVerb, dunkVerb, spikeVerb]);
     initLaunchPillars(scene);
     initLaunchIndicator(scene);
