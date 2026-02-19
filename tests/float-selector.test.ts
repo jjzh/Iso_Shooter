@@ -216,7 +216,7 @@ describe('Float Selector Rising Phase', () => {
     expect(setGravityOverride).toHaveBeenCalledWith(enemy, 0);
   });
 
-  it('triggers screen shake and CATCH! damage number on float transition', () => {
+  it('triggers screen shake on float transition', () => {
     const enemy = makeEnemy({ y: 4, velY: -1 });
     const entry = makeEntry(enemy);
     const playerPos = makePlayerPos(3);
@@ -226,9 +226,6 @@ describe('Float Selector Rising Phase', () => {
     floatSelectorVerb.update(0.016, entry, playerPos, input);
 
     expect(screenShake).toHaveBeenCalled();
-    expect(spawnDamageNumber).toHaveBeenCalledWith(
-      playerPos.x, playerPos.z, 'CATCH!', expect.any(String)
-    );
   });
 
   it('cancels if enemy dies during rising', () => {

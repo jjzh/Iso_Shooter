@@ -1243,7 +1243,6 @@ function updateRising(dt, enemy, playerPos2, inputState2) {
       playerVelYOverride = 0;
       setGravityOverride(enemy, 0);
       screenShake(DUNK.grabShake * 0.5);
-      spawnDamageNumber(playerPos2.x, playerPos2.z, "CATCH!", "#ff88ff");
       return "active";
     }
   }

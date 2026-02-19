@@ -18,7 +18,6 @@ import { setGravityOverride, transferClaim } from '../engine/aerialVerbs';
 import type { AerialVerb, LaunchedEnemy } from '../engine/aerialVerbs';
 import { activateBulletTimeAuto, deactivateBulletTimeAuto } from '../engine/bulletTime';
 import { screenShake, getScene } from '../engine/renderer';
-import { spawnDamageNumber } from '../ui/damageNumbers';
 import { TAG } from '../engine/tags';
 
 // --------------- Internal State ---------------
@@ -293,7 +292,6 @@ function updateRising(dt: number, enemy: any, playerPos: any, inputState: any): 
       setGravityOverride(enemy, 0);
 
       screenShake(DUNK.grabShake * 0.5);
-      spawnDamageNumber(playerPos.x, playerPos.z, 'CATCH!', '#ff88ff');
       return 'active';
     }
   }
