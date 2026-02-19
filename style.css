@@ -351,7 +351,17 @@ canvas {
   display: none; /* hidden by default — shown on touch devices */
 }
 #zone-left  { left: 0; }
-#zone-right { left: 50%; }
+#zone-right {
+  left: 50%;
+  /* Cut out bottom-right 280x280px where mobile button cluster lives */
+  clip-path: polygon(
+    0 0, 100% 0,
+    100% calc(100% - 280px),
+    calc(100% - 280px) calc(100% - 280px),
+    calc(100% - 280px) 100%,
+    0 100%
+  );
+}
 
 /* ── Mobile overrides (touch devices) ── */
 @media (pointer: coarse) {

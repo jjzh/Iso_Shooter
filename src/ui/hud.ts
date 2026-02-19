@@ -150,10 +150,6 @@ function showBTCeremony(text: string, durationMs: number) {
   }, durationMs);
 }
 
-// Drag-to-aim constants
-const DRAG_THRESHOLD = 15;  // px — distinguish tap from drag
-const DRAG_MAX_RADIUS = 80; // px — full deflection range
-
 // Isometric basis vectors (duplicated from input.js for screen→world mapping)
 const INV_SQRT2 = 1 / Math.SQRT2;
 const ISO_RIGHT_X = INV_SQRT2;
@@ -161,7 +157,10 @@ const ISO_RIGHT_Z = -INV_SQRT2;
 const ISO_UP_X = -INV_SQRT2;
 const ISO_UP_Z = -INV_SQRT2;
 
+let _mobileButtonsWired = false;
 function initMobileButtons() {
+  if (_mobileButtonsWired) return;
+  _mobileButtonsWired = true;
   mobileBtnAttack = document.getElementById('mobile-btn-attack');
   mobileBtnDash = document.getElementById('mobile-btn-dash');
   mobileBtnJump = document.getElementById('mobile-btn-jump');
@@ -175,19 +174,26 @@ function initMobileButtons() {
 
 function wireButtonHandlers(): void {
   // --- Attack/Push: tap = attack, hold = force push ---
+  // Delay charge start until hold threshold to avoid flicker on taps
+  let attackHoldTimeout: number | null = null;
   setupDragToAim(mobileBtnAttack!, {
     onDragStart: () => {
-      // Start as force push charge (will cancel if released quickly)
-      triggerUltimate();
-      setUltimateHeld(true);
+      attackHoldTimeout = window.setTimeout(() => {
+        triggerUltimate();
+        setUltimateHeld(true);
+        attackHoldTimeout = null;
+      }, MOBILE_CONTROLS.holdThreshold);
     },
     onDragMove: (normX: number, normY: number) => {
       setAimFromScreenDrag(normX, normY);
     },
     onRelease: (wasDrag: boolean, heldMs: number) => {
+      if (attackHoldTimeout !== null) {
+        clearTimeout(attackHoldTimeout);
+        attackHoldTimeout = null;
+      }
       if (heldMs < MOBILE_CONTROLS.holdThreshold && !wasDrag) {
-        // Short tap — cancel the push charge and fire attack instead
-        setUltimateHeld(false);
+        // Short tap — fire attack
         triggerAttack();
       } else {
         // Long hold or drag — release force push
@@ -196,6 +202,10 @@ function wireButtonHandlers(): void {
       }
     },
     onCancel: () => {
+      if (attackHoldTimeout !== null) {
+        clearTimeout(attackHoldTimeout);
+        attackHoldTimeout = null;
+      }
       setUltimateHeld(false);
       clearAbilityDirOverride();
     },
@@ -353,12 +363,12 @@ function setupDragToAim(btnEl: any, { onDragStart, onDragMove, onRelease, onCanc
     const dy = touch.clientY - startY;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (dist > DRAG_THRESHOLD) {
+    if (dist > MOBILE_CONTROLS.dragThreshold) {
       isDragging = true;
       // Normalize to -1..1 range, clamped by max radius
-      const clampedDist = Math.min(dist, DRAG_MAX_RADIUS);
-      const normX = (dx / dist) * (clampedDist / DRAG_MAX_RADIUS);
-      const normY = (-dy / dist) * (clampedDist / DRAG_MAX_RADIUS); // invert Y (screen down = negative)
+      const clampedDist = Math.min(dist, MOBILE_CONTROLS.dragMaxRadius);
+      const normX = (dx / dist) * (clampedDist / MOBILE_CONTROLS.dragMaxRadius);
+      const normY = (-dy / dist) * (clampedDist / MOBILE_CONTROLS.dragMaxRadius); // invert Y (screen down = negative)
       onDragMove(normX, normY);
     }
   }, { passive: true });
