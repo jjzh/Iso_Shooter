@@ -16,6 +16,7 @@ const inputState = {
   ultimateHeld: false,
   interact: false,
   bulletTime: false,
+  bendMode: false,
   jump: false,
   launch: false,
   chargeStarted: false,
@@ -59,7 +60,7 @@ export function initInput() {
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') inputState.dash = true;
     if (e.code === 'KeyE') { inputState.launch = true; inputState.ultimate = true; }
     if (e.code === 'KeyF' || e.code === 'Enter') inputState.interact = true;
-    if (e.code === 'KeyQ') inputState.bulletTime = true;
+    if (e.code === 'KeyQ') { inputState.bulletTime = true; inputState.bendMode = true; }
   });
 
   window.addEventListener('keyup', (e) => {
@@ -346,6 +347,7 @@ export function consumeInput() {
   inputState.ultimate = false;
   inputState.interact = false;
   inputState.bulletTime = false;
+  inputState.bendMode = false;
   inputState.jump = false;
   inputState.launch = false;
   inputState.chargeStarted = false;
