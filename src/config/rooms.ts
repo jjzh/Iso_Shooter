@@ -3,7 +3,7 @@
 // Rooms are rectangular (longer on Z) — player enters from +Z (bottom-left in iso),
 // progresses toward -Z (top-right in iso), exits through a door at the far end
 
-import { Obstacle, Pit, SpawnPack, SpawnPackEnemy, RoomSpawnBudget, PlayerProfile } from '../types/index';
+import { Obstacle, Pit, SpawnPack, SpawnPackEnemy, RoomSpawnBudget, PlayerProfile, PhysicsObjectPlacement } from '../types/index';
 
 export type HighlightTarget = 'pits' | 'obstacles' | 'platforms';
 
@@ -32,6 +32,7 @@ export interface RoomDefinition {
   isVictoryRoom?: boolean;
   heightZones?: Array<{ x: number; z: number; w: number; d: number; y: number }>;
   frustumSize?: number;
+  physicsObjects?: PhysicsObjectPlacement[];
 }
 
 // ─── Helper: build packs of N enemies ───
@@ -206,7 +207,44 @@ export const ROOMS: RoomDefinition[] = [
   },
 
   // ══════════════════════════════════════════════════════════════════════
-  // Room 5: "The Arena" — vertical combat: jump, launch, dunk, spike
+  // Room 5: "The Workshop" — rule-bending (enlarge/shrink physics objects)
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: 'The Workshop',
+    profile: 'rule-bending' as PlayerProfile,
+    sandboxMode: true,
+    commentary: 'What if you could bend the rules? Enlarge a rock, shrink a crate...',
+    arenaHalfX: 7,
+    arenaHalfZ: 7,
+    obstacles: [
+      { x: -4, z: 0, w: 1, h: 2, d: 6 },
+      { x: 4, z: -2, w: 1, h: 2, d: 4 },
+    ],
+    pits: [
+      { x: 3, z: 4, w: 2.5, d: 2.5 },
+      { x: -3, z: -4, w: 2.5, d: 2.5 },
+    ],
+    physicsObjects: [
+      { meshType: 'rock' as const, material: 'stone' as const, x: 0, z: 1, mass: 2.0, health: 50, radius: 0.6 },
+      { meshType: 'crate' as const, material: 'wood' as const, x: 2, z: -1, mass: 5.0, health: 80, radius: 0.8 },
+    ],
+    spawnBudget: {
+      maxConcurrent: 6,
+      telegraphDuration: 1500,
+      packs: [
+        { enemies: [{ type: 'goblin' }, { type: 'goblin' }, { type: 'goblin' }], spawnZone: 'ahead' as const },
+      ],
+    },
+    playerStart: { x: 0, z: 5 },
+    enableWallSlamDamage: true,
+    enableEnemyCollisionDamage: true,
+    highlights: [
+      { target: 'pits', color: 0xff4444 },
+    ],
+  },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 6: "The Arena" — vertical combat: jump, launch, dunk, spike
   // ══════════════════════════════════════════════════════════════════════
   {
     name: 'The Arena',

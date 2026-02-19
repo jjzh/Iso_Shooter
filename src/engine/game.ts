@@ -5,7 +5,7 @@ import { initProjectilePool, updateProjectiles } from '../entities/projectile';
 import { initEnemySystem, updateEnemies } from '../entities/enemy';
 import { initMortarSystem, updateMortarProjectiles, updateIcePatches } from '../entities/mortarProjectile';
 import { initRoomManager, loadRoom, updateRoomManager, resetRoomManager } from './roomManager';
-import { checkCollisions, checkPitFalls, updateEffectGhosts, applyVelocities, resolveEnemyCollisions } from './physics';
+import { checkCollisions, checkPitFalls, updateEffectGhosts, applyVelocities, resolveEnemyCollisions, applyObjectVelocities, resolveObjectCollisions, resolvePhysicsObjectBodyCollisions } from './physics';
 import { initAoeTelegraph, updateAoeTelegraphs, updatePendingEffects } from './aoeTelegraph';
 import { initHUD, updateHUD } from '../ui/hud';
 import { initScreens, showGameOver, hideScreens } from '../ui/screens';
@@ -13,6 +13,9 @@ import { initDamageNumbers, updateDamageNumbers } from '../ui/damageNumbers';
 import { initAudio, resumeAudio } from './audio';
 import { initParticles, updateParticles } from './particles';
 import { initBulletTime, toggleBulletTime, updateBulletTime, getBulletTimeScale, resetBulletTime } from './bulletTime';
+import { initBendMode, toggleBendMode, isBendModeActive, isBendTargeting, handleBendClick, enterTargeting, resetBendMode, updateBendMode, updateBendHover } from './bendMode';
+import { initRadialMenu, setOnBendSelected } from '../ui/radialMenu';
+import { getActiveProfile } from './profileManager';
 import { initAerialVerbs, updateAerialVerbs, resetAerialVerbs, cancelActiveVerb } from './aerialVerbs';
 import { clearAllTags } from './tags';
 import { dunkVerb } from '../verbs/dunk';
@@ -86,13 +89,34 @@ function gameLoop(timestamp: number): void {
   autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
 
-  // 1b. Bullet Time toggle + update
-  if (input.bulletTime) toggleBulletTime();
+  // 1b. Bend Mode / Bullet Time toggle (profile-gated)
+  if (getActiveProfile() === 'rule-bending') {
+    if (input.bendMode) toggleBendMode();
+  } else {
+    if (input.bulletTime) toggleBulletTime();
+  }
   updateBulletTime(dt);
   const gameDt = dt * getBulletTimeScale(); // slowed dt for world systems
 
+  // 1c. Bend targeting click
+  if (isBendModeActive() && isBendTargeting() && input.attack) {
+    handleBendClick(input.mouseNDC, gameState);
+  }
+
+  // 1d. Bend mode update (highlights + hover)
+  updateBendMode(dt, gameState);
+  if (isBendModeActive() && isBendTargeting()) {
+    updateBendHover(input.mouseNDC, gameState);
+  }
+
   // 2. Player (uses real dt — player moves at normal speed)
-  updatePlayer(input, dt, gameState);
+  // Gate combat input when bend mode is active
+  if (isBendModeActive()) {
+    const gatedInput = { ...input, attack: false, dash: false, ultimate: false, ultimateHeld: false };
+    updatePlayer(gatedInput, dt, gameState);
+  } else {
+    updatePlayer(input, dt, gameState);
+  }
 
   // 2b. Aerial verbs (dunk, spike, etc.) — uses gameDt so bullet time slows
   (input as any)._gameState = gameState;
@@ -121,6 +145,15 @@ function gameLoop(timestamp: number): void {
 
   // 6a2. Enemy-enemy collision (separation + momentum transfer)
   resolveEnemyCollisions(gameState);
+
+  // 6a1. Physics object velocities (no-ops when physicsObjects array is empty)
+  applyObjectVelocities(gameDt, gameState);
+
+  // 6a3. Object-object + object-enemy collision
+  resolveObjectCollisions(gameState);
+
+  // 6a3b. Physics objects as solid bodies
+  resolvePhysicsObjectBodyCollisions(gameState);
 
   // 6b. Pit falls
   checkPitFalls(gameState);
@@ -206,6 +239,9 @@ function init(): void {
     initAudio();
     initParticles(scene);
     initBulletTime();
+    initRadialMenu();
+    setOnBendSelected((_bendId: string) => { enterTargeting(); });
+    initBendMode();
     initVisionCones(scene, raycastTerrainDist);
     initAerialVerbs([floatSelectorVerb, dunkVerb, spikeVerb]);
     initLaunchPillars(scene);

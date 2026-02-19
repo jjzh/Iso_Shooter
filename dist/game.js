@@ -1078,9 +1078,9 @@ function fireProjectile(origin, direction, config, isEnemy) {
 function updateProjectiles(dt) {
   const maxLife = 2;
   for (const pool3 of [playerPool, enemyPool]) {
-    const active2 = pool3.getActive();
-    for (let i = active2.length - 1; i >= 0; i--) {
-      const p = active2[i];
+    const active3 = pool3.getActive();
+    for (let i = active3.length - 1; i >= 0; i--) {
+      const p = active3[i];
       p.mesh.position.x += p.dir.x * p.speed * dt;
       p.mesh.position.z += p.dir.z * p.speed * dt;
       p.life += dt;
@@ -5242,8 +5242,16 @@ var PHYSICS = {
   // ms of landing lag (minimum)
   landingLagPerSpeed: 10,
   // ms of landing lag per unit of fall speed
-  groundEpsilon: 0.05
+  groundEpsilon: 0.05,
   // height threshold for "grounded" detection
+  // Physics objects
+  objectFriction: 25,
+  objectWallSlamMinSpeed: 3,
+  objectWallSlamDamage: 8,
+  objectWallSlamBounce: 0.4,
+  objectWallSlamShake: 2,
+  objectImpactMinSpeed: 2,
+  objectImpactDamage: 5
 };
 
 // src/effects/launchPillar.ts
@@ -6209,6 +6217,7 @@ var inputState = {
   ultimateHeld: false,
   interact: false,
   bulletTime: false,
+  bendMode: false,
   jump: false,
   launch: false,
   chargeStarted: false
@@ -6246,7 +6255,10 @@ function initInput() {
       inputState.ultimate = true;
     }
     if (e.code === "KeyF" || e.code === "Enter") inputState.interact = true;
-    if (e.code === "KeyQ") inputState.bulletTime = true;
+    if (e.code === "KeyQ") {
+      inputState.bulletTime = true;
+      inputState.bendMode = true;
+    }
   });
   window.addEventListener("keyup", (e) => {
     keys[e.code] = false;
@@ -6448,6 +6460,7 @@ function consumeInput() {
   inputState.ultimate = false;
   inputState.interact = false;
   inputState.bulletTime = false;
+  inputState.bendMode = false;
   inputState.jump = false;
   inputState.launch = false;
   inputState.chargeStarted = false;
@@ -6701,7 +6714,43 @@ var ROOMS = [
     highlights: [{ target: "pits" }]
   },
   // ══════════════════════════════════════════════════════════════════════
-  // Room 5: "The Arena" — vertical combat: jump, launch, dunk, spike
+  // Room 5: "The Workshop" — rule-bending (enlarge/shrink physics objects)
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: "The Workshop",
+    profile: "rule-bending",
+    sandboxMode: true,
+    commentary: "What if you could bend the rules? Enlarge a rock, shrink a crate...",
+    arenaHalfX: 7,
+    arenaHalfZ: 7,
+    obstacles: [
+      { x: -4, z: 0, w: 1, h: 2, d: 6 },
+      { x: 4, z: -2, w: 1, h: 2, d: 4 }
+    ],
+    pits: [
+      { x: 3, z: 4, w: 2.5, d: 2.5 },
+      { x: -3, z: -4, w: 2.5, d: 2.5 }
+    ],
+    physicsObjects: [
+      { meshType: "rock", material: "stone", x: 0, z: 1, mass: 2, health: 50, radius: 0.6 },
+      { meshType: "crate", material: "wood", x: 2, z: -1, mass: 5, health: 80, radius: 0.8 }
+    ],
+    spawnBudget: {
+      maxConcurrent: 6,
+      telegraphDuration: 1500,
+      packs: [
+        { enemies: [{ type: "goblin" }, { type: "goblin" }, { type: "goblin" }], spawnZone: "ahead" }
+      ]
+    },
+    playerStart: { x: 0, z: 5 },
+    enableWallSlamDamage: true,
+    enableEnemyCollisionDamage: true,
+    highlights: [
+      { target: "pits", color: 16729156 }
+    ]
+  },
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 6: "The Arena" — vertical combat: jump, launch, dunk, spike
   // ══════════════════════════════════════════════════════════════════════
   {
     name: "The Arena",
@@ -7119,6 +7168,109 @@ function applyVelocities(dt, gameState2) {
     }
   }
 }
+function applyObjectVelocities(dt, gameState2) {
+  for (const obj of gameState2.physicsObjects) {
+    if (obj.destroyed) continue;
+    const vel = obj.vel;
+    const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    if (speed < PHYSICS.minVelocity) {
+      vel.x = 0;
+      vel.z = 0;
+      continue;
+    }
+    const moveDist = speed * dt;
+    const moveSteps = Math.ceil(moveDist / obj.radius);
+    const subDt = dt / Math.max(moveSteps, 1);
+    let result = { x: obj.pos.x, z: obj.pos.z, hitWall: false, normalX: 0, normalZ: 0 };
+    let fellInPit = false;
+    for (let s = 0; s < moveSteps; s++) {
+      obj.pos.x += vel.x * subDt;
+      obj.pos.z += vel.z * subDt;
+      if (pointInPit(obj.pos.x, obj.pos.z)) {
+        fellInPit = true;
+        break;
+      }
+      result = resolveTerrainCollisionEx(obj.pos.x, obj.pos.z, obj.radius);
+      obj.pos.x = result.x;
+      obj.pos.z = result.z;
+      if (result.hitWall) {
+        const dot = vel.x * result.normalX + vel.z * result.normalZ;
+        if (dot < 0) {
+          vel.x -= dot * result.normalX;
+          vel.z -= dot * result.normalZ;
+        }
+        const slideSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+        if (slideSpeed < PHYSICS.minVelocity) break;
+      }
+      let hitObject = false;
+      for (const other of gameState2.physicsObjects) {
+        if (other === obj || other.destroyed) continue;
+        const odx = obj.pos.x - other.pos.x;
+        const odz = obj.pos.z - other.pos.z;
+        const oDistSq = odx * odx + odz * odz;
+        const oMinDist = obj.radius + other.radius;
+        if (oDistSq < oMinDist * oMinDist && oDistSq > 1e-4) {
+          const oDist = Math.sqrt(oDistSq);
+          const oOverlap = oMinDist - oDist;
+          const onx = odx / oDist;
+          const onz = odz / oDist;
+          obj.pos.x += onx * oOverlap;
+          obj.pos.z += onz * oOverlap;
+          const vDot = vel.x * -onx + vel.z * -onz;
+          if (vDot > 0) {
+            vel.x += vDot * onx;
+            vel.z += vDot * onz;
+          }
+          hitObject = true;
+          break;
+        }
+      }
+      if (hitObject) break;
+    }
+    if (obj.mesh) {
+      obj.mesh.position.set(obj.pos.x, 0, obj.pos.z);
+    }
+    if (fellInPit) {
+      obj.destroyed = true;
+      obj.fellInPit = true;
+      emit({ type: "objectPitFall", object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+      if (obj.mesh) obj.mesh.visible = false;
+      vel.x = 0;
+      vel.z = 0;
+      continue;
+    }
+    if (result.hitWall && speed > PHYSICS.objectWallSlamMinSpeed) {
+      const slamDamage = Math.round((speed - PHYSICS.objectWallSlamMinSpeed) * PHYSICS.objectWallSlamDamage);
+      obj.health -= slamDamage;
+      if (obj.health <= 0) {
+        obj.health = 0;
+        obj.destroyed = true;
+        if (obj.mesh) obj.mesh.visible = false;
+        emit({ type: "objectDestroyed", object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+      }
+      emit({ type: "objectWallSlam", object: obj, speed, damage: slamDamage, position: { x: obj.pos.x, z: obj.pos.z } });
+      screenShake(PHYSICS.objectWallSlamShake, 120);
+      const bounce = obj.restitution ?? PHYSICS.objectWallSlamBounce;
+      vel.x *= bounce;
+      vel.z *= bounce;
+    }
+    const currentSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    if (currentSpeed > PHYSICS.minVelocity) {
+      const newSpeed = currentSpeed - PHYSICS.objectFriction * dt;
+      if (newSpeed <= PHYSICS.minVelocity) {
+        vel.x = 0;
+        vel.z = 0;
+      } else {
+        const scale = newSpeed / currentSpeed;
+        vel.x *= scale;
+        vel.z *= scale;
+      }
+    } else {
+      vel.x = 0;
+      vel.z = 0;
+    }
+  }
+}
 function resolveEnemyCollisions(gameState2) {
   const enemies = gameState2.enemies;
   const len = enemies.length;
@@ -7203,6 +7355,169 @@ function resolveEnemyCollisions(gameState2) {
       }
       a.mesh.position.copy(a.pos);
       b.mesh.position.copy(b.pos);
+    }
+  }
+}
+function resolveObjectCollisions(gameState2) {
+  const objects = gameState2.physicsObjects;
+  const enemies = gameState2.enemies;
+  for (let iter = 0; iter < 3; iter++) {
+    for (let i = 0; i < objects.length; i++) {
+      const a = objects[i];
+      if (a.destroyed) continue;
+      for (let j = i + 1; j < objects.length; j++) {
+        const b = objects[j];
+        if (b.destroyed) continue;
+        const dx = b.pos.x - a.pos.x;
+        const dz = b.pos.z - a.pos.z;
+        const distSq = dx * dx + dz * dz;
+        const minDist = a.radius + b.radius;
+        if (distSq >= minDist * minDist) continue;
+        const dist = Math.sqrt(distSq);
+        if (dist < 0.01) continue;
+        const overlap = minDist - dist;
+        const nx = dx / dist;
+        const nz = dz / dist;
+        const aTerrainCheck = resolveTerrainCollisionEx(
+          a.pos.x - nx * 0.05,
+          a.pos.z - nz * 0.05,
+          a.radius
+        );
+        const bTerrainCheck = resolveTerrainCollisionEx(
+          b.pos.x + nx * 0.05,
+          b.pos.z + nz * 0.05,
+          b.radius
+        );
+        const aBlocked = aTerrainCheck.hitWall;
+        const bBlocked = bTerrainCheck.hitWall;
+        let ratioA, ratioB;
+        if (aBlocked && !bBlocked) {
+          ratioA = 0;
+          ratioB = 1;
+        } else if (!aBlocked && bBlocked) {
+          ratioA = 1;
+          ratioB = 0;
+        } else {
+          const totalMass = a.mass + b.mass;
+          ratioA = b.mass / totalMass;
+          ratioB = a.mass / totalMass;
+        }
+        a.pos.x -= nx * overlap * ratioA;
+        a.pos.z -= nz * overlap * ratioA;
+        b.pos.x += nx * overlap * ratioB;
+        b.pos.z += nz * overlap * ratioB;
+        if (iter === 0) {
+          const totalMass = a.mass + b.mass;
+          const relVelX = a.vel.x - b.vel.x;
+          const relVelZ = a.vel.z - b.vel.z;
+          const relVelDotN = relVelX * nx + relVelZ * nz;
+          if (relVelDotN > 0) {
+            const e = PHYSICS.objectWallSlamBounce;
+            const impulse = (1 + e) * relVelDotN / totalMass;
+            a.vel.x -= impulse * b.mass * nx;
+            a.vel.z -= impulse * b.mass * nz;
+            b.vel.x += impulse * a.mass * nx;
+            b.vel.z += impulse * a.mass * nz;
+          }
+        }
+        if (a.mesh) a.mesh.position.set(a.pos.x, 0, a.pos.z);
+        if (b.mesh) b.mesh.position.set(b.pos.x, 0, b.pos.z);
+      }
+    }
+  }
+  for (const obj of objects) {
+    if (obj.destroyed) continue;
+    for (const enemy of enemies) {
+      if (enemy.health <= 0) continue;
+      if (enemy.isLeaping) continue;
+      const dx = enemy.pos.x - obj.pos.x;
+      const dz = enemy.pos.z - obj.pos.z;
+      const distSq = dx * dx + dz * dz;
+      const radObj = obj.radius;
+      const radEnemy = enemy.config.size.radius;
+      const minDist = radObj + radEnemy;
+      if (distSq >= minDist * minDist) continue;
+      const dist = Math.sqrt(distSq);
+      if (dist < 0.01) continue;
+      const overlap = minDist - dist;
+      const nx = dx / dist;
+      const nz = dz / dist;
+      const massObj = obj.mass;
+      const massEnemy = enemy.config.mass ?? 1;
+      const totalMass = massObj + massEnemy;
+      const ratioObj = massEnemy / totalMass;
+      const ratioEnemy = massObj / totalMass;
+      obj.pos.x -= nx * overlap * ratioObj;
+      obj.pos.z -= nz * overlap * ratioObj;
+      enemy.pos.x += nx * overlap * ratioEnemy;
+      enemy.pos.z += nz * overlap * ratioEnemy;
+      const velEnemy = enemy.vel;
+      if (!velEnemy) continue;
+      const relVelX = obj.vel.x - velEnemy.x;
+      const relVelZ = obj.vel.z - velEnemy.z;
+      const relVelDotN = relVelX * nx + relVelZ * nz;
+      if (relVelDotN <= 0) continue;
+      const e = obj.restitution ?? PHYSICS.enemyBounce;
+      const impulse = (1 + e) * relVelDotN / totalMass;
+      obj.vel.x -= impulse * massEnemy * nx;
+      obj.vel.z -= impulse * massEnemy * nz;
+      velEnemy.x += impulse * massObj * nx;
+      velEnemy.z += impulse * massObj * nz;
+      const relSpeed = Math.sqrt(relVelX * relVelX + relVelZ * relVelZ);
+      if (relSpeed > PHYSICS.objectImpactMinSpeed) {
+        const dmg = Math.round((relSpeed - PHYSICS.objectImpactMinSpeed) * PHYSICS.objectImpactDamage);
+        if (dmg > 0) {
+          applyDamageToEnemy(enemy, dmg, gameState2);
+          enemy.flashTimer = 100;
+          if (enemy.bodyMesh) enemy.bodyMesh.material.emissive.setHex(16755268);
+          if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16755268);
+          spawnDamageNumber(enemy.pos.x, enemy.pos.z, dmg, "#ffaa44");
+          screenShake(2, 80);
+          emit({
+            type: "objectImpact",
+            objectA: obj,
+            objectB: enemy,
+            speed: relSpeed,
+            damage: dmg,
+            position: { x: (obj.pos.x + enemy.pos.x) / 2, z: (obj.pos.z + enemy.pos.z) / 2 }
+          });
+        }
+      }
+      if (obj.mesh) obj.mesh.position.set(obj.pos.x, 0, obj.pos.z);
+      enemy.mesh.position.copy(enemy.pos);
+    }
+  }
+}
+function resolvePhysicsObjectBodyCollisions(gameState2) {
+  const objects = gameState2.physicsObjects;
+  const playerPos2 = getPlayerPos();
+  const playerR = PLAYER.size.radius;
+  for (const obj of objects) {
+    if (obj.destroyed) continue;
+    const pdx = playerPos2.x - obj.pos.x;
+    const pdz = playerPos2.z - obj.pos.z;
+    const pDistSq = pdx * pdx + pdz * pdz;
+    const pMinDist = playerR + obj.radius;
+    if (pDistSq < pMinDist * pMinDist && pDistSq > 1e-4) {
+      const pDist = Math.sqrt(pDistSq);
+      const pOverlap = pMinDist - pDist;
+      playerPos2.x += pdx / pDist * pOverlap;
+      playerPos2.z += pdz / pDist * pOverlap;
+    }
+    for (const enemy of gameState2.enemies) {
+      if (enemy.health <= 0) continue;
+      if (enemy.isLeaping) continue;
+      const edx = enemy.pos.x - obj.pos.x;
+      const edz = enemy.pos.z - obj.pos.z;
+      const eDistSq = edx * edx + edz * edz;
+      const eRadEnemy = enemy.config.size.radius;
+      const eMinDist = eRadEnemy + obj.radius;
+      if (eDistSq < eMinDist * eMinDist && eDistSq > 1e-4) {
+        const eDist = Math.sqrt(eDistSq);
+        const eOverlap = eMinDist - eDist;
+        enemy.pos.x += edx / eDist * eOverlap;
+        enemy.pos.z += edz / eDist * eOverlap;
+      }
     }
   }
 }
@@ -7460,13 +7775,32 @@ function checkCollisions(gameState2) {
         const dz = enemy.pos.z - playerZ;
         const forward = dx * dirX + dz * dirZ;
         const lateral = dx * perpX + dz * perpZ;
-        candidates.push({ enemy, forward, lateral });
+        candidates.push({ enemy, obj: null, forward, lateral });
+      }
+    }
+    for (const obj of gameState2.physicsObjects) {
+      if (obj.destroyed) continue;
+      if (isInRotatedRect(
+        obj.pos.x,
+        obj.pos.z,
+        pushEvt.x,
+        pushEvt.z,
+        pushEvt.width,
+        pushEvt.length,
+        pushEvt.rotation,
+        obj.radius
+      )) {
+        const dx = obj.pos.x - playerX;
+        const dz = obj.pos.z - playerZ;
+        const forward = dx * dirX + dz * dirZ;
+        const lateral = dx * perpX + dz * perpZ;
+        candidates.push({ enemy: null, obj, forward, lateral });
       }
     }
     candidates.sort((a, b) => a.forward - b.forward);
     const pushedLaterals = [];
     const blockRadius = PHYSICS.pushWaveBlockRadius;
-    for (const { enemy, lateral } of candidates) {
+    for (const { enemy, obj, lateral } of candidates) {
       let blocked = false;
       for (const pushedLat of pushedLaterals) {
         if (Math.abs(lateral - pushedLat) < blockRadius) {
@@ -7475,19 +7809,36 @@ function checkCollisions(gameState2) {
         }
       }
       if (blocked) continue;
-      const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
-      const kbMult = 1 - (enemy.knockbackResist ?? enemy.config.knockbackResist ?? 0);
-      const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
-      if (kbDist > 0) {
-        const v0 = Math.sqrt(2 * PHYSICS.friction * kbDist);
-        enemy.vel.x = dirX * v0;
-        enemy.vel.z = dirZ * v0;
+      if (enemy) {
+        const iceEffects = getIceEffects(enemy.pos.x, enemy.pos.z, false);
+        const kbMult = 1 - (enemy.knockbackResist ?? enemy.config.knockbackResist ?? 0);
+        const kbDist = pushEvt.force * kbMult * iceEffects.knockbackMult;
+        if (kbDist > 0) {
+          const v0 = Math.sqrt(2 * PHYSICS.friction * kbDist);
+          enemy.vel.x = dirX * v0;
+          enemy.vel.z = dirZ * v0;
+        }
+        emit({ type: "enemyPushed", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+        enemy.flashTimer = 100;
+        enemy.bodyMesh.material.emissive.setHex(4521898);
+        if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(4521898);
+        spawnDamageNumber(enemy.pos.x, enemy.pos.z, "PUSH", "#44ffaa");
+      } else if (obj) {
+        const kbDist = pushEvt.force / obj.mass;
+        if (kbDist > 0) {
+          const v0 = Math.sqrt(2 * PHYSICS.objectFriction * kbDist);
+          obj.vel.x = dirX * v0;
+          obj.vel.z = dirZ * v0;
+          const nudgeResult = resolveTerrainCollisionEx(obj.pos.x, obj.pos.z, obj.radius);
+          if (nudgeResult.hitWall) {
+            obj.pos.x = nudgeResult.x + nudgeResult.normalX * 0.1;
+            obj.pos.z = nudgeResult.z + nudgeResult.normalZ * 0.1;
+            if (obj.mesh) obj.mesh.position.set(obj.pos.x, 0, obj.pos.z);
+          }
+        }
+        emit({ type: "objectPushed", object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+        spawnDamageNumber(obj.pos.x, obj.pos.z, "PUSH", "#44ffaa");
       }
-      emit({ type: "enemyPushed", enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
-      enemy.flashTimer = 100;
-      enemy.bodyMesh.material.emissive.setHex(4521898);
-      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(4521898);
-      spawnDamageNumber(enemy.pos.x, enemy.pos.z, "PUSH", "#44ffaa");
       pushedLaterals.push(lateral);
     }
   }
@@ -8551,6 +8902,657 @@ function removeDoor() {
   doorState = "none";
 }
 
+// src/entities/physicsObject.ts
+var nextId = 1;
+function resetPhysicsObjectIds() {
+  nextId = 1;
+}
+function createPhysicsObject(placement) {
+  return {
+    id: nextId++,
+    pos: { x: placement.x, z: placement.z },
+    vel: { x: 0, z: 0 },
+    radius: placement.radius,
+    mass: placement.mass,
+    health: placement.health,
+    maxHealth: placement.health,
+    material: placement.material,
+    meshType: placement.meshType,
+    scale: placement.scale ?? 1,
+    restitution: void 0,
+    mesh: null,
+    destroyed: false,
+    fellInPit: false
+  };
+}
+var MATERIAL_COLORS = {
+  stone: { color: 8947865, emissive: 3359829 },
+  wood: { color: 9136404, emissive: 4469538 },
+  metal: { color: 11184844, emissive: 5596791 },
+  ice: { color: 8965375, emissive: 4491434 }
+};
+function createPhysicsObjectMesh(obj, scene2) {
+  const group = new THREE.Group();
+  const colors = MATERIAL_COLORS[obj.material] || MATERIAL_COLORS.stone;
+  const mat = new THREE.MeshStandardMaterial({
+    color: colors.color,
+    emissive: colors.emissive,
+    emissiveIntensity: 0.3,
+    roughness: 0.7
+  });
+  let geo;
+  switch (obj.meshType) {
+    case "rock":
+      geo = new THREE.SphereGeometry(obj.radius * obj.scale, 8, 6);
+      break;
+    case "crate": {
+      const r = obj.radius * obj.scale;
+      geo = new THREE.CylinderGeometry(r, r, r * 1.4, 6);
+      break;
+    }
+    case "barrel":
+      geo = new THREE.CylinderGeometry(
+        obj.radius * obj.scale * 0.8,
+        obj.radius * obj.scale,
+        obj.radius * obj.scale * 1.5,
+        8
+      );
+      break;
+    case "pillar":
+      geo = new THREE.CylinderGeometry(
+        obj.radius * obj.scale * 0.6,
+        obj.radius * obj.scale,
+        obj.radius * obj.scale * 2.5,
+        6
+      );
+      break;
+  }
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.y = obj.radius * obj.scale * 0.5;
+  group.add(mesh);
+  group.position.set(obj.pos.x, 0, obj.pos.z);
+  group.userData._baseGeoSize = obj.radius * obj.scale;
+  scene2.add(group);
+  obj.mesh = group;
+}
+function applyBendVisuals(obj, tintColor) {
+  if (!obj.mesh) return;
+  const base = obj.mesh.userData._baseGeoSize || 1;
+  const s = obj.radius / base;
+  obj.mesh.scale.set(s, s, s);
+  obj.mesh.traverse((child) => {
+    if (child.isMesh && child.material) {
+      child.material.emissive.setHex(tintColor);
+      child.material.emissiveIntensity = 0.6;
+    }
+  });
+}
+function clearBendVisuals(obj) {
+  if (!obj.mesh) return;
+  obj.mesh.scale.set(1, 1, 1);
+  const colors = MATERIAL_COLORS[obj.material] || MATERIAL_COLORS.stone;
+  obj.mesh.traverse((child) => {
+    if (child.isMesh && child.material) {
+      child.material.emissive.setHex(colors.emissive);
+      child.material.emissiveIntensity = 0.3;
+    }
+  });
+}
+function clearPhysicsObjects(gameState2, scene2) {
+  for (const obj of gameState2.physicsObjects) {
+    if (obj.mesh) {
+      scene2.remove(obj.mesh);
+      obj.mesh.traverse((child) => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      });
+    }
+  }
+  gameState2.physicsObjects = [];
+}
+
+// src/config/bends.ts
+var BENDS = [
+  {
+    id: "enlarge",
+    name: "Enlarge",
+    description: "Scale up \u2014 bigger, heavier, more impact",
+    icon: "\u2B06",
+    property: "size",
+    pole: "positive",
+    effects: [
+      { param: "scale", operation: "multiply", value: 2.5 },
+      { param: "mass", operation: "multiply", value: 2 },
+      { param: "radius", operation: "multiply", value: 2 }
+    ],
+    tintColor: 4491519
+  },
+  {
+    id: "shrink",
+    name: "Shrink",
+    description: "Scale down \u2014 tiny, light, flies on any push",
+    icon: "\u2B07",
+    property: "size",
+    pole: "negative",
+    effects: [
+      { param: "scale", operation: "multiply", value: 0.3 },
+      { param: "mass", operation: "multiply", value: 0.3 },
+      { param: "radius", operation: "multiply", value: 0.3 }
+    ],
+    tintColor: 16763972
+  }
+];
+function getBendById(id) {
+  return BENDS.find((b) => b.id === id);
+}
+
+// src/engine/bendSystem.ts
+function createBendSystem(maxBends2) {
+  let activeBends = [];
+  let remaining = maxBends2;
+  const max = maxBends2;
+  function applyBend(bendId, targetType, target4) {
+    const bend = getBendById(bendId);
+    if (!bend) return { success: false, reason: "invalid_bend" };
+    if (remaining <= 0) return { success: false, reason: "no_bends_remaining" };
+    const targetId = target4.id ?? 0;
+    const existing = activeBends.find((ab) => ab.targetId === targetId && ab.targetType === targetType);
+    if (existing) {
+      if (existing.bendId === bendId) {
+        return { success: false, reason: "already_applied" };
+      }
+      const existingBend = getBendById(existing.bendId);
+      if (existingBend && existingBend.property === bend.property) {
+        return { success: false, reason: "opposite_pole" };
+      }
+    }
+    const originalValues = {};
+    for (const fx of bend.effects) {
+      originalValues[fx.param] = target4[fx.param];
+    }
+    for (const fx of bend.effects) {
+      if (fx.operation === "multiply") {
+        target4[fx.param] *= fx.value;
+      } else if (fx.operation === "set") {
+        target4[fx.param] = fx.value;
+      }
+    }
+    activeBends.push({
+      bendId,
+      targetType,
+      targetId,
+      target: target4,
+      originalValues
+    });
+    remaining--;
+    return { success: true };
+  }
+  function resetAll() {
+    for (const ab of activeBends) {
+      for (const [param, value] of Object.entries(ab.originalValues)) {
+        ab.target[param] = value;
+      }
+    }
+    activeBends = [];
+    remaining = max;
+  }
+  function getActiveBends() {
+    return [...activeBends];
+  }
+  function bendsRemaining() {
+    return remaining;
+  }
+  function hasBendOnTarget(targetType, targetId) {
+    const found = activeBends.find((ab) => ab.targetType === targetType && ab.targetId === targetId);
+    return found ? found.bendId : null;
+  }
+  return { applyBend, resetAll, getActiveBends, bendsRemaining, hasBendOnTarget };
+}
+
+// src/ui/radialMenu.ts
+var containerEl = null;
+var optionEls = [];
+var visible = false;
+var selectedBendId = null;
+var onBendSelectedCallback = null;
+var MENU_SIZE = 200;
+var OPTION_SIZE = 72;
+var OPTION_DISTANCE = 60;
+function initRadialMenu() {
+  containerEl = document.createElement("div");
+  containerEl.id = "radial-menu";
+  containerEl.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: ${MENU_SIZE}px;
+    height: ${MENU_SIZE}px;
+    margin-left: ${-MENU_SIZE / 2}px;
+    margin-top: ${-MENU_SIZE / 2}px;
+    pointer-events: none;
+    z-index: 200;
+    display: none;
+  `;
+  const centerLabel = document.createElement("div");
+  centerLabel.style.cssText = `
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: rgba(200, 200, 220, 0.7);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    pointer-events: none;
+    white-space: nowrap;
+  `;
+  centerLabel.textContent = "BEND";
+  containerEl.appendChild(centerLabel);
+  const angleStep = 2 * Math.PI / BENDS.length;
+  const startAngle = Math.PI;
+  for (let i = 0; i < BENDS.length; i++) {
+    const bend = BENDS[i];
+    const angle = startAngle + i * angleStep;
+    const x = Math.cos(angle) * OPTION_DISTANCE;
+    const y = Math.sin(angle) * OPTION_DISTANCE;
+    const optEl = createOptionElement(bend, x, y);
+    containerEl.appendChild(optEl);
+    optionEls.push(optEl);
+  }
+  document.body.appendChild(containerEl);
+}
+function createOptionElement(bend, offsetX, offsetY) {
+  const el = document.createElement("div");
+  el.dataset.bendId = bend.id;
+  const colorHex = "#" + bend.tintColor.toString(16).padStart(6, "0");
+  el.style.cssText = `
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: ${OPTION_SIZE}px;
+    height: ${OPTION_SIZE}px;
+    margin-left: ${-OPTION_SIZE / 2 + offsetX}px;
+    margin-top: ${-OPTION_SIZE / 2 + offsetY}px;
+    border-radius: 50%;
+    background: rgba(20, 20, 40, 0.9);
+    border: 2px solid ${colorHex}44;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    user-select: none;
+  `;
+  const iconEl = document.createElement("div");
+  iconEl.style.cssText = `
+    font-size: 20px;
+    line-height: 1;
+    pointer-events: none;
+  `;
+  iconEl.textContent = bend.icon;
+  el.appendChild(iconEl);
+  const nameEl = document.createElement("div");
+  nameEl.style.cssText = `
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    color: ${colorHex};
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 4px;
+    pointer-events: none;
+  `;
+  nameEl.textContent = bend.name;
+  el.appendChild(nameEl);
+  el.addEventListener("mouseenter", () => {
+    if (selectedBendId === bend.id) return;
+    el.style.borderColor = colorHex + "aa";
+    el.style.transform = "scale(1.1)";
+  });
+  el.addEventListener("mouseleave", () => {
+    if (selectedBendId === bend.id) return;
+    el.style.borderColor = colorHex + "44";
+    el.style.transform = "scale(1)";
+  });
+  el.addEventListener("mousedown", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    selectBend(bend.id);
+  });
+  return el;
+}
+function selectBend(bendId) {
+  selectedBendId = bendId;
+  for (const optEl of optionEls) {
+    const id = optEl.dataset.bendId || "";
+    const bend = BENDS.find((b) => b.id === id);
+    if (!bend) continue;
+    const colorHex = "#" + bend.tintColor.toString(16).padStart(6, "0");
+    if (id === bendId) {
+      optEl.style.borderColor = colorHex;
+      optEl.style.boxShadow = `0 0 16px ${colorHex}88, inset 0 0 8px ${colorHex}44`;
+      optEl.style.transform = "scale(1.15)";
+    } else {
+      optEl.style.borderColor = colorHex + "22";
+      optEl.style.boxShadow = "none";
+      optEl.style.transform = "scale(0.9)";
+      optEl.style.opacity = "0.5";
+    }
+  }
+  if (onBendSelectedCallback) {
+    onBendSelectedCallback(bendId);
+  }
+}
+function showRadialMenu() {
+  if (!containerEl) return;
+  visible = true;
+  selectedBendId = null;
+  containerEl.style.display = "block";
+  for (const optEl of optionEls) {
+    const id = optEl.dataset.bendId || "";
+    const bend = BENDS.find((b) => b.id === id);
+    if (!bend) continue;
+    const colorHex = "#" + bend.tintColor.toString(16).padStart(6, "0");
+    optEl.style.borderColor = colorHex + "44";
+    optEl.style.boxShadow = "none";
+    optEl.style.transform = "scale(1)";
+    optEl.style.opacity = "1";
+  }
+}
+function hideRadialMenu() {
+  if (!containerEl) return;
+  visible = false;
+  containerEl.style.display = "none";
+}
+function getSelectedBendId() {
+  return selectedBendId;
+}
+function setOnBendSelected(callback) {
+  onBendSelectedCallback = callback;
+}
+function clearSelectedBend() {
+  selectedBendId = null;
+  for (const optEl of optionEls) {
+    const id = optEl.dataset.bendId || "";
+    const bend = BENDS.find((b) => b.id === id);
+    if (!bend) continue;
+    const colorHex = "#" + bend.tintColor.toString(16).padStart(6, "0");
+    optEl.style.borderColor = colorHex + "44";
+    optEl.style.boxShadow = "none";
+    optEl.style.transform = "scale(1)";
+    optEl.style.opacity = "1";
+  }
+}
+
+// src/engine/bendMode.ts
+var bendSystem = createBendSystem(3);
+var active2 = false;
+var targeting = false;
+var maxBends = 3;
+var highlightedObjects = /* @__PURE__ */ new Set();
+var hoveredObject = null;
+var highlightPulseTime = 0;
+function initBendMode() {
+  maxBends = 3;
+  bendSystem = createBendSystem(maxBends);
+}
+function toggleBendMode() {
+  if (active2) {
+    deactivateBendMode();
+  } else {
+    activateBendMode();
+  }
+}
+function activateBendMode() {
+  if (bendSystem.bendsRemaining() <= 0) return;
+  active2 = true;
+  targeting = false;
+  if (!isBulletTimeActive()) {
+    activateBulletTime();
+  }
+  showRadialMenu();
+  updateTargetingCursor();
+  emit({ type: "bendModeActivated" });
+}
+function deactivateBendMode() {
+  active2 = false;
+  targeting = false;
+  hideRadialMenu();
+  clearSelectedBend();
+  unhighlightAllObjects();
+  updateTargetingCursor();
+  if (isBulletTimeActive()) {
+    toggleBulletTime();
+  }
+  emit({ type: "bendModeDeactivated" });
+}
+function enterTargeting() {
+  if (!active2) return;
+  targeting = true;
+  hideRadialMenu();
+  updateTargetingCursor();
+}
+var targetingIndicator = null;
+function ensureTargetingIndicator() {
+  if (targetingIndicator) return;
+  targetingIndicator = document.createElement("div");
+  targetingIndicator.id = "bend-targeting";
+  targetingIndicator.style.cssText = `
+    position: fixed;
+    top: 55%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: rgba(100, 180, 255, 0.9);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    text-shadow: 0 0 10px rgba(100, 140, 255, 0.6);
+    pointer-events: none;
+    z-index: 200;
+    display: none;
+  `;
+  document.body.appendChild(targetingIndicator);
+}
+function updateTargetingCursor() {
+  ensureTargetingIndicator();
+  if (!targetingIndicator) return;
+  if (active2 && targeting) {
+    const bendId = getSelectedBendId();
+    const label = bendId === "enlarge" ? "ENLARGE" : bendId === "shrink" ? "SHRINK" : "BEND";
+    targetingIndicator.textContent = `[ ${label} ] click target`;
+    targetingIndicator.style.display = "block";
+    document.body.style.cursor = "crosshair";
+  } else if (active2 && !targeting) {
+    targetingIndicator.style.display = "none";
+    document.body.style.cursor = "default";
+  } else {
+    targetingIndicator.style.display = "none";
+    document.body.style.cursor = "default";
+  }
+}
+function isBendModeActive() {
+  return active2;
+}
+function isBendTargeting() {
+  return targeting;
+}
+function highlightTargetableObjects(gameState2) {
+  for (const obj of gameState2.physicsObjects) {
+    if (obj.destroyed || obj.fellInPit || !obj.mesh) continue;
+    if (highlightedObjects.has(obj)) continue;
+    obj.mesh.traverse((child) => {
+      if (child.isMesh && child.material) {
+        if (!child.userData._origEmissiveHex) {
+          child.userData._origEmissiveHex = child.material.emissive.getHex();
+          child.userData._origEmissiveIntensity = child.material.emissiveIntensity;
+        }
+      }
+    });
+    highlightedObjects.add(obj);
+  }
+}
+function unhighlightAllObjects() {
+  for (const obj of highlightedObjects) {
+    if (!obj.mesh) continue;
+    obj.mesh.traverse((child) => {
+      if (child.isMesh && child.material && child.userData._origEmissiveHex !== void 0) {
+        child.material.emissive.setHex(child.userData._origEmissiveHex);
+        child.material.emissiveIntensity = child.userData._origEmissiveIntensity;
+        delete child.userData._origEmissiveHex;
+        delete child.userData._origEmissiveIntensity;
+      }
+    });
+  }
+  highlightedObjects.clear();
+  hoveredObject = null;
+}
+function updateHighlightPulse(dt) {
+  highlightPulseTime += dt;
+  const pulse = 0.5 + 0.5 * Math.sin(highlightPulseTime * 4);
+  const baseIntensity = 0.3 + pulse * 0.5;
+  const hoverIntensity = 0.6 + pulse * 0.6;
+  const highlightColor = 6724095;
+  for (const obj of highlightedObjects) {
+    if (!obj.mesh) continue;
+    const isHovered = obj === hoveredObject;
+    obj.mesh.traverse((child) => {
+      if (child.isMesh && child.material) {
+        child.material.emissive.setHex(isHovered ? 8965375 : highlightColor);
+        child.material.emissiveIntensity = isHovered ? hoverIntensity : baseIntensity;
+      }
+    });
+  }
+}
+function updateBendHover(mouseNDC, gameState2) {
+  if (!active2 || !targeting) {
+    if (hoveredObject) hoveredObject = null;
+    return;
+  }
+  const camera2 = getCamera();
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(mouseNDC.x, mouseNDC.y), camera2);
+  const meshes = [];
+  const meshToObj = /* @__PURE__ */ new Map();
+  for (const obj of gameState2.physicsObjects) {
+    if (obj.destroyed || obj.fellInPit || !obj.mesh) continue;
+    meshes.push(obj.mesh);
+    meshToObj.set(obj.mesh, obj);
+  }
+  const intersects = raycaster.intersectObjects(meshes, true);
+  let newHovered = null;
+  if (intersects.length > 0) {
+    for (const hit of intersects) {
+      let current = hit.object;
+      while (current) {
+        if (meshToObj.has(current)) {
+          newHovered = meshToObj.get(current);
+          break;
+        }
+        current = current.parent;
+      }
+      if (newHovered) break;
+    }
+  }
+  hoveredObject = newHovered;
+}
+function updateBendMode(dt, gameState2) {
+  if (active2) {
+    highlightTargetableObjects(gameState2);
+    updateHighlightPulse(dt);
+  }
+}
+function handleBendClick(mouseNDC, gameState2) {
+  if (!active2 || !targeting) return;
+  const selectedBend = getSelectedBendId();
+  if (!selectedBend) return;
+  const camera2 = getCamera();
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(mouseNDC.x, mouseNDC.y), camera2);
+  const meshes = [];
+  const meshToObj = /* @__PURE__ */ new Map();
+  for (const obj of gameState2.physicsObjects) {
+    if (obj.destroyed || obj.fellInPit || !obj.mesh) continue;
+    meshes.push(obj.mesh);
+    meshToObj.set(obj.mesh, obj);
+  }
+  const intersects = raycaster.intersectObjects(meshes, true);
+  if (intersects.length > 0) {
+    let hitObj = null;
+    for (const hit of intersects) {
+      let current = hit.object;
+      while (current) {
+        if (meshToObj.has(current)) {
+          hitObj = meshToObj.get(current);
+          break;
+        }
+        current = current.parent;
+      }
+      if (hitObj) break;
+    }
+    if (hitObj) {
+      tryApplyBendToTarget(hitObj, "physicsObject");
+    }
+  }
+}
+function tryApplyBendToTarget(target4, targetType) {
+  const selectedBend = getSelectedBendId();
+  if (!selectedBend) return;
+  const result = bendSystem.applyBend(selectedBend, targetType, target4);
+  if (result.success) {
+    highlightedObjects.delete(target4);
+    if (target4.mesh) {
+      target4.mesh.traverse((child) => {
+        if (child.isMesh) {
+          delete child.userData._origEmissiveHex;
+          delete child.userData._origEmissiveIntensity;
+        }
+      });
+    }
+    const bend = getBendById(selectedBend);
+    if (bend) {
+      applyBendVisuals(target4, bend.tintColor);
+    }
+    emit({
+      type: "bendApplied",
+      bendId: selectedBend,
+      targetType,
+      targetId: target4.id ?? 0,
+      position: { x: target4.pos.x, z: target4.pos.z }
+    });
+    targeting = false;
+    clearSelectedBend();
+    if (bendSystem.bendsRemaining() > 0) {
+      showRadialMenu();
+    } else {
+      deactivateBendMode();
+    }
+  } else {
+    emit({
+      type: "bendFailed",
+      bendId: selectedBend,
+      reason: result.reason || "unknown"
+    });
+  }
+}
+function resetBendMode() {
+  const activeBends = bendSystem.getActiveBends();
+  for (const ab of activeBends) {
+    if (ab.target && ab.target.mesh) {
+      clearBendVisuals(ab.target);
+    }
+  }
+  bendSystem.resetAll();
+  active2 = false;
+  targeting = false;
+  unhighlightAllObjects();
+  highlightPulseTime = 0;
+  hideRadialMenu();
+  clearSelectedBend();
+}
+
 // src/engine/roomManager.ts
 var currentRoomIndex = 0;
 var packIndex = 0;
@@ -8607,12 +9609,22 @@ function loadRoom(index, gameState2) {
   clearLaunchIndicator();
   cleanupGroundShadows();
   clearVisionCones();
+  clearPhysicsObjects(gameState2, sceneRef11);
+  resetBendMode();
+  resetPhysicsObjectIds();
   setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);
   setHeightZones(room.heightZones ?? []);
   invalidateCollisionBounds();
   rebuildArenaVisuals();
   setFrustumSize(room.frustumSize ?? 12);
   initGroundShadows();
+  if (room.physicsObjects) {
+    for (const placement of room.physicsObjects) {
+      const obj = createPhysicsObject(placement);
+      createPhysicsObjectMesh(obj, sceneRef11);
+      gameState2.physicsObjects.push(obj);
+    }
+  }
   setPlayerPosition(room.playerStart.x, room.playerStart.z);
   gameState2.currentWave = index + 1;
   showAnnounce(room.name);
@@ -10043,6 +11055,9 @@ var gameState = {
   currency: 0,
   currentWave: 1,
   enemies: [],
+  physicsObjects: [],
+  bendMode: false,
+  bendsPerRoom: 3,
   abilities: {
     dash: { cooldownRemaining: 0 },
     ultimate: { cooldownRemaining: 0, active: false, activeRemaining: 0, charging: false, chargeT: 0 }
@@ -10076,10 +11091,26 @@ function gameLoop(timestamp) {
   }
   autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
-  if (input.bulletTime) toggleBulletTime();
+  if (getActiveProfile() === "rule-bending") {
+    if (input.bendMode) toggleBendMode();
+  } else {
+    if (input.bulletTime) toggleBulletTime();
+  }
   updateBulletTime(dt);
   const gameDt = dt * getBulletTimeScale();
-  updatePlayer(input, dt, gameState);
+  if (isBendModeActive() && isBendTargeting() && input.attack) {
+    handleBendClick(input.mouseNDC, gameState);
+  }
+  updateBendMode(dt, gameState);
+  if (isBendModeActive() && isBendTargeting()) {
+    updateBendHover(input.mouseNDC, gameState);
+  }
+  if (isBendModeActive()) {
+    const gatedInput = { ...input, attack: false, dash: false, ultimate: false, ultimateHeld: false };
+    updatePlayer(gatedInput, dt, gameState);
+  } else {
+    updatePlayer(input, dt, gameState);
+  }
   input._gameState = gameState;
   updateAerialVerbs(gameDt, getPlayerPos(), input);
   updateCarriers(dt, gameState);
@@ -10090,6 +11121,9 @@ function gameLoop(timestamp) {
   checkCollisions(gameState);
   applyVelocities(gameDt, gameState);
   resolveEnemyCollisions(gameState);
+  applyObjectVelocities(gameDt, gameState);
+  resolveObjectCollisions(gameState);
+  resolvePhysicsObjectBodyCollisions(gameState);
   checkPitFalls(gameState);
   updateEffectGhosts(gameDt);
   updateParticles(gameDt);
@@ -10144,6 +11178,11 @@ function init() {
     initAudio();
     initParticles(scene2);
     initBulletTime();
+    initRadialMenu();
+    setOnBendSelected((_bendId) => {
+      enterTargeting();
+    });
+    initBendMode();
     initVisionCones(scene2, raycastTerrainDist);
     initAerialVerbs([floatSelectorVerb, dunkVerb, spikeVerb]);
     initLaunchPillars(scene2);

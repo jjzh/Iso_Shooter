@@ -33,6 +33,8 @@ import { triggerRoomHighlights, clearHighlights } from './roomHighlights';
 import { initDoor, createDoor, unlockDoor, updateDoor, removeDoor } from './door';
 import { DOOR_CONFIG } from '../config/door';
 import { SpawnPack } from '../types/index';
+import { createPhysicsObject, createPhysicsObjectMesh, clearPhysicsObjects, resetPhysicsObjectIds } from '../entities/physicsObject';
+import { resetBendMode } from './bendMode';
 
 // ─── State ───
 
@@ -113,6 +115,9 @@ export function loadRoom(index: number, gameState: any) {
   clearLaunchIndicator();
   cleanupGroundShadows();
   clearVisionCones();
+  clearPhysicsObjects(gameState, sceneRef);
+  resetBendMode();
+  resetPhysicsObjectIds();
 
   // Swap arena layout
   setArenaConfig(room.obstacles, room.pits, room.arenaHalfX, room.arenaHalfZ);
@@ -121,6 +126,15 @@ export function loadRoom(index: number, gameState: any) {
   rebuildArenaVisuals();
   setFrustumSize(room.frustumSize ?? 12);
   initGroundShadows();
+
+  // Spawn physics objects (if room defines them)
+  if (room.physicsObjects) {
+    for (const placement of room.physicsObjects) {
+      const obj = createPhysicsObject(placement);
+      createPhysicsObjectMesh(obj, sceneRef);
+      gameState.physicsObjects.push(obj);
+    }
+  }
 
   // Set player position
   setPlayerPosition(room.playerStart.x, room.playerStart.z);
