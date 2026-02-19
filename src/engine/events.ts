@@ -31,6 +31,7 @@ export type GameEvent =
   | { type: 'enemyMeleeTelegraph'; position: { x: number; z: number }; facingAngle: number; hitArc: number; hitRange: number; duration: number }
   | { type: 'wallSlam'; enemy: any; speed: number; damage: number; position: { x: number; z: number } }
   | { type: 'enemyImpact'; enemyA: any; enemyB: any; speed: number; damage: number; position: { x: number; z: number } }
+  | { type: 'enemyAggroed'; enemy: any; position: { x: number; z: number } }
   | { type: 'bulletTimeActivated' }
   | { type: 'bulletTimeDeactivated' }
   | { type: 'playerJump'; position: { x: number; z: number } }

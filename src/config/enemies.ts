@@ -39,7 +39,14 @@ export const ENEMY_TYPES: Record<string, EnemyConfig> = {
       leapSpeed: 7,
       arcHeight: 2,
       cooldown: 4000
-    }
+    },
+    aggroRadius: 8,
+    patrol: {
+      distance: 6,
+      speed: 1.2,
+      pauseMin: 500,
+      pauseMax: 1500,
+    },
   },
   skeletonArcher: {
     name: "Skeleton Archer",

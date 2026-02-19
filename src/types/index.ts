@@ -292,6 +292,13 @@ export interface EnemyConfig {
     arcHeight: number;
     cooldown: number;
   };
+  aggroRadius?: number;
+  patrol?: {
+    distance: number;
+    speed: number;
+    pauseMin: number;
+    pauseMax: number;
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
