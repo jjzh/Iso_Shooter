@@ -7,6 +7,8 @@ import {
   setAimFromScreenDrag, setAbilityDirOverride, clearAbilityDirOverride
 } from '../engine/input';
 import { playerHasTag, TAG } from '../engine/tags';
+import { getLaunchCooldownTimer } from '../entities/player';
+import { LAUNCH } from '../config/player';
 import { isBulletTimeActive, getBulletTimeResource, getBulletTimeMax } from '../engine/bulletTime';
 import { on } from '../engine/events';
 
@@ -386,6 +388,28 @@ function findTouch(touchList: any, id: number) {
   return null;
 }
 
+/**
+ * Update a mobile button's cooldown overlay and text.
+ * Shows a fill-down overlay proportional to remaining cooldown, plus seconds text.
+ */
+function updateMobileBtnCooldown(btn: HTMLElement, cooldownRemaining: number, cooldownTotal: number): void {
+  const cdOverlay = btn.querySelector('.mobile-btn-cd-overlay') as HTMLElement;
+  const cdText = btn.querySelector('.mobile-btn-cd-text') as HTMLElement;
+  if (!cdOverlay || !cdText) return;
+
+  if (cooldownRemaining > 0) {
+    btn.classList.remove('ready');
+    const ratio = cooldownRemaining / cooldownTotal;
+    cdOverlay.style.height = (ratio * 100) + '%';
+    cdText.style.display = 'block';
+    cdText.textContent = Math.ceil(cooldownRemaining / 1000).toString();
+  } else {
+    btn.classList.add('ready');
+    cdOverlay.style.height = '0%';
+    cdText.style.display = 'none';
+  }
+}
+
 export function updateHUD(gameState: any) {
   // Health bar
   const pct = Math.max(0, gameState.playerHealth / gameState.playerMaxHealth);
@@ -462,7 +486,41 @@ export function updateHUD(gameState: any) {
       }
     }
 
-    // --- Mobile action button cooldowns ---
-    // TODO: Task 8 will rewrite mobile button cooldown display for all 5 buttons
+  }
+
+  // --- Mobile action button cooldowns ---
+  if (mobileBtnAttack) {
+    // Attack/Push button shows force push cooldown
+    const ult = gameState.abilities.ultimate;
+    updateMobileBtnCooldown(mobileBtnAttack, ult.cooldownRemaining, (ABILITIES as any).ultimate.cooldown);
+
+    // If charging, show charge progress with a distinct color
+    const cdOverlay = mobileBtnAttack.querySelector('.mobile-btn-cd-overlay') as HTMLElement;
+    if (cdOverlay) {
+      if (ult.charging) {
+        cdOverlay.style.height = ((1 - ult.chargeT) * 100) + '%';
+        cdOverlay.style.background = 'rgba(255, 200, 0, 0.4)';
+      } else {
+        cdOverlay.style.background = 'rgba(0,0,0,0.6)';
+      }
+    }
+  }
+
+  if (mobileBtnDash) {
+    const dash = gameState.abilities.dash;
+    updateMobileBtnCooldown(mobileBtnDash, dash.cooldownRemaining, (ABILITIES as any).dash.cooldown);
+  }
+
+  if (mobileBtnLaunch) {
+    // Launch cooldown is tracked in player.ts, not gameState.abilities
+    const launchCdRemaining = getLaunchCooldownTimer();
+    updateMobileBtnCooldown(mobileBtnLaunch, launchCdRemaining, LAUNCH.cooldown);
+  }
+
+  // Cancel button: show active state when there's something to cancel
+  if (mobileBtnCancel) {
+    const hasActiveVerb = playerHasTag(TAG.AERIAL);
+    const isCharging = gameState.abilities.ultimate.charging;
+    mobileBtnCancel.classList.toggle('active', hasActiveVerb || isCharging);
   }
 }

@@ -882,6 +882,7 @@ export function isPlayerInvincible() { return isInvincible; }
 export function isPlayerDashing() { return isDashing; }
 export function getIsPlayerAirborne() { return isPlayerAirborne; }
 export function getPlayerVelY() { return playerVelY; }
+export function getLaunchCooldownTimer() { return launchCooldownTimer; }
 export function consumePushEvent() {
   const evt = pushEvent;
   pushEvent = null;
