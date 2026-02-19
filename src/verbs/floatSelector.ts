@@ -16,6 +16,7 @@
 import { DUNK, FLOAT_SELECTOR } from '../config/player';
 import { setGravityOverride, transferClaim } from '../engine/aerialVerbs';
 import type { AerialVerb, LaunchedEnemy } from '../engine/aerialVerbs';
+import { activateBulletTimeAuto, deactivateBulletTimeAuto } from '../engine/bulletTime';
 import { screenShake, getScene } from '../engine/renderer';
 import { spawnDamageNumber } from '../ui/damageNumbers';
 import { TAG } from '../engine/tags';
@@ -222,6 +223,7 @@ export const floatSelectorVerb: AerialVerb = {
   onCancel(entry: LaunchedEnemy): void {
     removeDecal();
     removeChargeRing();
+    deactivateBulletTimeAuto();
     setGravityOverride(entry.enemy, 1);
     phase = 'none';
     target = null;
@@ -335,6 +337,8 @@ function updateFloat(dt: number, enemy: any, playerPos: any, inputState: any): '
     lmbPressed = true;
     lmbHoldTimer = 0;
     createChargeRing(playerPos);
+    // Auto-engage bullet time so player has time to aim for dunk
+    activateBulletTimeAuto();
   }
 
   if (lmbPressed) {
@@ -352,6 +356,7 @@ function updateFloat(dt: number, enemy: any, playerPos: any, inputState: any): '
       }
     } else {
       // LMB was released before threshold → tap → transfer to spike
+      deactivateBulletTimeAuto();
       transferClaim(enemy, 'spike');
       resolved = true;
       return 'complete';

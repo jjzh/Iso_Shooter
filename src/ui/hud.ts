@@ -170,7 +170,6 @@ function initMobileButtons() {
     return;
   }
 
-  console.log('[mobile] initMobileButtons: all elements found, positioning...');
   _mobileButtonsWired = true;
   positionMobileButtons();
   wireButtonHandlers();
@@ -297,7 +296,6 @@ export function positionMobileButtons(): void {
   // Primary button center: near bottom-right corner
   const pCX = C.edgeMargin + C.primarySize / 2;
   const pCY = C.edgeMargin + C.primarySize / 2;
-  console.log('[mobile] positionMobileButtons called, pCX=', pCX, 'pCY=', pCY, 'arcStart=', C.arcStartAngle, 'arcSpread=', C.arcSpread, 'radius=', C.arcRadius);
   placeButtonAtCenter(mobileBtnAttack, pCX, pCY, C.primarySize);
 
   // Fan buttons arc outward from primary center
@@ -325,7 +323,6 @@ function placeButtonAtCenter(btn: HTMLElement | null, cx: number, cy: number, si
   // Convert center coords to CSS right/bottom (distance from element edge to container edge)
   btn.style.right = (cx - size / 2) + 'px';
   btn.style.bottom = (cy - size / 2) + 'px';
-  console.log('[mobile] placed', btn.id, 'right=', btn.style.right, 'bottom=', btn.style.bottom, 'size=', size);
 }
 
 /**

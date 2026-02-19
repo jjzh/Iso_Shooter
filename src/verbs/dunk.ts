@@ -13,6 +13,7 @@ import { DUNK, JUMP } from '../config/player';
 import { getGroundHeight } from '../config/terrain';
 import { setGravityOverride } from '../engine/aerialVerbs';
 import type { AerialVerb, LaunchedEnemy } from '../engine/aerialVerbs';
+import { deactivateBulletTimeAuto } from '../engine/bulletTime';
 import { screenShake, getScene } from '../engine/renderer';
 import { emit } from '../engine/events';
 import { spawnDamageNumber } from '../ui/damageNumbers';
@@ -285,6 +286,7 @@ export const dunkVerb: AerialVerb = {
     // Clean up everything — enemy died, float expired, etc.
     removeDecal();
     removeTrail();
+    deactivateBulletTimeAuto();
     // Reset gravity to normal for the enemy
     setGravityOverride(entry.enemy, 1);
     phase = 'none';
@@ -343,6 +345,7 @@ export const dunkVerb: AerialVerb = {
     // Visual cleanup
     removeDecal();
     startTrailFade();
+    deactivateBulletTimeAuto();
 
     // Set landing lag (player.ts reads this)
     landingLagMs = DUNK.landingLag;
@@ -370,10 +373,8 @@ function transitionToGrab(enemy: any, playerPos: any): void {
   playerVelYOverride = DUNK.arcRiseVelocity;
   if (ptVel) ptVel.y = DUNK.arcRiseVelocity;
 
-  // Face the landing target
-  const faceDx = landingX - playerPos.x;
-  const faceDz = landingZ - playerPos.z;
-  // Note: player.ts will read the facing from getDunkFacing() or compute it
+  // Create landing target decal (magenta with crosshair)
+  createDecal(originX, originZ);
 
   // Record slam start for arc progress
   slamStartY = playerPos.y;

@@ -400,7 +400,8 @@ export function getAbilityDirOverride() { return _abilityDirOverride; }
  */
 export function autoAimClosestEnemy(enemies: any[]) {
   // Only on touch devices, and only when no manual aim is active
-  if (!touchActive) return;
+  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  if (!isTouchDevice) return;
   if (touchAimActive || _abilityAimActive) return;
 
   if (!enemies || enemies.length === 0) return;

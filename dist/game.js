@@ -845,6 +845,90 @@ function on(type, callback) {
   set.add(callback);
 }
 
+// src/engine/bulletTime.ts
+var BULLET_TIME = {
+  timeScale: 0.25,
+  // how slow the world runs (0.25 = 25% speed)
+  maxResource: 3e3,
+  // ms of bullet time available at full bar
+  drainRate: 1e3,
+  // resource drained per real second while active
+  killRefill: 600,
+  // resource refilled per enemy kill
+  activationMinimum: 300,
+  // minimum resource required to activate
+  infinite: 1
+  // 1 = infinite resource (skip drain), 0 = normal drain
+};
+var resource = BULLET_TIME.maxResource;
+var active = false;
+var initialized = false;
+var _autoEngaged = false;
+function initBulletTime() {
+  if (initialized) return;
+  initialized = true;
+  on("enemyDied", () => {
+    refillBulletTime(BULLET_TIME.killRefill);
+  });
+}
+function activateBulletTime() {
+  if (active) return;
+  if (resource >= BULLET_TIME.activationMinimum) {
+    active = true;
+    emit({ type: "bulletTimeActivated" });
+  }
+}
+function toggleBulletTime() {
+  if (active) {
+    active = false;
+    emit({ type: "bulletTimeDeactivated" });
+  } else {
+    activateBulletTime();
+  }
+}
+function updateBulletTime(realDt) {
+  if (!active) return;
+  if (BULLET_TIME.infinite >= 1) return;
+  resource -= BULLET_TIME.drainRate * realDt;
+  if (resource <= 0) {
+    resource = 0;
+    active = false;
+    emit({ type: "bulletTimeDeactivated" });
+  }
+}
+function getBulletTimeScale() {
+  return active ? BULLET_TIME.timeScale : 1;
+}
+function refillBulletTime(amount) {
+  resource = Math.min(resource + amount, BULLET_TIME.maxResource);
+}
+function resetBulletTime() {
+  resource = BULLET_TIME.maxResource;
+  active = false;
+}
+function isBulletTimeActive() {
+  return active;
+}
+function getBulletTimeResource() {
+  return resource;
+}
+function getBulletTimeMax() {
+  return BULLET_TIME.maxResource;
+}
+function activateBulletTimeAuto() {
+  if (active) return;
+  _autoEngaged = true;
+  activateBulletTime();
+}
+function deactivateBulletTimeAuto() {
+  if (!_autoEngaged) return;
+  _autoEngaged = false;
+  if (active) {
+    active = false;
+    emit({ type: "bulletTimeDeactivated" });
+  }
+}
+
 // src/ui/damageNumbers.ts
 var canvas;
 var ctx;
@@ -957,6 +1041,46 @@ var TRAIL_MAX = 20;
 var trailLine = null;
 var trailPoints = [];
 var trailLife = 0;
+function createDecal(cx, cz) {
+  const scene2 = getScene();
+  const radius = DUNK.targetRadius;
+  decalGroup = new THREE.Group();
+  decalGroup.position.set(cx, 0.06, cz);
+  const fillGeo2 = new THREE.CircleGeometry(radius, 32);
+  const fillMat = new THREE.MeshBasicMaterial({
+    color: 16729343,
+    transparent: true,
+    opacity: 0.08,
+    depthWrite: false
+  });
+  decalFill = new THREE.Mesh(fillGeo2, fillMat);
+  decalFill.rotation.x = -Math.PI / 2;
+  decalGroup.add(decalFill);
+  const ringGeo4 = new THREE.RingGeometry(radius - 0.06, radius, 48);
+  const ringMat2 = new THREE.MeshBasicMaterial({
+    color: 16738047,
+    transparent: true,
+    opacity: 0.4,
+    depthWrite: false
+  });
+  decalRing = new THREE.Mesh(ringGeo4, ringMat2);
+  decalRing.rotation.x = -Math.PI / 2;
+  decalGroup.add(decalRing);
+  const dotGeo = new THREE.CircleGeometry(DUNK.aoeRadius, 24);
+  const dotMat = new THREE.MeshBasicMaterial({
+    color: 16746751,
+    transparent: true,
+    opacity: 0.15,
+    depthWrite: false
+  });
+  const dot = new THREE.Mesh(dotGeo, dotMat);
+  dot.rotation.x = -Math.PI / 2;
+  dot.name = "dunkCrosshair";
+  decalGroup.add(dot);
+  decalGroup.scale.set(0, 0, 0);
+  decalAge = 0;
+  scene2.add(decalGroup);
+}
 function updateDecal(aimX2, aimZ2, dt) {
   if (!decalGroup) return;
   if (decalAge < DECAL_EXPAND_MS) {
@@ -1084,6 +1208,7 @@ var dunkVerb = {
   onCancel(entry) {
     removeDecal();
     removeTrail();
+    deactivateBulletTimeAuto();
     setGravityOverride(entry.enemy, 1);
     phase = "none";
     target = null;
@@ -1134,6 +1259,7 @@ var dunkVerb = {
     spawnDamageNumber(enemy.pos.x, enemy.pos.z, `DUNK! ${DUNK.damage}`, "#ff2244");
     removeDecal();
     startTrailFade();
+    deactivateBulletTimeAuto();
     landingLagMs = DUNK.landingLag;
     phase = "none";
     target = null;
@@ -1149,8 +1275,7 @@ function transitionToGrab(enemy, playerPos2) {
   enemy.pos.y = playerPos2.y + DUNK.carryOffsetY;
   playerVelYOverride = DUNK.arcRiseVelocity;
   if (ptVel) ptVel.y = DUNK.arcRiseVelocity;
-  const faceDx = landingX - playerPos2.x;
-  const faceDz = landingZ - playerPos2.z;
+  createDecal(originX, originZ);
   slamStartY = playerPos2.y;
   slamStartX = playerPos2.x;
   slamStartZ = playerPos2.z;
@@ -1303,7 +1428,7 @@ var decalAge2 = 0;
 var DECAL_EXPAND_MS2 = 250;
 var chargeRing = null;
 var chargeRingMat = null;
-function createDecal(cx, cz) {
+function createDecal2(cx, cz) {
   const scene2 = getScene();
   const radius = DUNK.targetRadius;
   decalGroup2 = new THREE.Group();
@@ -1418,7 +1543,7 @@ var floatSelectorVerb = {
     playerVelYOverride2 = null;
     prevPlayerX = NaN;
     if (!decalGroup2) {
-      createDecal(0, 0);
+      createDecal2(0, 0);
     }
   },
   update(dt, entry, playerPos2, inputState2) {
@@ -1433,6 +1558,7 @@ var floatSelectorVerb = {
   onCancel(entry) {
     removeDecal2();
     removeChargeRing();
+    deactivateBulletTimeAuto();
     setGravityOverride(entry.enemy, 1);
     phase2 = "none";
     target2 = null;
@@ -1508,6 +1634,7 @@ function updateFloat(dt, enemy, playerPos2, inputState2) {
     lmbPressed = true;
     lmbHoldTimer = 0;
     createChargeRing(playerPos2);
+    activateBulletTimeAuto();
   }
   if (lmbPressed) {
     if (inputState2.attackHeld) {
@@ -1520,6 +1647,7 @@ function updateFloat(dt, enemy, playerPos2, inputState2) {
         return "complete";
       }
     } else {
+      deactivateBulletTimeAuto();
       transferClaim(enemy, "spike");
       resolved = true;
       return "complete";
@@ -5789,7 +5917,8 @@ function getAbilityDirOverride() {
   return _abilityDirOverride;
 }
 function autoAimClosestEnemy(enemies) {
-  if (!touchActive) return;
+  const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+  if (!isTouchDevice) return;
   if (touchAimActive || _abilityAimActive) return;
   if (!enemies || enemies.length === 0) return;
   const pp = getPlayerPos();
@@ -7805,76 +7934,6 @@ var MOBILE_CONTROLS = {
   // px — full deflection range for drag-to-aim
 };
 
-// src/engine/bulletTime.ts
-var BULLET_TIME = {
-  timeScale: 0.25,
-  // how slow the world runs (0.25 = 25% speed)
-  maxResource: 3e3,
-  // ms of bullet time available at full bar
-  drainRate: 1e3,
-  // resource drained per real second while active
-  killRefill: 600,
-  // resource refilled per enemy kill
-  activationMinimum: 300,
-  // minimum resource required to activate
-  infinite: 1
-  // 1 = infinite resource (skip drain), 0 = normal drain
-};
-var resource = BULLET_TIME.maxResource;
-var active = false;
-var initialized = false;
-function initBulletTime() {
-  if (initialized) return;
-  initialized = true;
-  on("enemyDied", () => {
-    refillBulletTime(BULLET_TIME.killRefill);
-  });
-}
-function activateBulletTime() {
-  if (active) return;
-  if (resource >= BULLET_TIME.activationMinimum) {
-    active = true;
-    emit({ type: "bulletTimeActivated" });
-  }
-}
-function toggleBulletTime() {
-  if (active) {
-    active = false;
-    emit({ type: "bulletTimeDeactivated" });
-  } else {
-    activateBulletTime();
-  }
-}
-function updateBulletTime(realDt) {
-  if (!active) return;
-  if (BULLET_TIME.infinite >= 1) return;
-  resource -= BULLET_TIME.drainRate * realDt;
-  if (resource <= 0) {
-    resource = 0;
-    active = false;
-    emit({ type: "bulletTimeDeactivated" });
-  }
-}
-function getBulletTimeScale() {
-  return active ? BULLET_TIME.timeScale : 1;
-}
-function refillBulletTime(amount) {
-  resource = Math.min(resource + amount, BULLET_TIME.maxResource);
-}
-function resetBulletTime() {
-  resource = BULLET_TIME.maxResource;
-  active = false;
-}
-function isBulletTimeActive() {
-  return active;
-}
-function getBulletTimeResource() {
-  return resource;
-}
-function getBulletTimeMax() {
-  return BULLET_TIME.maxResource;
-}
-
 // src/ui/hud.ts
 var healthBar;
 var healthText;
@@ -8013,7 +8072,6 @@ function initMobileButtons() {
     console.warn("[mobile] mobile-btn-attack not found in DOM");
     return;
   }
-  console.log("[mobile] initMobileButtons: all elements found, positioning...");
   _mobileButtonsWired = true;
   positionMobileButtons();
   wireButtonHandlers();
@@ -8110,7 +8168,6 @@ function positionMobileButtons() {
   if (!mobileBtnAttack) return;
   const pCX = C2.edgeMargin + C2.primarySize / 2;
   const pCY = C2.edgeMargin + C2.primarySize / 2;
-  console.log("[mobile] positionMobileButtons called, pCX=", pCX, "pCY=", pCY, "arcStart=", C2.arcStartAngle, "arcSpread=", C2.arcSpread, "radius=", C2.arcRadius);
   placeButtonAtCenter(mobileBtnAttack, pCX, pCY, C2.primarySize);
   const fanButtons = [mobileBtnDash, mobileBtnJump, mobileBtnLaunch];
   for (let i = 0; i < fanButtons.length; i++) {
@@ -8131,7 +8188,6 @@ function placeButtonAtCenter(btn, cx, cy, size) {
   btn.style.height = size + "px";
   btn.style.right = cx - size / 2 + "px";
   btn.style.bottom = cy - size / 2 + "px";
-  console.log("[mobile] placed", btn.id, "right=", btn.style.right, "bottom=", btn.style.bottom, "size=", size);
 }
 function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel }) {
   let touchId = null;

@@ -16,6 +16,7 @@ export const BULLET_TIME = {
 let resource = BULLET_TIME.maxResource;
 let active = false;
 let initialized = false;
+let _autoEngaged = false;  // true when BT was auto-activated by a verb (dunk hold)
 
 export function initBulletTime() {
   if (initialized) return;
@@ -85,4 +86,21 @@ export function getBulletTimeResource(): number {
 
 export function getBulletTimeMax(): number {
   return BULLET_TIME.maxResource;
+}
+
+/** Auto-engage BT for a verb (e.g. dunk hold). Only activates if not already active. */
+export function activateBulletTimeAuto() {
+  if (active) return; // already active (manual or prior auto)
+  _autoEngaged = true;
+  activateBulletTime();
+}
+
+/** Disengage auto-BT. No-op if player manually activated BT (preserves their choice). */
+export function deactivateBulletTimeAuto() {
+  if (!_autoEngaged) return;
+  _autoEngaged = false;
+  if (active) {
+    active = false;
+    emit({ type: 'bulletTimeDeactivated' });
+  }
 }
