@@ -360,6 +360,18 @@ let _touchUltHeld = false;
 export function triggerDash() { inputState.dash = true; }
 export function triggerUltimate() { inputState.ultimate = true; }
 export function setUltimateHeld(held: boolean) { _touchUltHeld = held; }
+export function triggerAttack() { inputState.attack = true; }
+export function triggerJump() { inputState.jump = true; }
+export function triggerLaunch() { inputState.launch = true; }
+export function setAttackHeld(held: boolean) { inputState.attackHeld = held; }
+
+// Cancel flag — consumed by game loop to cancel active verb / charge
+let _cancelRequested = false;
+export function triggerCancel() { _cancelRequested = true; }
+export function consumeCancel(): boolean {
+  if (_cancelRequested) { _cancelRequested = false; return true; }
+  return false;
+}
 
 // Drag-to-aim: set aim world position from screen-space drag direction
 let _abilityAimActive = false; // true while a mobile button drag is overriding aim

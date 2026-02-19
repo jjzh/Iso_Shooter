@@ -275,84 +275,70 @@ canvas {
   opacity: 1;
 }
 
-/* ── Mobile Action Buttons (Wild Rift style) ── */
+/* ── Mobile action buttons (radial fan) ── */
 #mobile-actions {
-  display: none; /* hidden on desktop */
+  display: none;
   position: fixed;
-  right: 20px;
-  bottom: 20%;
-  z-index: 20;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  pointer-events: auto;
+  bottom: 0;
+  right: 0;
+  width: 280px;
+  height: 280px;
+  z-index: 100;
+  pointer-events: none;
 }
 
 .mobile-btn {
-  width: 68px;
-  height: 68px;
+  position: absolute;
   border-radius: 50%;
-  background: rgba(15, 15, 30, 0.85);
-  border: 2px solid rgba(100, 100, 160, 0.5);
-  position: relative;
+  background: rgba(255,255,255,0.12);
+  border: 2px solid rgba(255,255,255,0.25);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
   touch-action: none;
-  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: auto;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.mobile-btn-primary { }
+.mobile-btn-fan { }
+
+.mobile-btn-cancel {
+  opacity: 0.5;
+}
+
+.mobile-btn-cancel.active {
+  opacity: 1.0;
+  border-color: rgba(255, 80, 80, 0.6);
 }
 
 .mobile-btn.ready {
-  border-color: rgba(68, 255, 136, 0.7);
-  box-shadow: 0 0 12px rgba(68, 255, 136, 0.25), inset 0 0 8px rgba(68, 255, 136, 0.08);
+  border-color: rgba(68, 255, 136, 0.5);
+  box-shadow: 0 0 10px rgba(68, 255, 136, 0.25);
 }
 
-.mobile-btn:active {
-  transform: scale(0.9);
-}
-
-.mobile-btn-icon {
-  font-size: 22px;
-  z-index: 2;
-  pointer-events: none;
-}
-
-.mobile-btn-label {
-  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-  font-size: 8px;
-  color: rgba(255, 255, 255, 0.5);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  margin-top: 1px;
-  z-index: 2;
-  pointer-events: none;
-}
+.mobile-btn-icon { font-size: 22px; line-height: 1; z-index: 2; pointer-events: none; }
+.mobile-btn-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.7; margin-top: 2px; z-index: 2; pointer-events: none; }
 
 .mobile-btn-cd-text {
-  position: absolute;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 20px; font-weight: bold;
+  color: rgba(255,255,255,0.9);
+  text-shadow: 0 0 6px rgba(0,0,0,0.8);
+  z-index: 3; pointer-events: none;
   display: none;
-  align-items: center;
-  justify-content: center;
-  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-  font-size: 20px;
-  font-weight: bold;
-  color: rgba(255, 255, 255, 0.9);
-  z-index: 3;
-  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
-  pointer-events: none;
 }
 
 .mobile-btn-cd-overlay {
-  position: absolute;
-  bottom: 0; left: 0;
-  width: 100%; height: 0%;
-  background: rgba(0, 0, 0, 0.65);
-  border-radius: 50%;
-  pointer-events: none;
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: rgba(0,0,0,0.6);
+  border-radius: 0 0 50% 50%;
+  z-index: 1; pointer-events: none;
+  height: 0%;
 }
 
 /* ── Touch Joystick Zones ── */
@@ -360,12 +346,12 @@ canvas {
   position: fixed;
   bottom: 0;
   width: 50%;
-  height: 45%;
-  z-index: 15;
+  height: 35%;
+  z-index: 50;
   display: none; /* hidden by default — shown on touch devices */
 }
 #zone-left  { left: 0; }
-#zone-right { right: 0; }
+#zone-right { left: 50%; }
 
 /* ── Mobile overrides (touch devices) ── */
 @media (pointer: coarse) {
