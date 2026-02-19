@@ -3,10 +3,13 @@
 // Rooms are rectangular (longer on Z) — player enters from +Z (bottom-left in iso),
 // progresses toward -Z (top-right in iso), exits through a door at the far end
 
-import { Obstacle, Pit, SpawnPack, RoomSpawnBudget } from '../types/index';
+import { Obstacle, Pit, SpawnPack, RoomSpawnBudget, PlayerProfile } from '../types/index';
 
 export interface RoomDefinition {
   name: string;
+  profile: PlayerProfile;
+  sandboxMode: boolean;
+  commentary: string;
   arenaHalfX: number;
   arenaHalfZ: number;
   obstacles: Obstacle[];
@@ -45,6 +48,9 @@ export const ROOMS: RoomDefinition[] = [
   // ══════════════════════════════════════════════════════════════════════
   {
     name: 'The Approach',
+    profile: 'base',
+    sandboxMode: true,
+    commentary: "Starting point: what's the simplest satisfying combat loop?",
     arenaHalfX: 10,
     arenaHalfZ: 22,
     obstacles: [
@@ -77,6 +83,9 @@ export const ROOMS: RoomDefinition[] = [
   // ══════════════════════════════════════════════════════════════════════
   {
     name: 'The Crossfire',
+    profile: 'base',
+    sandboxMode: true,
+    commentary: "What if the arena is the weapon? Physics-first combat.",
     arenaHalfX: 12,
     arenaHalfZ: 24,
     obstacles: [
@@ -115,6 +124,9 @@ export const ROOMS: RoomDefinition[] = [
   // ══════════════════════════════════════════════════════════════════════
   {
     name: 'The Crucible',
+    profile: 'base',
+    sandboxMode: true,
+    commentary: "Full enemy roster — area denial, ranged pressure, melee rush.",
     arenaHalfX: 13,
     arenaHalfZ: 25,
     obstacles: [
@@ -156,6 +168,9 @@ export const ROOMS: RoomDefinition[] = [
   // ══════════════════════════════════════════════════════════════════════
   {
     name: 'The Respite',
+    profile: 'base',
+    sandboxMode: true,
+    commentary: "A moment to breathe.",
     arenaHalfX: 8,
     arenaHalfZ: 12,
     obstacles: [],
@@ -174,6 +189,9 @@ export const ROOMS: RoomDefinition[] = [
   // ══════════════════════════════════════════════════════════════════════
   {
     name: 'The Throne',
+    profile: 'base',
+    sandboxMode: true,
+    commentary: "Victory.",
     arenaHalfX: 10,
     arenaHalfZ: 10,
     obstacles: [],

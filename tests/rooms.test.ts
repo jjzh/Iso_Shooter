@@ -249,6 +249,30 @@ describe('Arena config swap', () => {
   });
 });
 
+// ─── Profile System ───
+
+describe('Profile system', () => {
+  it('every room should have a valid profile', () => {
+    const validProfiles = ['base', 'assassin', 'rule-bending', 'vertical'];
+    for (const room of ROOMS) {
+      expect(validProfiles).toContain(room.profile);
+    }
+  });
+
+  it('every room should have sandboxMode defined', () => {
+    for (const room of ROOMS) {
+      expect(typeof room.sandboxMode).toBe('boolean');
+    }
+  });
+
+  it('every room should have a commentary string', () => {
+    for (const room of ROOMS) {
+      expect(typeof room.commentary).toBe('string');
+      expect(room.commentary.length).toBeGreaterThan(0);
+    }
+  });
+});
+
 // ─── Collision Bounds with Rectangular Arena ───
 
 describe('Rectangular collision bounds', () => {
