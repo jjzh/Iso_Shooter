@@ -230,7 +230,7 @@ function clearPlatformMeshes() {
 function createPlatforms() {
   clearPlatformMeshes();
 
-  const mat = new THREE.MeshStandardMaterial({ color: 0x666688, roughness: 0.7 });
+  const mat = new THREE.MeshStandardMaterial({ color: 0x3366aa, roughness: 0.7 });
 
   for (const zone of HEIGHT_ZONES) {
     const geo = new THREE.BoxGeometry(zone.w, zone.y, zone.d);

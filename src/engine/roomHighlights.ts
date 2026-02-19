@@ -4,6 +4,7 @@
 
 import { getScene } from './renderer';
 import { PITS, OBSTACLES } from '../config/arena';
+import { HEIGHT_ZONES } from '../config/terrain';
 import type { RoomHighlight } from '../config/rooms';
 
 const DEFAULT_DELAY = 800;
@@ -54,12 +55,14 @@ interface HighlightRect {
   w: number;
   d: number;
   color: number;
+  y?: number;  // base elevation (default 0)
 }
 
 // Default colors per target type
 const TARGET_COLORS: Record<string, number> = {
   pits: 0xff4466,
   obstacles: 0x6688ff,
+  platforms: 0x4488ff,
 };
 
 function getRectsForTarget(target: string, colorOverride?: number): HighlightRect[] {
@@ -69,6 +72,8 @@ function getRectsForTarget(target: string, colorOverride?: number): HighlightRec
       return PITS.map(p => ({ x: p.x, z: p.z, w: p.w, d: p.d, color }));
     case 'obstacles':
       return OBSTACLES.map(o => ({ x: o.x, z: o.z, w: o.w, d: o.d, color }));
+    case 'platforms':
+      return HEIGHT_ZONES.map(hz => ({ x: hz.x, z: hz.z, w: hz.w, d: hz.d, color, y: hz.y }));
     default:
       return [];
   }
@@ -77,8 +82,9 @@ function getRectsForTarget(target: string, colorOverride?: number): HighlightRec
 function spawnHighlight(rect: HighlightRect, duration: number) {
   const scene = getScene();
   const allParts: any[] = [];
+  const baseY = rect.y ?? 0;
 
-  // --- Base outline (flat on ground) ---
+  // --- Base outline (flat on ground / platform surface) ---
   const margin = 0.3;
   const planeGeo = new THREE.PlaneGeometry(rect.w + margin, rect.d + margin);
   const edgesGeo = new THREE.EdgesGeometry(planeGeo);
@@ -92,7 +98,7 @@ function spawnHighlight(rect: HighlightRect, duration: number) {
   });
   const baseRing = new THREE.LineSegments(edgesGeo, baseMat);
   baseRing.rotation.x = -Math.PI / 2;
-  baseRing.position.set(rect.x, 0.06, rect.z);
+  baseRing.position.set(rect.x, baseY + 0.06, rect.z);
   scene.add(baseRing);
   allParts.push(baseRing);
 
@@ -117,7 +123,7 @@ function spawnHighlight(rect: HighlightRect, duration: number) {
       depthWrite: false,
     });
     const pillar = new THREE.Mesh(pillarGeo, pillarMat);
-    pillar.position.set(corner.x, PILLAR_HEIGHT / 2, corner.z);
+    pillar.position.set(corner.x, baseY + PILLAR_HEIGHT / 2, corner.z);
     scene.add(pillar);
     allParts.push(pillar);
     pillars.push(pillar);
@@ -171,7 +177,7 @@ function spawnHighlight(rect: HighlightRect, duration: number) {
     // Position at midpoint between corners, at half pillar height
     wallMesh.position.set(
       (c0.x + c1.x) / 2,
-      PILLAR_HEIGHT / 2,
+      baseY + PILLAR_HEIGHT / 2,
       (c0.z + c1.z) / 2,
     );
 
@@ -226,14 +232,14 @@ function spawnHighlight(rect: HighlightRect, duration: number) {
     for (const pillar of pillars) {
       pillar.material.opacity = alpha * 0.7;
       pillar.scale.y = Math.max(0.01, easedHeight);
-      pillar.position.y = (PILLAR_HEIGHT * easedHeight) / 2;
+      pillar.position.y = baseY + (PILLAR_HEIGHT * easedHeight) / 2;
     }
 
     // Wall planes scale + fade with pillars
     for (const wall of wallPlanes) {
       wall.material.opacity = alpha * 0.35;
       wall.scale.y = Math.max(0.01, easedHeight);
-      wall.position.y = (PILLAR_HEIGHT * easedHeight) / 2;
+      wall.position.y = baseY + (PILLAR_HEIGHT * easedHeight) / 2;
     }
 
     if (t < 1) {

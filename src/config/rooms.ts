@@ -5,7 +5,7 @@
 
 import { Obstacle, Pit, SpawnPack, RoomSpawnBudget, PlayerProfile } from '../types/index';
 
-export type HighlightTarget = 'pits' | 'obstacles';
+export type HighlightTarget = 'pits' | 'obstacles' | 'platforms';
 
 export interface RoomHighlight {
   target: HighlightTarget;
@@ -173,5 +173,6 @@ export const ROOMS: RoomDefinition[] = [
     enableWallSlamDamage: true,
     enableEnemyCollisionDamage: true,
     frustumSize: 9.6,
+    highlights: [{ target: 'platforms', color: 0x4488ff }],
   },
 ];
