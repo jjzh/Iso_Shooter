@@ -3,12 +3,14 @@ import { PLAYER } from '../config/player';
 import {
   triggerDash, triggerUltimate, setUltimateHeld,
   triggerJump, triggerLaunch, triggerCancel,
-  setAimFromScreenDrag, setAbilityDirOverride, clearAbilityDirOverride
+  setAimFromScreenDrag, setAbilityDirOverride, clearAbilityDirOverride,
+  getInputState
 } from '../engine/input';
 import { MOBILE_CONTROLS } from '../config/mobileControls';
 import { isBulletTimeActive, getBulletTimeResource, getBulletTimeMax } from '../engine/bulletTime';
 import { getCurrentRoomIndex, getCurrentRoomName } from '../engine/roomManager';
 import { getActiveProfile } from '../engine/profileManager';
+import { getBendsRemaining, getMaxBends } from '../engine/bendMode';
 import { on } from '../engine/events';
 
 // Which abilities are active per profile (unlocked = visible, rest grayed out)
@@ -26,7 +28,7 @@ let btVignette: any, btCeremony: any;
 let btCeremonyTimeout: any = null;
 
 // Mobile action button refs
-let mobileBtnDash: any, mobileBtnUlt: any;
+let mobileBtnDash: any, mobileBtnUlt: any, mobileBtnBend: any;
 let mobileBtnJump: any, mobileBtnLaunch: any, mobileBtnCancel: any;
 let lastMobileProfile: string = '';
 
@@ -97,6 +99,23 @@ export function initHUD() {
   bulletTimeMeter.appendChild(btLabel);
 
   document.body.appendChild(bulletTimeMeter);
+
+  // Bend counter (visible only in rule-bending rooms)
+  const bendCounter = document.createElement('div');
+  bendCounter.id = 'bend-counter';
+  bendCounter.style.cssText = `
+    position: fixed;
+    top: 60px;
+    left: 16px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    color: rgba(100, 180, 255, 0.9);
+    letter-spacing: 2px;
+    text-shadow: 0 0 8px rgba(100, 140, 255, 0.4);
+    display: none;
+    pointer-events: none;
+  `;
+  document.body.appendChild(bendCounter);
 
   // Bullet time vignette overlay
   btVignette = document.createElement('div');
@@ -239,6 +258,37 @@ function initMobileButtons() {
     });
   }
 
+  // --- Bend toggle: create button and wire tap ---
+  mobileBtnBend = document.createElement('div');
+  mobileBtnBend.id = 'mobile-btn-bend';
+  mobileBtnBend.className = 'mobile-btn';
+  mobileBtnBend.textContent = 'Q';
+  mobileBtnBend.style.cssText = `
+    position: fixed;
+    bottom: 140px;
+    left: 20px;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: rgba(100, 180, 255, 0.3);
+    border: 2px solid rgba(100, 180, 255, 0.6);
+    color: rgba(100, 180, 255, 0.9);
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    touch-action: none;
+    user-select: none;
+    z-index: 100;
+  `;
+  document.body.appendChild(mobileBtnBend);
+
+  mobileBtnBend.addEventListener('touchstart', (e: any) => {
+    e.preventDefault();
+    getInputState().bendMode = true;
+  });
+
   // Initial profile-based layout
   updateMobileButtons();
 }
@@ -314,6 +364,11 @@ export function updateMobileButtons() {
     el.style.right = (anchorRight - dx) + 'px';
     el.style.bottom = (anchorBottom - dy) + 'px';
     el.style.transform = 'translate(50%, 50%)'; // center on computed position
+  }
+
+  // Bend button — positioned on left side, only for rule-bending profile
+  if (mobileBtnBend) {
+    mobileBtnBend.style.display = profile === 'rule-bending' ? 'flex' : 'none';
   }
 }
 
@@ -514,6 +569,17 @@ export function updateHUD(gameState: any) {
         mCdText.style.color = '';
         mOverlay.style.backgroundColor = '';
       }
+    }
+  }
+
+  // Bend counter
+  const bendCounterEl = document.getElementById('bend-counter');
+  if (bendCounterEl) {
+    if (getActiveProfile() === 'rule-bending') {
+      bendCounterEl.style.display = 'block';
+      bendCounterEl.textContent = `BENDS: ${getBendsRemaining()}/${getMaxBends()}`;
+    } else {
+      bendCounterEl.style.display = 'none';
     }
   }
 }

@@ -9537,6 +9537,12 @@ function tryApplyBendToTarget(target4, targetType) {
     });
   }
 }
+function getBendsRemaining() {
+  return bendSystem.bendsRemaining();
+}
+function getMaxBends() {
+  return maxBends;
+}
 function resetBendMode() {
   const activeBends = bendSystem.getActiveBends();
   for (const ab of activeBends) {
@@ -9893,6 +9899,7 @@ var btCeremony;
 var btCeremonyTimeout = null;
 var mobileBtnDash;
 var mobileBtnUlt;
+var mobileBtnBend;
 var mobileBtnJump;
 var mobileBtnLaunch;
 var mobileBtnCancel;
@@ -9951,6 +9958,21 @@ function initHUD() {
   btLabel.textContent = "Q \u2014 SLOW";
   bulletTimeMeter.appendChild(btLabel);
   document.body.appendChild(bulletTimeMeter);
+  const bendCounter = document.createElement("div");
+  bendCounter.id = "bend-counter";
+  bendCounter.style.cssText = `
+    position: fixed;
+    top: 60px;
+    left: 16px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    color: rgba(100, 180, 255, 0.9);
+    letter-spacing: 2px;
+    text-shadow: 0 0 8px rgba(100, 140, 255, 0.4);
+    display: none;
+    pointer-events: none;
+  `;
+  document.body.appendChild(bendCounter);
   btVignette = document.createElement("div");
   btVignette.id = "bt-vignette";
   btVignette.style.cssText = `
@@ -10070,6 +10092,34 @@ function initMobileButtons() {
       triggerCancel();
     });
   }
+  mobileBtnBend = document.createElement("div");
+  mobileBtnBend.id = "mobile-btn-bend";
+  mobileBtnBend.className = "mobile-btn";
+  mobileBtnBend.textContent = "Q";
+  mobileBtnBend.style.cssText = `
+    position: fixed;
+    bottom: 140px;
+    left: 20px;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: rgba(100, 180, 255, 0.3);
+    border: 2px solid rgba(100, 180, 255, 0.6);
+    color: rgba(100, 180, 255, 0.9);
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    touch-action: none;
+    user-select: none;
+    z-index: 100;
+  `;
+  document.body.appendChild(mobileBtnBend);
+  mobileBtnBend.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    getInputState().bendMode = true;
+  });
   updateMobileButtons();
 }
 function updateMobileButtons() {
@@ -10120,6 +10170,9 @@ function updateMobileButtons() {
     el.style.right = anchorRight - dx + "px";
     el.style.bottom = anchorBottom - dy + "px";
     el.style.transform = "translate(50%, 50%)";
+  }
+  if (mobileBtnBend) {
+    mobileBtnBend.style.display = profile === "rule-bending" ? "flex" : "none";
   }
 }
 function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel }) {
@@ -10272,6 +10325,15 @@ function updateHUD(gameState2) {
         mCdText.style.color = "";
         mOverlay.style.backgroundColor = "";
       }
+    }
+  }
+  const bendCounterEl = document.getElementById("bend-counter");
+  if (bendCounterEl) {
+    if (getActiveProfile() === "rule-bending") {
+      bendCounterEl.style.display = "block";
+      bendCounterEl.textContent = `BENDS: ${getBendsRemaining()}/${getMaxBends()}`;
+    } else {
+      bendCounterEl.style.display = "none";
     }
   }
 }
