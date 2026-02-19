@@ -160,14 +160,18 @@ const ISO_UP_Z = -INV_SQRT2;
 let _mobileButtonsWired = false;
 function initMobileButtons() {
   if (_mobileButtonsWired) return;
-  _mobileButtonsWired = true;
   mobileBtnAttack = document.getElementById('mobile-btn-attack');
   mobileBtnDash = document.getElementById('mobile-btn-dash');
   mobileBtnJump = document.getElementById('mobile-btn-jump');
   mobileBtnLaunch = document.getElementById('mobile-btn-launch');
   mobileBtnCancel = document.getElementById('mobile-btn-cancel');
-  if (!mobileBtnAttack) return;
+  if (!mobileBtnAttack) {
+    console.warn('[mobile] mobile-btn-attack not found in DOM');
+    return;
+  }
 
+  console.log('[mobile] initMobileButtons: all elements found, positioning...');
+  _mobileButtonsWired = true;
   positionMobileButtons();
   wireButtonHandlers();
 }
