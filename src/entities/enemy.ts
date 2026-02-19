@@ -1,5 +1,6 @@
 import { ENEMY_TYPES, MOB_GLOBAL } from '../config/enemies';
 import { getCollisionBounds, getPitBounds } from '../config/arena';
+import { getGroundHeight } from '../config/terrain';
 import { applyAoeEffect } from '../engine/aoeTelegraph';
 import { getPlayerPos, isPlayerInvincible } from './player';
 import { screenShake } from '../engine/renderer';
@@ -8,6 +9,7 @@ import { fireMortarProjectile, getIceEffects } from './mortarProjectile';
 import { fireProjectile } from './projectile';
 import { buildEnemyModel, createHitReaction, triggerHitReaction, updateHitReaction } from './enemyRig';
 import { emit } from '../engine/events';
+import { hasTag, TAG } from '../engine/tags';
 
 let sceneRef: any;
 
@@ -92,7 +94,7 @@ export function spawnEnemy(typeName: string, position: any, gameState: any) {
     mortarArcLine: null as any,       // THREE.Line for aim arc preview
     mortarGroundCircle: null as any,  // THREE.Mesh for persistent ground circle
     // Physics velocity (knockback system)
-    vel: { x: 0, z: 0 },      // knockback velocity — integrated by applyVelocities()
+    vel: { x: 0, y: 0, z: 0 },      // knockback velocity — integrated by applyVelocities()
     // Pit / edge-slide
     wasDeflected: false,       // true when movement was deflected by collision (edge-sliding)
     fellInPit: false,          // true when killed by falling into a pit
@@ -278,13 +280,17 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
   for (let i = gameState.enemies.length - 1; i >= 0; i--) {
     const enemy = gameState.enemies[i];
 
+    // Skip enemies that are carrier payloads (being spiked as projectiles)
+    if ((enemy as any).isCarrierPayload) continue;
+
     // Pit leap update — runs independently of stun (can't stun mid-air)
     if (enemy.isLeaping) {
       updateLeap(enemy, dt);
       // Skip normal behavior/movement but still check death below
-    } else if (enemy.stunTimer > 0) {
+    } else if (enemy.stunTimer > 0 || hasTag(enemy, TAG.STUNNED)) {
       // Stun check — stunned enemies cannot move or attack
-      enemy.stunTimer -= dt * 1000;
+      // Sources: stunTimer (legacy timed stun), State.Stunned tag (aerial verb grab, effects)
+      if (enemy.stunTimer > 0) enemy.stunTimer -= dt * 1000;
     } else {
       // Behavior dispatch (only when not stunned)
       switch (enemy.behavior) {
@@ -298,12 +304,44 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
     // Arena clamp
     enemy.pos.x = Math.max(-19, Math.min(19, enemy.pos.x));
     enemy.pos.z = Math.max(-19, Math.min(19, enemy.pos.z));
+
+    // Ledge fall — if grounded enemy walks off platform edge, start falling
+    if (!enemy.isLeaping) {
+      const groundBelow = getGroundHeight(enemy.pos.x, enemy.pos.z);
+      if (enemy.pos.y > groundBelow + 0.05) {
+        // Ground dropped out — gravity will pull them down in applyVelocities
+        const vel = (enemy as any).vel;
+        if (vel && vel.y === 0) vel.y = 0; // ensure Y vel exists, gravity handles the rest
+      }
+    }
+
     if (enemy.isLeaping) {
       // Sync clamped XZ but preserve arc Y set by updateLeap
       enemy.mesh.position.x = enemy.pos.x;
       enemy.mesh.position.z = enemy.pos.z;
     } else {
       enemy.mesh.position.copy(enemy.pos);
+    }
+
+    // Airborne visual — tumble rotation when launched/falling
+    const groundBelowEnemy = getGroundHeight(enemy.pos.x, enemy.pos.z);
+    const enemyAirborne = enemy.pos.y > groundBelowEnemy + 0.15 && !enemy.isLeaping;
+    if (enemyAirborne) {
+      // Accumulate tumble rotation — fast spin that looks like they were popped up
+      if (!(enemy as any)._tumbleAngle) (enemy as any)._tumbleAngle = 0;
+      (enemy as any)._tumbleAngle += dt * 8;
+      enemy.mesh.rotation.x = Math.sin((enemy as any)._tumbleAngle) * 0.5;
+      enemy.mesh.rotation.z = Math.cos((enemy as any)._tumbleAngle * 0.7) * 0.3;
+      // Squash/stretch based on Y velocity
+      const vy = (enemy.vel as any).y || 0;
+      const stretch = 1 + Math.abs(vy) * 0.02;
+      const squash = 1 / Math.sqrt(stretch);
+      enemy.mesh.scale.set(squash, stretch, squash);
+    } else {
+      enemy.mesh.rotation.x = 0;
+      enemy.mesh.rotation.z = 0;
+      enemy.mesh.scale.set(1, 1, 1);
+      (enemy as any)._tumbleAngle = 0;
     }
 
     // Flash timer (hit feedback)
