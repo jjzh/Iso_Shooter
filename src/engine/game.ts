@@ -10,8 +10,6 @@ import { initAoeTelegraph, updateAoeTelegraphs, updatePendingEffects } from './a
 import { initHUD, updateHUD } from '../ui/hud';
 import { initScreens, showGameOver, hideScreens } from '../ui/screens';
 import { initDamageNumbers, updateDamageNumbers } from '../ui/damageNumbers';
-import { initTuningPanel } from '../ui/tuning';
-import { initSpawnEditor, checkEditorToggle, updateSpawnEditor, isEditorActive } from '../ui/spawnEditor';
 import { initAudio, resumeAudio } from './audio';
 import { initParticles, updateParticles } from './particles';
 import { initBulletTime, toggleBulletTime, updateBulletTime, getBulletTimeScale, resetBulletTime } from './bulletTime';
@@ -46,14 +44,6 @@ function gameLoop(timestamp: number): void {
 
   if (gameState.phase === 'gameOver') {
     getRendererInstance().render(getScene(), getCamera());
-    return;
-  }
-
-  if (gameState.phase === 'editorPaused') {
-    updateInput();
-    updateSpawnEditor(0);
-    getRendererInstance().render(getScene(), getCamera());
-    consumeInput();
     return;
   }
 
@@ -131,10 +121,7 @@ function gameLoop(timestamp: number): void {
   // 11. HUD
   updateHUD(gameState);
 
-  // 12. Check editor toggle
-  checkEditorToggle();
-
-  // 13. Consume edge-triggered inputs
+  // 12. Consume edge-triggered inputs
   consumeInput();
 
   // 14. Render
@@ -187,8 +174,6 @@ function init(): void {
     });
     initHUD();
     initDamageNumbers();
-    initTuningPanel();
-    initSpawnEditor(scene, gameState);
     initScreens(restart, () => {
       resumeAudio(); // AudioContext requires user gesture to start
       gameState.phase = 'playing';

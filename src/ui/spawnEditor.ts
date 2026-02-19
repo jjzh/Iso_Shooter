@@ -284,7 +284,7 @@ export function updateSpawnEditor(dt: number) {
   const input = getInputState();
 
   // Check for toggle
-  if (input.toggleEditor) {
+  if ((input as any).toggleEditor) {
     toggleEditor();
     consumeInput();
     return;
@@ -294,7 +294,7 @@ export function updateSpawnEditor(dt: number) {
 // Also check toggle from main game loop (called even when not in editor)
 export function checkEditorToggle() {
   const input = getInputState();
-  if (input.toggleEditor) {
+  if ((input as any).toggleEditor) {
     toggleEditor();
   }
 }
@@ -316,7 +316,7 @@ function onEditorWheel(e: any) {
 function enterEditor() {
   active = true;
   previousPhase = gameStateRef.phase;
-  gameStateRef.phase = 'editorPaused';
+  (gameStateRef as any).phase = 'editorPaused';
   panel.classList.remove('hidden');
   bannerEl.classList.add('visible');
   window.addEventListener('wheel', onEditorWheel, { passive: false });

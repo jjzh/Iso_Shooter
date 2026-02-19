@@ -5,6 +5,15 @@
 
 import { Obstacle, Pit, SpawnPack, RoomSpawnBudget, PlayerProfile } from '../types/index';
 
+export type HighlightTarget = 'pits' | 'obstacles';
+
+export interface RoomHighlight {
+  target: HighlightTarget;
+  color?: number;      // override highlight color (default per target type)
+  delay?: number;      // ms after room load (default 800)
+  duration?: number;   // ms for the pulse (default 2000)
+}
+
 export interface RoomDefinition {
   name: string;
   profile: PlayerProfile;
@@ -16,6 +25,9 @@ export interface RoomDefinition {
   pits: Pit[];
   spawnBudget: RoomSpawnBudget;
   playerStart: { x: number; z: number };
+  enableWallSlamDamage?: boolean;
+  enableEnemyCollisionDamage?: boolean;
+  highlights?: RoomHighlight[];
   isRestRoom?: boolean;
   isVictoryRoom?: boolean;
 }
@@ -35,7 +47,34 @@ function goblins(n: number): { type: string }[] {
 export const ROOMS: RoomDefinition[] = [
 
   // ══════════════════════════════════════════════════════════════════════
-  // Room 1: "The Foundation" — goblins only, teach melee + dash + pit kills
+  // Room 1: "The Origin" — Feb 7 prototype, auto-fire projectiles, cylinder+sphere model
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: 'The Origin',
+    profile: 'origin',
+    sandboxMode: true,
+    commentary: "Where it all started: auto-fire, simple shapes, pure movement.",
+    arenaHalfX: 9,
+    arenaHalfZ: 16,
+    obstacles: [
+      { x: -3, z: 3, w: 1.5, h: 2, d: 1.5 },
+      { x: 4, z: -4, w: 1.5, h: 2, d: 1.5 },
+    ],
+    pits: [],
+    spawnBudget: {
+      maxConcurrent: 3,
+      telegraphDuration: 1500,
+      packs: [
+        pack(goblins(2), 'ahead'),
+        pack(goblins(2), 'ahead'),
+        pack(goblins(2), 'sides'),
+      ],
+    },
+    playerStart: { x: 0, z: 12 },
+  },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 2: "The Foundation" — goblins only, teach melee + dash + pit kills
   // ══════════════════════════════════════════════════════════════════════
   {
     name: 'The Foundation',
@@ -44,12 +83,17 @@ export const ROOMS: RoomDefinition[] = [
     commentary: "Starting point: what's the simplest satisfying combat loop?",
     arenaHalfX: 10,
     arenaHalfZ: 20,
+    enableWallSlamDamage: false,
+    enableEnemyCollisionDamage: false,
+    highlights: [{ target: 'pits' }],
     obstacles: [
       { x: -4, z: 5, w: 1.5, h: 2, d: 1.5 },
       { x: 4, z: -5, w: 1.5, h: 2, d: 1.5 },
     ],
     pits: [
-      { x: 5, z: -8, w: 3, d: 3 },
+      { x: 6, z: -8, w: 3, d: 3 },
+      { x: -6, z: -2, w: 3, d: 3 },
+      { x: 3, z: 6, w: 3, d: 2.5 },
     ],
     spawnBudget: {
       maxConcurrent: 4,
@@ -71,6 +115,8 @@ export const ROOMS: RoomDefinition[] = [
     profile: 'base',
     sandboxMode: true,
     commentary: "What if the arena is the weapon? Physics-first combat.",
+    enableWallSlamDamage: true,
+    enableEnemyCollisionDamage: true,
     arenaHalfX: 11,
     arenaHalfZ: 22,
     obstacles: [

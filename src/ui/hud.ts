@@ -6,7 +6,17 @@ import {
 } from '../engine/input';
 import { isBulletTimeActive, getBulletTimeResource, getBulletTimeMax } from '../engine/bulletTime';
 import { getCurrentRoomIndex, getCurrentRoomName } from '../engine/roomManager';
+import { getActiveProfile } from '../engine/profileManager';
 import { on } from '../engine/events';
+
+// Which abilities are active per profile (unlocked = visible, rest grayed out)
+const PROFILE_ABILITIES: Record<string, string[]> = {
+  origin:         ['dash'],
+  base:           ['dash', 'ultimate'],
+  assassin:       ['dash', 'ultimate'],
+  'rule-bending': ['dash', 'ultimate'],
+  vertical:       ['dash', 'ultimate'],
+};
 
 let healthBar: any, healthText: any, waveIndicator: any, currencyCount: any, abilityBar: any;
 let bulletTimeMeter: any, bulletTimeFill: any;
@@ -299,6 +309,19 @@ export function updateHUD(gameState: any) {
       bulletTimeMeter.style.borderColor = btActive
         ? 'rgba(255, 204, 68, 0.6)'
         : 'rgba(100, 140, 255, 0.3)';
+    }
+  }
+
+  // Ability availability — gray out abilities not active for this profile
+  const activeAbilities = PROFILE_ABILITIES[getActiveProfile()] ?? ['dash', 'ultimate'];
+  for (const key of Object.keys(ABILITIES)) {
+    const slot = document.getElementById(`ability-${key}`);
+    if (slot) {
+      if (activeAbilities.includes(key)) {
+        slot.classList.remove('disabled');
+      } else {
+        slot.classList.add('disabled');
+      }
     }
   }
 

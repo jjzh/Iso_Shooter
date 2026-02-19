@@ -156,6 +156,18 @@ canvas {
   box-shadow: 0 0 8px rgba(68, 255, 136, 0.2);
 }
 
+.ability-slot.disabled {
+  opacity: 0.25;
+  border-color: rgba(100, 100, 160, 0.2);
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.ability-slot.disabled .ability-key,
+.ability-slot.disabled .ability-name {
+  color: rgba(255, 255, 255, 0.2);
+}
+
 .ability-key {
   font-size: 16px;
   font-weight: bold;

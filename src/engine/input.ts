@@ -13,7 +13,6 @@ const inputState = {
   ultimate: false,
   ultimateHeld: false,
   interact: false,
-  toggleEditor: false,
   bulletTime: false,
 };
 
@@ -52,7 +51,6 @@ export function initInput() {
     if (e.code === 'Space') { inputState.dash = true; e.preventDefault(); }
     if (e.code === 'KeyE') inputState.ultimate = true;
     if (e.code === 'KeyF' || e.code === 'Enter') inputState.interact = true;
-    if (e.code === 'Backquote') inputState.toggleEditor = true;
     if (e.code === 'KeyQ') inputState.bulletTime = true;
   });
 
@@ -315,7 +313,6 @@ export function consumeInput() {
   inputState.attack = false;
   inputState.ultimate = false;
   inputState.interact = false;
-  inputState.toggleEditor = false;
   inputState.bulletTime = false;
 }
 

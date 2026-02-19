@@ -4,6 +4,7 @@ import { stunEnemy } from '../entities/enemy';
 import { getIceEffects } from '../entities/mortarProjectile';
 import { triggerHitReaction } from '../entities/enemyRig';
 import { emit } from './events';
+import { getCurrentRoom } from './roomManager';
 import { screenShake, getScene } from './renderer';
 import { PLAYER, MELEE } from '../config/player';
 import { PHYSICS } from '../config/physics';
@@ -315,24 +316,29 @@ export function applyVelocities(dt: number, gameState: GameState): void {
 
     // Wall slam detection
     if (result.hitWall && speed > PHYSICS.wallSlamMinSpeed) {
-      const slamDamage = Math.round((speed - PHYSICS.wallSlamMinSpeed) * PHYSICS.wallSlamDamage);
-      applyDamageToEnemy(enemy, slamDamage, gameState);
-      stunEnemy(enemy, PHYSICS.wallSlamStun);
+      const room = getCurrentRoom();
+      const wallSlamEnabled = room?.enableWallSlamDamage ?? true;
 
-      // Feedback
-      emit({ type: 'wallSlam', enemy, speed, damage: slamDamage, position: { x: enemy.pos.x, z: enemy.pos.z } });
-      spawnDamageNumber(enemy.pos.x, enemy.pos.z, slamDamage, '#ff8844');
-      screenShake(PHYSICS.wallSlamShake, 120);
+      if (wallSlamEnabled) {
+        const slamDamage = Math.round((speed - PHYSICS.wallSlamMinSpeed) * PHYSICS.wallSlamDamage);
+        applyDamageToEnemy(enemy, slamDamage, gameState);
+        stunEnemy(enemy, PHYSICS.wallSlamStun);
 
-      // Flash enemy
-      enemy.flashTimer = 120;
-      if ((enemy as any).bodyMesh) (enemy as any).bodyMesh.material.emissive.setHex(0xff8844);
-      if ((enemy as any).headMesh) (enemy as any).headMesh.material.emissive.setHex(0xff8844);
+        // Feedback
+        emit({ type: 'wallSlam', enemy, speed, damage: slamDamage, position: { x: enemy.pos.x, z: enemy.pos.z } });
+        spawnDamageNumber(enemy.pos.x, enemy.pos.z, slamDamage, '#ff8844');
+        screenShake(PHYSICS.wallSlamShake, 120);
 
-      // Impact ring at slam point (terrain flash)
-      createAoeRing(enemy.pos.x, enemy.pos.z, 1.5, 300, 0xff8844);
+        // Flash enemy
+        enemy.flashTimer = 120;
+        if ((enemy as any).bodyMesh) (enemy as any).bodyMesh.material.emissive.setHex(0xff8844);
+        if ((enemy as any).headMesh) (enemy as any).headMesh.material.emissive.setHex(0xff8844);
 
-      // Reflect velocity off wall normal
+        // Impact ring at slam point (terrain flash)
+        createAoeRing(enemy.pos.x, enemy.pos.z, 1.5, 300, 0xff8844);
+      }
+
+      // Reflect velocity off wall normal (always — physics still works, just no damage)
       const dot = vel.x * result.normalX + vel.z * result.normalZ;
       vel.x = (vel.x - 2 * dot * result.normalX) * PHYSICS.wallSlamBounce;
       vel.z = (vel.z - 2 * dot * result.normalZ) * PHYSICS.wallSlamBounce;
@@ -418,7 +424,9 @@ export function resolveEnemyCollisions(gameState: GameState): void {
 
       // Impact damage (if relative speed above threshold)
       const relSpeed = Math.sqrt(relVelX * relVelX + relVelZ * relVelZ);
-      if (relSpeed > PHYSICS.impactMinSpeed) {
+      const room = getCurrentRoom();
+      const collisionDmgEnabled = room?.enableEnemyCollisionDamage ?? true;
+      if (collisionDmgEnabled && relSpeed > PHYSICS.impactMinSpeed) {
         const dmg = Math.round((relSpeed - PHYSICS.impactMinSpeed) * PHYSICS.impactDamage);
         const midX = (a.pos.x + b.pos.x) / 2;
         const midZ = (a.pos.z + b.pos.z) / 2;

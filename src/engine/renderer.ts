@@ -302,3 +302,5 @@ export function screenToWorld(ndcX: number, ndcY: number) {
 export function getScene() { return scene; }
 export function getCamera() { return camera; }
 export function getRendererInstance() { return renderer; }
+export function getPitMeshes() { return pitMeshes; }
+export function getObstacleMeshes() { return obstacleMeshes; }

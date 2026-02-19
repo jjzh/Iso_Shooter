@@ -260,15 +260,6 @@ function applyFrustum(f) {
   camera.updateProjectionMatrix();
   currentFrustum = f;
 }
-function setZoom(frustum) {
-  applyFrustum(Math.max(8, Math.min(30, frustum)));
-}
-function resetZoom() {
-  applyFrustum(baseFrustum);
-}
-function getCurrentFrustum() {
-  return currentFrustum;
-}
 function updateCamera(playerPos2, dt) {
   camera.position.copy(playerPos2).add(cameraOffset);
   if (shakeRemaining > 0) {
@@ -888,9 +879,9 @@ function fireProjectile(origin, direction, config, isEnemy) {
 function updateProjectiles(dt) {
   const maxLife = 2;
   for (const pool3 of [playerPool, enemyPool]) {
-    const active3 = pool3.getActive();
-    for (let i = active3.length - 1; i >= 0; i--) {
-      const p = active3[i];
+    const active2 = pool3.getActive();
+    for (let i = active2.length - 1; i >= 0; i--) {
+      const p = active2[i];
       p.mesh.position.x += p.dir.x * p.speed * dt;
       p.mesh.position.z += p.dir.z * p.speed * dt;
       p.life += dt;
@@ -2943,6 +2934,23 @@ function applySwing(joints, anim) {
   }
 }
 
+// src/engine/profileManager.ts
+var activeProfile = "base";
+var currentHooks = null;
+function getActiveProfile() {
+  return activeProfile;
+}
+function setProfile(profile, hooks) {
+  if (currentHooks) {
+    currentHooks.cleanup();
+  }
+  activeProfile = profile;
+  currentHooks = hooks ?? null;
+  if (currentHooks) {
+    currentHooks.setup();
+  }
+}
+
 // src/entities/player.ts
 var playerGroup;
 var aimIndicator;
@@ -2972,6 +2980,8 @@ var chargeTelegraphGroup = null;
 var chargeFillMesh = null;
 var chargeBorderMesh = null;
 var chargeBorderGeo = null;
+var originGroup = null;
+var lastFireTime = 0;
 var DEFAULT_EMISSIVE = 2271846;
 var DEFAULT_EMISSIVE_INTENSITY = 0.4;
 function restoreDefaultEmissive() {
@@ -2981,10 +2991,35 @@ function restoreDefaultEmissive() {
     mat.emissiveIntensity = DEFAULT_EMISSIVE_INTENSITY;
   }
 }
+function setPlayerVisual(profile) {
+  if (!originGroup || !rig) return;
+  const isOrigin = profile === "origin";
+  originGroup.visible = isOrigin;
+  rig.joints.rigRoot.visible = !isOrigin;
+}
+function updateOriginBob(dt) {
+  if (!originGroup || !originGroup.visible) return;
+  const t = performance.now() * 3e-3;
+  originGroup.position.y = Math.sin(t) * 0.04;
+  originGroup.rotation.y = 0;
+}
 function createPlayer(scene2) {
   playerGroup = new THREE.Group();
   rig = createPlayerRig(playerGroup);
   animState = createAnimatorState();
+  originGroup = new THREE.Group();
+  const bodyGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.9, 8);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 4521864, emissive: 2271846, emissiveIntensity: 0.4 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 0.45;
+  originGroup.add(body);
+  const headGeo = new THREE.SphereGeometry(0.25, 8, 6);
+  const headMat = new THREE.MeshStandardMaterial({ color: 6750122, emissive: 2271846, emissiveIntensity: 0.4 });
+  const head = new THREE.Mesh(headGeo, headMat);
+  head.position.y = 1.1;
+  originGroup.add(head);
+  originGroup.visible = false;
+  playerGroup.add(originGroup);
   aimIndicator = new THREE.Mesh(
     new THREE.ConeGeometry(0.12, 0.6, 4),
     new THREE.MeshStandardMaterial({
@@ -3013,16 +3048,20 @@ function updatePlayer(inputState2, dt, gameState2) {
     endLagTimer -= dt * 1e3;
     playerGroup.position.copy(playerPos);
     aimAtCursor(inputState2);
-    updateAnimation(
-      rig.joints,
-      animState,
-      dt,
-      { moveX: 0, moveZ: 0 },
-      playerGroup.rotation.y,
-      false,
-      true,
-      0
-    );
+    if (getActiveProfile() === "origin") {
+      updateOriginBob(dt);
+    } else {
+      updateAnimation(
+        rig.joints,
+        animState,
+        dt,
+        { moveX: 0, moveZ: 0 },
+        playerGroup.rotation.y,
+        false,
+        true,
+        0
+      );
+    }
     updateAfterimages(dt);
     return;
   }
@@ -3030,23 +3069,27 @@ function updatePlayer(inputState2, dt, gameState2) {
     updateDash(dt, gameState2);
     playerGroup.position.copy(playerPos);
     aimAtCursor(inputState2);
-    updateAnimation(
-      rig.joints,
-      animState,
-      dt,
-      { moveX: inputState2.moveX, moveZ: inputState2.moveZ },
-      playerGroup.rotation.y,
-      true,
-      false,
-      Math.min(dashTimer / dashDuration, 1)
-    );
+    if (getActiveProfile() === "origin") {
+      updateOriginBob(dt);
+    } else {
+      updateAnimation(
+        rig.joints,
+        animState,
+        dt,
+        { moveX: inputState2.moveX, moveZ: inputState2.moveZ },
+        playerGroup.rotation.y,
+        true,
+        false,
+        Math.min(dashTimer / dashDuration, 1)
+      );
+    }
     updateAfterimages(dt);
     return;
   }
   if (inputState2.dash && gameState2.abilities.dash.cooldownRemaining <= 0) {
     startDash(inputState2, gameState2);
   }
-  if (inputState2.ultimate && gameState2.abilities.ultimate.cooldownRemaining <= 0 && !isCharging) {
+  if (getActiveProfile() !== "origin" && inputState2.ultimate && gameState2.abilities.ultimate.cooldownRemaining <= 0 && !isCharging) {
     startCharge(inputState2, gameState2);
   }
   if (Math.abs(inputState2.moveX) > 0.01 || Math.abs(inputState2.moveZ) > 0.01) {
@@ -3062,18 +3105,31 @@ function updatePlayer(inputState2, dt, gameState2) {
   playerPos.z = Math.max(-clampZ, Math.min(clampZ, playerPos.z));
   playerGroup.position.copy(playerPos);
   aimAtCursor(inputState2);
-  updateAnimation(
-    rig.joints,
-    animState,
-    dt,
-    { moveX: inputState2.moveX, moveZ: inputState2.moveZ },
-    playerGroup.rotation.y,
-    isDashing,
-    endLagTimer > 0,
-    isDashing ? Math.min(dashTimer / dashDuration, 1) : 0,
-    meleeSwinging,
-    meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0
-  );
+  if (getActiveProfile() === "origin") {
+    updateOriginBob(dt);
+  } else {
+    updateAnimation(
+      rig.joints,
+      animState,
+      dt,
+      { moveX: inputState2.moveX, moveZ: inputState2.moveZ },
+      playerGroup.rotation.y,
+      isDashing,
+      endLagTimer > 0,
+      isDashing ? Math.min(dashTimer / dashDuration, 1) : 0,
+      meleeSwinging,
+      meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0
+    );
+  }
+  if (getActiveProfile() === "origin" && !isDashing) {
+    if (now - lastFireTime >= PLAYER.fireRate) {
+      lastFireTime = now;
+      const aimDx = inputState2.aimWorldPos.x - playerPos.x;
+      const aimDz = inputState2.aimWorldPos.z - playerPos.z;
+      const aimDir = new THREE.Vector3(aimDx, 0, aimDz).normalize();
+      fireProjectile(playerPos, aimDir, PLAYER.projectile);
+    }
+  }
   if (meleeCooldownTimer > 0) {
     meleeCooldownTimer -= dt * 1e3;
   }
@@ -3084,7 +3140,7 @@ function updatePlayer(inputState2, dt, gameState2) {
       meleeSwingTimer = 0;
     }
   }
-  if (inputState2.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging) {
+  if (getActiveProfile() !== "origin" && inputState2.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging) {
     const enemies = gameState2.enemies;
     if (enemies) {
       let bestDist = MELEE.autoTargetRange * MELEE.autoTargetRange;
@@ -3195,7 +3251,7 @@ function updateDash(dt, gameState2) {
   playerPos.x = Math.max(-dashClampX, Math.min(dashClampX, playerPos.x));
   playerPos.z = Math.max(-dashClampZ, Math.min(dashClampZ, playerPos.z));
   isInvincible = cfg.invincible && (dashTimer >= cfg.iFrameStart && dashTimer <= cfg.iFrameEnd);
-  if (cfg.afterimageCount > 0) {
+  if (cfg.afterimageCount > 0 && getActiveProfile() !== "origin") {
     const interval = dashDuration / (cfg.afterimageCount + 1);
     const prevCount = Math.floor((dashTimer - dt * 1e3) / interval);
     const currCount = Math.floor(dashTimer / interval);
@@ -3260,9 +3316,11 @@ function startCharge(inputState2, gameState2) {
   const dz = inputState2.aimWorldPos.z - playerPos.z;
   chargeAimAngle = Math.atan2(dx, dz);
   createChargeTelegraph(cfg);
-  for (const mat of rig.materials) {
-    mat.emissive.setHex(4521898);
-    mat.emissiveIntensity = 0.6;
+  if (getActiveProfile() !== "origin") {
+    for (const mat of rig.materials) {
+      mat.emissive.setHex(4521898);
+      mat.emissiveIntensity = 0.6;
+    }
   }
 }
 function createChargeTelegraph(cfg) {
@@ -3323,8 +3381,10 @@ function updateCharge(inputState2, dt, gameState2) {
     chargeBorderMesh.material.opacity = pulse;
     chargeFillMesh.material.opacity = cfg.telegraphOpacity + chargeT * 0.2;
   }
-  for (const mat of rig.materials) {
-    mat.emissiveIntensity = 0.6 + chargeT * 0.4;
+  if (getActiveProfile() !== "origin") {
+    for (const mat of rig.materials) {
+      mat.emissiveIntensity = 0.6 + chargeT * 0.4;
+    }
   }
   if (chargeT >= 1 || chargeTimer > 100 && !inputState2.ultimateHeld) {
     fireChargePush(chargeT, gameState2);
@@ -3413,6 +3473,7 @@ function resetPlayer() {
   isCharging = false;
   chargeTimer = 0;
   pushEvent = null;
+  lastFireTime = 0;
   removeChargeTelegraph();
   restoreDefaultEmissive();
   resetAnimatorState(animState);
@@ -3439,7 +3500,6 @@ var inputState = {
   ultimate: false,
   ultimateHeld: false,
   interact: false,
-  toggleEditor: false,
   bulletTime: false
 };
 var INV_SQRT2 = 1 / Math.SQRT2;
@@ -3469,7 +3529,6 @@ function initInput() {
     }
     if (e.code === "KeyE") inputState.ultimate = true;
     if (e.code === "KeyF" || e.code === "Enter") inputState.interact = true;
-    if (e.code === "Backquote") inputState.toggleEditor = true;
     if (e.code === "KeyQ") inputState.bulletTime = true;
   });
   window.addEventListener("keyup", (e) => {
@@ -3653,7 +3712,6 @@ function consumeInput() {
   inputState.attack = false;
   inputState.ultimate = false;
   inputState.interact = false;
-  inputState.toggleEditor = false;
   inputState.bulletTime = false;
 }
 function getInputState() {
@@ -3723,173 +3781,100 @@ function pack(enemies, zone = "ahead") {
 function goblins(n) {
   return Array.from({ length: n }, () => ({ type: "goblin" }));
 }
-function archers(n) {
-  return Array.from({ length: n }, () => ({ type: "skeletonArcher" }));
-}
-function imps(n) {
-  return Array.from({ length: n }, () => ({ type: "iceMortarImp" }));
-}
 var ROOMS = [
   // ══════════════════════════════════════════════════════════════════════
-  // Room 1: "The Approach" — goblins only, teach melee + dash
-  // Player enters at +Z (bottom-left in iso), progresses toward -Z (top-right)
+  // Room 1: "The Origin" — Feb 7 prototype, auto-fire projectiles, cylinder+sphere model
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: "The Approach",
+    name: "The Origin",
+    profile: "origin",
+    sandboxMode: true,
+    commentary: "Where it all started: auto-fire, simple shapes, pure movement.",
+    arenaHalfX: 9,
+    arenaHalfZ: 16,
+    obstacles: [
+      { x: -3, z: 3, w: 1.5, h: 2, d: 1.5 },
+      { x: 4, z: -4, w: 1.5, h: 2, d: 1.5 }
+    ],
+    pits: [],
+    spawnBudget: {
+      maxConcurrent: 3,
+      telegraphDuration: 1500,
+      packs: [
+        pack(goblins(2), "ahead"),
+        pack(goblins(2), "ahead"),
+        pack(goblins(2), "sides")
+      ]
+    },
+    playerStart: { x: 0, z: 12 }
+  },
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 2: "The Foundation" — goblins only, teach melee + dash + pit kills
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: "The Foundation",
+    profile: "base",
+    sandboxMode: true,
+    commentary: "Starting point: what's the simplest satisfying combat loop?",
     arenaHalfX: 10,
-    arenaHalfZ: 22,
+    arenaHalfZ: 20,
+    enableWallSlamDamage: false,
+    enableEnemyCollisionDamage: false,
+    highlights: [{ target: "pits" }],
     obstacles: [
       { x: -4, z: 5, w: 1.5, h: 2, d: 1.5 },
-      // pillar left near entrance
-      { x: 4, z: -5, w: 1.5, h: 2, d: 1.5 },
-      // pillar right mid
-      { x: 0, z: -12, w: 3, h: 1, d: 1 }
-      // low wall far
+      { x: 4, z: -5, w: 1.5, h: 2, d: 1.5 }
     ],
     pits: [
-      { x: 5, z: -8, w: 3, d: 3 }
-      // small pit mid-right (teaches force push)
+      { x: 6, z: -8, w: 3, d: 3 },
+      { x: -6, z: -2, w: 3, d: 3 },
+      { x: 3, z: 6, w: 3, d: 2.5 }
     ],
     spawnBudget: {
       maxConcurrent: 4,
       telegraphDuration: 1500,
       packs: [
-        // Start light: 2 goblins ahead
         pack(goblins(2), "ahead"),
         pack(goblins(2), "ahead"),
-        // Ramp up: 3 goblins, mix positions
-        pack(goblins(3), "ahead"),
-        pack(goblins(3), "sides"),
-        // One final push from far end
-        pack(goblins(2), "far")
+        pack(goblins(3), "sides")
       ]
     },
-    playerStart: { x: 0, z: 18 }
+    playerStart: { x: 0, z: 16 }
   },
   // ══════════════════════════════════════════════════════════════════════
-  // Room 2: "The Crossfire" — goblins + archers, introduce ranged pressure
+  // Room 2: "Physics Playground" — walls + pits, force push as spatial tool
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: "The Crossfire",
-    arenaHalfX: 12,
-    arenaHalfZ: 24,
+    name: "Physics Playground",
+    profile: "base",
+    sandboxMode: true,
+    commentary: "What if the arena is the weapon? Physics-first combat.",
+    enableWallSlamDamage: true,
+    enableEnemyCollisionDamage: true,
+    arenaHalfX: 11,
+    arenaHalfZ: 22,
     obstacles: [
       { x: -6, z: 0, w: 2, h: 2, d: 2 },
-      // cover pillar left
       { x: 6, z: 0, w: 2, h: 2, d: 2 },
-      // cover pillar right
       { x: 0, z: -10, w: 4, h: 1.5, d: 1 },
-      // mid wall (toward far/exit end)
       { x: -3, z: 10, w: 1.5, h: 2, d: 1.5 }
-      // pillar near entrance
     ],
     pits: [
       { x: -8, z: -8, w: 3, d: 4 },
-      // pit left mid (toward exit)
-      { x: 8, z: 5, w: 3, d: 3 }
-      // pit right near entrance
+      { x: 8, z: 5, w: 3, d: 3 },
+      { x: 0, z: -16, w: 4, d: 3 }
     ],
     spawnBudget: {
       maxConcurrent: 5,
       telegraphDuration: 1500,
       packs: [
-        // Intro: goblins rush
         pack(goblins(2), "ahead"),
-        // Archer appears far back
-        pack([...archers(1), ...goblins(1)], "far"),
-        // More melee pressure
+        pack(goblins(2), "far"),
         pack(goblins(3), "ahead"),
-        // Flanking archers
-        pack(archers(2), "sides"),
-        // Mixed push
-        pack([...goblins(2), ...archers(1)], "ahead"),
-        // Final rush
         pack(goblins(3), "sides")
       ]
     },
-    playerStart: { x: 0, z: 20 }
-  },
-  // ══════════════════════════════════════════════════════════════════════
-  // Room 3: "The Crucible" — full mix with imps, area denial
-  // ══════════════════════════════════════════════════════════════════════
-  {
-    name: "The Crucible",
-    arenaHalfX: 13,
-    arenaHalfZ: 25,
-    obstacles: [
-      { x: -5, z: 8, w: 2, h: 2, d: 2 },
-      // pillar near entrance left
-      { x: 5, z: 8, w: 2, h: 2, d: 2 },
-      // pillar near entrance right
-      { x: 0, z: -5, w: 1.5, h: 2.5, d: 1.5 },
-      // tall center pillar
-      { x: -8, z: -10, w: 3, h: 1, d: 1 },
-      // low wall far left
-      { x: 8, z: -10, w: 3, h: 1, d: 1 }
-      // low wall far right
-    ],
-    pits: [
-      { x: 0, z: 3, w: 5, d: 3 },
-      // central pit (forces flanking)
-      { x: -9, z: -15, w: 3, d: 4 },
-      // far left pit
-      { x: 9, z: -15, w: 3, d: 4 }
-      // far right pit
-    ],
-    spawnBudget: {
-      maxConcurrent: 6,
-      telegraphDuration: 1500,
-      packs: [
-        // Start with melee rush
-        pack(goblins(3), "ahead"),
-        // Introduce ranged
-        pack([...archers(1), ...goblins(1)], "far"),
-        // First imp — area denial begins
-        pack([...imps(1), ...goblins(1)], "sides"),
-        // Melee wave to push player into imp zones
-        pack(goblins(3), "ahead"),
-        // More imps + archer
-        pack([...imps(1), ...archers(1)], "far"),
-        // Heavy mixed final push
-        pack([...goblins(2), ...imps(1)], "ahead"),
-        pack([...archers(1), ...goblins(1)], "sides")
-      ]
-    },
-    playerStart: { x: 0, z: 21 }
-  },
-  // ══════════════════════════════════════════════════════════════════════
-  // Room 4: "The Respite" — rest room, heal to full
-  // ══════════════════════════════════════════════════════════════════════
-  {
-    name: "The Respite",
-    arenaHalfX: 8,
-    arenaHalfZ: 12,
-    obstacles: [],
-    pits: [],
-    spawnBudget: {
-      maxConcurrent: 0,
-      telegraphDuration: 0,
-      packs: []
-    },
-    playerStart: { x: 0, z: 8 },
-    isRestRoom: true
-  },
-  // ══════════════════════════════════════════════════════════════════════
-  // Room 5: "The Throne" — victory room (boss designed separately)
-  // ══════════════════════════════════════════════════════════════════════
-  {
-    name: "The Throne",
-    arenaHalfX: 10,
-    arenaHalfZ: 10,
-    obstacles: [],
-    pits: [],
-    spawnBudget: {
-      maxConcurrent: 0,
-      telegraphDuration: 0,
-      packs: []
-    },
-    playerStart: { x: 0, z: 6 },
-    isVictoryRoom: true
+    playerStart: { x: 0, z: 18 }
   }
 ];
 
@@ -4169,16 +4154,20 @@ function applyVelocities(dt, gameState2) {
       continue;
     }
     if (result.hitWall && speed > PHYSICS.wallSlamMinSpeed) {
-      const slamDamage = Math.round((speed - PHYSICS.wallSlamMinSpeed) * PHYSICS.wallSlamDamage);
-      applyDamageToEnemy(enemy, slamDamage, gameState2);
-      stunEnemy(enemy, PHYSICS.wallSlamStun);
-      emit({ type: "wallSlam", enemy, speed, damage: slamDamage, position: { x: enemy.pos.x, z: enemy.pos.z } });
-      spawnDamageNumber(enemy.pos.x, enemy.pos.z, slamDamage, "#ff8844");
-      screenShake(PHYSICS.wallSlamShake, 120);
-      enemy.flashTimer = 120;
-      if (enemy.bodyMesh) enemy.bodyMesh.material.emissive.setHex(16746564);
-      if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16746564);
-      createAoeRing(enemy.pos.x, enemy.pos.z, 1.5, 300, 16746564);
+      const room = getCurrentRoom();
+      const wallSlamEnabled = room?.enableWallSlamDamage ?? true;
+      if (wallSlamEnabled) {
+        const slamDamage = Math.round((speed - PHYSICS.wallSlamMinSpeed) * PHYSICS.wallSlamDamage);
+        applyDamageToEnemy(enemy, slamDamage, gameState2);
+        stunEnemy(enemy, PHYSICS.wallSlamStun);
+        emit({ type: "wallSlam", enemy, speed, damage: slamDamage, position: { x: enemy.pos.x, z: enemy.pos.z } });
+        spawnDamageNumber(enemy.pos.x, enemy.pos.z, slamDamage, "#ff8844");
+        screenShake(PHYSICS.wallSlamShake, 120);
+        enemy.flashTimer = 120;
+        if (enemy.bodyMesh) enemy.bodyMesh.material.emissive.setHex(16746564);
+        if (enemy.headMesh) enemy.headMesh.material.emissive.setHex(16746564);
+        createAoeRing(enemy.pos.x, enemy.pos.z, 1.5, 300, 16746564);
+      }
       const dot = vel.x * result.normalX + vel.z * result.normalZ;
       vel.x = (vel.x - 2 * dot * result.normalX) * PHYSICS.wallSlamBounce;
       vel.z = (vel.z - 2 * dot * result.normalZ) * PHYSICS.wallSlamBounce;
@@ -4240,7 +4229,9 @@ function resolveEnemyCollisions(gameState2) {
       velB.x += impulse * massA * nx;
       velB.z += impulse * massA * nz;
       const relSpeed = Math.sqrt(relVelX * relVelX + relVelZ * relVelZ);
-      if (relSpeed > PHYSICS.impactMinSpeed) {
+      const room = getCurrentRoom();
+      const collisionDmgEnabled = room?.enableEnemyCollisionDamage ?? true;
+      if (collisionDmgEnabled && relSpeed > PHYSICS.impactMinSpeed) {
         const dmg = Math.round((relSpeed - PHYSICS.impactMinSpeed) * PHYSICS.impactDamage);
         const midX = (a.pos.x + b.pos.x) / 2;
         const midZ = (a.pos.z + b.pos.z) / 2;
@@ -5107,6 +5098,194 @@ function removeTelegraph2(telegraph) {
   telegraph.typeMat.dispose();
 }
 
+// src/engine/roomHighlights.ts
+var DEFAULT_DELAY = 800;
+var DEFAULT_DURATION = 2e3;
+var PILLAR_HEIGHT = 1.25;
+var PILLAR_THICKNESS = 0.04;
+var activeTimers = [];
+var activeRafs = [];
+var activeMeshes = [];
+function clearHighlights() {
+  for (const id of activeTimers) clearTimeout(id);
+  activeTimers = [];
+  for (const id of activeRafs) cancelAnimationFrame(id);
+  activeRafs = [];
+  const scene2 = getScene();
+  for (const obj of activeMeshes) {
+    scene2.remove(obj);
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) obj.material.dispose();
+  }
+  activeMeshes = [];
+}
+function triggerRoomHighlights(highlights) {
+  clearHighlights();
+  for (const hl of highlights) {
+    const delay = hl.delay ?? DEFAULT_DELAY;
+    const duration = hl.duration ?? DEFAULT_DURATION;
+    const timerId = window.setTimeout(() => {
+      const rects = getRectsForTarget(hl.target, hl.color);
+      for (const rect of rects) {
+        spawnHighlight(rect, duration);
+      }
+    }, delay);
+    activeTimers.push(timerId);
+  }
+}
+var TARGET_COLORS = {
+  pits: 16729190,
+  obstacles: 6719743
+};
+function getRectsForTarget(target, colorOverride) {
+  const color = colorOverride ?? TARGET_COLORS[target] ?? 16777215;
+  switch (target) {
+    case "pits":
+      return PITS.map((p) => ({ x: p.x, z: p.z, w: p.w, d: p.d, color }));
+    case "obstacles":
+      return OBSTACLES.map((o) => ({ x: o.x, z: o.z, w: o.w, d: o.d, color }));
+    default:
+      return [];
+  }
+}
+function spawnHighlight(rect, duration) {
+  const scene2 = getScene();
+  const allParts = [];
+  const margin = 0.3;
+  const planeGeo = new THREE.PlaneGeometry(rect.w + margin, rect.d + margin);
+  const edgesGeo = new THREE.EdgesGeometry(planeGeo);
+  planeGeo.dispose();
+  const baseMat = new THREE.LineBasicMaterial({
+    color: rect.color,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false
+  });
+  const baseRing = new THREE.LineSegments(edgesGeo, baseMat);
+  baseRing.rotation.x = -Math.PI / 2;
+  baseRing.position.set(rect.x, 0.06, rect.z);
+  scene2.add(baseRing);
+  allParts.push(baseRing);
+  const hw = rect.w / 2;
+  const hd = rect.d / 2;
+  const corners = [
+    { x: rect.x - hw, z: rect.z - hd },
+    { x: rect.x + hw, z: rect.z - hd },
+    { x: rect.x + hw, z: rect.z + hd },
+    { x: rect.x - hw, z: rect.z + hd }
+  ];
+  const pillarGeo = new THREE.BoxGeometry(PILLAR_THICKNESS, PILLAR_HEIGHT, PILLAR_THICKNESS);
+  const pillars = [];
+  for (const corner of corners) {
+    const pillarMat = new THREE.MeshBasicMaterial({
+      color: rect.color,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false
+    });
+    const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+    pillar.position.set(corner.x, PILLAR_HEIGHT / 2, corner.z);
+    scene2.add(pillar);
+    allParts.push(pillar);
+    pillars.push(pillar);
+  }
+  const wallPlanes = [];
+  for (let i = 0; i < 4; i++) {
+    const c0 = corners[i];
+    const c1 = corners[(i + 1) % 4];
+    const dx = c1.x - c0.x;
+    const dz = c1.z - c0.z;
+    const wallWidth = Math.sqrt(dx * dx + dz * dz);
+    const wallGeo = new THREE.PlaneGeometry(wallWidth, PILLAR_HEIGHT, 1, 8);
+    const posAttr = wallGeo.getAttribute("position");
+    const colors = new Float32Array(posAttr.count * 4);
+    const r = (rect.color >> 16 & 255) / 255;
+    const g = (rect.color >> 8 & 255) / 255;
+    const b = (rect.color & 255) / 255;
+    for (let v = 0; v < posAttr.count; v++) {
+      const y = posAttr.getY(v);
+      const normalizedY = (y + PILLAR_HEIGHT / 2) / PILLAR_HEIGHT;
+      const vertAlpha = 1 - normalizedY * normalizedY;
+      colors[v * 4] = r;
+      colors[v * 4 + 1] = g;
+      colors[v * 4 + 2] = b;
+      colors[v * 4 + 3] = vertAlpha;
+    }
+    wallGeo.setAttribute("color", new THREE.BufferAttribute(colors, 4));
+    const wallMat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    });
+    const wallMesh = new THREE.Mesh(wallGeo, wallMat);
+    wallMesh.position.set(
+      (c0.x + c1.x) / 2,
+      PILLAR_HEIGHT / 2,
+      (c0.z + c1.z) / 2
+    );
+    wallMesh.rotation.y = Math.atan2(-dz, dx);
+    scene2.add(wallMesh);
+    allParts.push(wallMesh);
+    wallPlanes.push(wallMesh);
+  }
+  activeMeshes.push(...allParts);
+  const startTime = performance.now();
+  function animate() {
+    const elapsed = performance.now() - startTime;
+    const t = Math.min(elapsed / duration, 1);
+    let alpha;
+    if (t < 0.1) {
+      alpha = t / 0.1;
+    } else if (t < 0.45) {
+      alpha = 1;
+    } else {
+      alpha = 1 - (t - 0.45) / 0.55;
+    }
+    alpha = Math.max(0, alpha);
+    baseMat.opacity = alpha * 0.9;
+    let heightT;
+    if (t < 0.15) {
+      heightT = t / 0.15;
+    } else if (t < 0.5) {
+      heightT = 1;
+    } else {
+      heightT = 1 - (t - 0.5) / 0.5;
+    }
+    heightT = Math.max(0, heightT);
+    const easedHeight = 1 - (1 - heightT) * (1 - heightT);
+    for (const pillar of pillars) {
+      pillar.material.opacity = alpha * 0.7;
+      pillar.scale.y = Math.max(0.01, easedHeight);
+      pillar.position.y = PILLAR_HEIGHT * easedHeight / 2;
+    }
+    for (const wall of wallPlanes) {
+      wall.material.opacity = alpha * 0.35;
+      wall.scale.y = Math.max(0.01, easedHeight);
+      wall.position.y = PILLAR_HEIGHT * easedHeight / 2;
+    }
+    if (t < 1) {
+      const rafId2 = requestAnimationFrame(animate);
+      activeRafs.push(rafId2);
+    } else {
+      for (const part of allParts) {
+        scene2.remove(part);
+        if (part.geometry) part.geometry.dispose();
+        if (part.material) part.material.dispose();
+      }
+      edgesGeo.dispose();
+      pillarGeo.dispose();
+      for (const part of allParts) {
+        const idx = activeMeshes.indexOf(part);
+        if (idx >= 0) activeMeshes.splice(idx, 1);
+      }
+    }
+  }
+  const rafId = requestAnimationFrame(animate);
+  activeRafs.push(rafId);
+}
+
 // src/config/door.ts
 var DOOR_CONFIG = {
   unlockDuration: 1e3,
@@ -5335,6 +5514,7 @@ function loadRoom(index, gameState2) {
     0
   );
   restRoomTimer = 0;
+  clearHighlights();
   clearEnemies(gameState2);
   releaseAllProjectiles();
   clearMortarProjectiles();
@@ -5351,6 +5531,8 @@ function loadRoom(index, gameState2) {
   gameState2.currentWave = index + 1;
   showAnnounce(room.name);
   setTimeout(hideAnnounce, 2e3);
+  setProfile(room.profile);
+  setPlayerVisual(room.profile);
   if (room.isRestRoom) {
     gameState2.playerHealth = gameState2.playerMaxHealth;
     emit({ type: "playerHealed", amount: gameState2.playerMaxHealth, position: { x: room.playerStart.x, z: room.playerStart.z } });
@@ -5370,6 +5552,12 @@ function loadRoom(index, gameState2) {
   }
   if (index + 1 < ROOMS.length) {
     createDoor(room.arenaHalfX, room.arenaHalfZ, index);
+  }
+  if (room.sandboxMode) {
+    unlockDoor();
+  }
+  if (room.highlights && room.highlights.length > 0) {
+    triggerRoomHighlights(room.highlights);
   }
 }
 function updateRoomManager(dt, gameState2) {
@@ -5526,6 +5714,16 @@ function isInsidePit(x, z) {
   }
   return false;
 }
+function getCurrentRoom() {
+  return ROOMS[currentRoomIndex] ?? null;
+}
+function getCurrentRoomIndex() {
+  return currentRoomIndex;
+}
+function getCurrentRoomName() {
+  const room = ROOMS[currentRoomIndex];
+  return room ? room.name : "";
+}
 function resetRoomManager() {
   currentRoomIndex = 0;
   packIndex = 0;
@@ -5619,6 +5817,13 @@ function getBulletTimeMax() {
 }
 
 // src/ui/hud.ts
+var PROFILE_ABILITIES = {
+  origin: ["dash"],
+  base: ["dash", "ultimate"],
+  assassin: ["dash", "ultimate"],
+  "rule-bending": ["dash", "ultimate"],
+  vertical: ["dash", "ultimate"]
+};
 var healthBar;
 var healthText;
 var waveIndicator;
@@ -5785,7 +5990,7 @@ function initMobileButtons() {
 function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel }) {
   let touchId = null;
   let startX = 0, startY = 0;
-  let isDragging2 = false;
+  let isDragging = false;
   btnEl.addEventListener("touchstart", (e) => {
     e.preventDefault();
     if (touchId !== null) return;
@@ -5793,7 +5998,7 @@ function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel })
     touchId = touch.identifier;
     startX = touch.clientX;
     startY = touch.clientY;
-    isDragging2 = false;
+    isDragging = false;
     onDragStart();
   });
   window.addEventListener("touchmove", (e) => {
@@ -5804,7 +6009,7 @@ function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel })
     const dy = touch.clientY - startY;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist > DRAG_THRESHOLD) {
-      isDragging2 = true;
+      isDragging = true;
       const clampedDist = Math.min(dist, DRAG_MAX_RADIUS);
       const normX = dx / dist * (clampedDist / DRAG_MAX_RADIUS);
       const normY = -dy / dist * (clampedDist / DRAG_MAX_RADIUS);
@@ -5816,7 +6021,7 @@ function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel })
     const touch = findTouch(e.changedTouches, touchId);
     if (!touch) return;
     touchId = null;
-    onRelease(isDragging2);
+    onRelease(isDragging);
   });
   window.addEventListener("touchcancel", (e) => {
     if (touchId === null) return;
@@ -5843,7 +6048,7 @@ function updateHUD(gameState2) {
     healthBar.style.backgroundColor = "#ff4444";
   }
   healthText.textContent = Math.ceil(gameState2.playerHealth) + " / " + gameState2.playerMaxHealth;
-  waveIndicator.textContent = "Wave " + gameState2.currentWave;
+  waveIndicator.textContent = `${getCurrentRoomIndex() + 1}. ${getCurrentRoomName()}`;
   currencyCount.textContent = gameState2.currency;
   if (bulletTimeFill) {
     const btPct = getBulletTimeResource() / getBulletTimeMax();
@@ -5852,6 +6057,17 @@ function updateHUD(gameState2) {
     bulletTimeFill.style.backgroundColor = btActive ? "#ffcc44" : "#6688ff";
     if (bulletTimeMeter) {
       bulletTimeMeter.style.borderColor = btActive ? "rgba(255, 204, 68, 0.6)" : "rgba(100, 140, 255, 0.3)";
+    }
+  }
+  const activeAbilities = PROFILE_ABILITIES[getActiveProfile()] ?? ["dash", "ultimate"];
+  for (const key of Object.keys(ABILITIES)) {
+    const slot = document.getElementById(`ability-${key}`);
+    if (slot) {
+      if (activeAbilities.includes(key)) {
+        slot.classList.remove("disabled");
+      } else {
+        slot.classList.add("disabled");
+      }
     }
   }
   for (const [key, state] of Object.entries(gameState2.abilities)) {
@@ -5924,13 +6140,45 @@ function updateHUD(gameState2) {
   }
 }
 
+// src/ui/roomSelector.ts
+var onSelectCallback = null;
+function initRoomSelector(onSelect) {
+  onSelectCallback = onSelect;
+  const listEl = document.getElementById("room-selector-list");
+  if (!listEl) return;
+  while (listEl.firstChild) {
+    listEl.removeChild(listEl.firstChild);
+  }
+  ROOMS.forEach((room, index) => {
+    const btn = document.createElement("button");
+    btn.className = "room-selector-btn";
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "room-name";
+    nameSpan.textContent = `${index + 1}. ${room.name}`;
+    btn.appendChild(nameSpan);
+    const descSpan = document.createElement("span");
+    descSpan.className = "room-desc";
+    descSpan.textContent = room.commentary;
+    btn.appendChild(descSpan);
+    const handleClick = () => {
+      if (onSelectCallback) onSelectCallback(index);
+    };
+    btn.addEventListener("click", handleClick);
+    btn.addEventListener("touchend", (e) => {
+      e.preventDefault();
+      handleClick();
+    });
+    listEl.appendChild(btn);
+  });
+}
+
 // src/ui/screens.ts
 var startScreen;
 var startBtn;
 var gameOverScreen;
 var restartBtn;
 var gameOverStats;
-function initScreens(onRestart, onStart) {
+function initScreens(onRestart, onStart, onStartAtRoom) {
   startScreen = document.getElementById("start-screen");
   startBtn = document.getElementById("start-btn");
   const handleStart = () => {
@@ -5942,6 +6190,12 @@ function initScreens(onRestart, onStart) {
     e.preventDefault();
     handleStart();
   });
+  if (onStartAtRoom) {
+    initRoomSelector((roomIndex) => {
+      hideStartScreen();
+      onStartAtRoom(roomIndex);
+    });
+  }
   gameOverScreen = document.getElementById("game-over-screen");
   restartBtn = document.getElementById("restart-btn");
   gameOverStats = document.getElementById("game-over-stats");
@@ -6007,12 +6261,6 @@ function initAudio() {
 function resumeAudio() {
   if (ctx2 && ctx2.state === "suspended") {
     ctx2.resume();
-  }
-}
-function setMasterVolume(v) {
-  AUDIO_CONFIG.masterVolume = v;
-  if (masterGain) {
-    masterGain.gain.value = v;
   }
 }
 function createNoiseBuffer(duration) {
@@ -6461,3860 +6709,6 @@ function snapshotDefaults() {
   }
   return snap;
 }
-function buildShareUrl(defaults) {
-  const params = new URLSearchParams();
-  for (const [prefix, root] of Object.entries(CONFIG_ROOTS)) {
-    const defRoot = defaults[prefix];
-    if (!defRoot) continue;
-    collectDiffs(params, prefix, defRoot, root, "");
-  }
-  const base = window.location.origin + window.location.pathname;
-  const qs = params.toString();
-  return qs ? base + "?" + qs : base;
-}
-function collectDiffs(params, prefix, defObj, curObj, pathPrefix) {
-  for (const key of Object.keys(curObj)) {
-    const fullPath = pathPrefix ? pathPrefix + "." + key : key;
-    const curVal = curObj[key];
-    const defVal = getNestedValue(defObj, fullPath);
-    if (curVal != null && typeof curVal === "object" && !Array.isArray(curVal)) {
-      collectDiffs(params, prefix, defObj, curVal, fullPath);
-    } else if (curVal !== defVal) {
-      params.set(prefix + "." + fullPath, String(curVal));
-    }
-  }
-}
-
-// src/ui/tuning.ts
-var SECTIONS = [
-  // ── Combat ──
-  {
-    section: "Projectiles",
-    items: [
-      {
-        label: "Fire Rate",
-        config: () => PLAYER,
-        key: "fireRate",
-        min: 50,
-        max: 1e3,
-        step: 10,
-        invert: true,
-        unit: "ms",
-        tip: "Time between player auto-shots. Lower = faster firing."
-      },
-      {
-        label: "Speed",
-        config: () => PLAYER.projectile,
-        key: "speed",
-        min: 4,
-        max: 40,
-        step: 1,
-        unit: "u/s",
-        tip: "Player projectile travel speed in units per second."
-      },
-      {
-        label: "Size",
-        config: () => PLAYER.projectile,
-        key: "size",
-        min: 0.04,
-        max: 0.5,
-        step: 0.02,
-        unit: "u",
-        tip: "Player projectile collision radius in world units."
-      }
-    ]
-  },
-  {
-    section: "Player",
-    items: [
-      {
-        label: "Move Speed",
-        config: () => PLAYER,
-        key: "speed",
-        min: 2,
-        max: 16,
-        step: 0.5,
-        unit: "u/s",
-        tip: "Player movement speed in units per second."
-      }
-    ]
-  },
-  {
-    section: "Melee",
-    collapsed: true,
-    items: [
-      {
-        label: "Damage",
-        config: () => MELEE,
-        key: "damage",
-        min: 5,
-        max: 60,
-        step: 1,
-        unit: "",
-        tip: "Melee swing damage per hit."
-      },
-      {
-        label: "Range",
-        config: () => MELEE,
-        key: "range",
-        min: 1,
-        max: 4,
-        step: 0.2,
-        unit: "u",
-        tip: "How far the swing reaches from player center."
-      },
-      {
-        label: "Arc",
-        config: () => MELEE,
-        key: "arc",
-        min: 1,
-        max: 3.5,
-        step: 0.1,
-        unit: "rad",
-        tip: "Hit cone width in radians (~2.4 = 137\xB0)."
-      },
-      {
-        label: "Cooldown",
-        config: () => MELEE,
-        key: "cooldown",
-        min: 100,
-        max: 800,
-        step: 10,
-        unit: "ms",
-        tip: "Time between swings."
-      },
-      {
-        label: "Knockback",
-        config: () => MELEE,
-        key: "knockback",
-        min: 0,
-        max: 4,
-        step: 0.25,
-        unit: "u",
-        tip: "Distance enemies are pushed on hit."
-      },
-      {
-        label: "Auto Range",
-        config: () => MELEE,
-        key: "autoTargetRange",
-        min: 1,
-        max: 6,
-        step: 0.5,
-        unit: "u",
-        tip: "Radius to search for auto-targeting snap."
-      },
-      {
-        label: "Auto Arc",
-        config: () => MELEE,
-        key: "autoTargetArc",
-        min: 1,
-        max: 3.5,
-        step: 0.1,
-        unit: "rad",
-        tip: "Cone width for auto-targeting snap."
-      },
-      {
-        label: "Shake",
-        config: () => MELEE,
-        key: "screenShake",
-        min: 0,
-        max: 4,
-        step: 0.25,
-        unit: "",
-        tip: "Screen shake intensity on melee hit."
-      },
-      {
-        label: "Hit Pause",
-        config: () => MELEE,
-        key: "hitPause",
-        min: 0,
-        max: 100,
-        step: 5,
-        unit: "ms",
-        tip: "Freeze-frame duration on melee hit (juice)."
-      }
-    ]
-  },
-  {
-    section: "Mob Global",
-    items: [
-      {
-        label: "Speed Mult",
-        config: () => MOB_GLOBAL,
-        key: "speedMult",
-        min: 0.2,
-        max: 3,
-        step: 0.1,
-        unit: "x",
-        tip: "Global speed multiplier for all enemies."
-      },
-      {
-        label: "Damage Mult",
-        config: () => MOB_GLOBAL,
-        key: "damageMult",
-        min: 0.2,
-        max: 3,
-        step: 0.1,
-        unit: "x",
-        tip: "Global damage multiplier for all enemies."
-      },
-      {
-        label: "Health Mult",
-        config: () => MOB_GLOBAL,
-        key: "healthMult",
-        min: 0.2,
-        max: 3,
-        step: 0.1,
-        unit: "x",
-        tip: "Global health multiplier for all enemies."
-      },
-      {
-        label: "Telegraph Mult",
-        config: () => MOB_GLOBAL,
-        key: "telegraphMult",
-        min: 0.2,
-        max: 3,
-        step: 0.1,
-        unit: "x",
-        tip: "Global telegraph duration multiplier. Higher = more reaction time."
-      },
-      {
-        label: "Recovery Mult",
-        config: () => MOB_GLOBAL,
-        key: "recoveryMult",
-        min: 0.2,
-        max: 3,
-        step: 0.1,
-        unit: "x",
-        tip: "Global recovery duration multiplier. Higher = bigger punish windows."
-      }
-    ]
-  },
-  // ── Dash / Abilities ──
-  {
-    section: "Dash",
-    collapsed: true,
-    items: [
-      {
-        label: "Cooldown",
-        config: () => ABILITIES.dash,
-        key: "cooldown",
-        min: 500,
-        max: 1e4,
-        step: 100,
-        unit: "ms",
-        tip: "Dash cooldown in milliseconds."
-      },
-      {
-        label: "Duration",
-        config: () => ABILITIES.dash,
-        key: "duration",
-        min: 50,
-        max: 500,
-        step: 10,
-        unit: "ms",
-        tip: "How long the dash lasts."
-      },
-      {
-        label: "Distance",
-        config: () => ABILITIES.dash,
-        key: "distance",
-        min: 1,
-        max: 15,
-        step: 0.5,
-        unit: "u",
-        tip: "Total distance covered by dash."
-      },
-      {
-        label: "End Lag",
-        config: () => ABILITIES.dash,
-        key: "endLag",
-        min: 0,
-        max: 300,
-        step: 10,
-        unit: "ms",
-        tip: "Recovery time after dash where movement is locked."
-      },
-      {
-        label: "Afterimages",
-        config: () => ABILITIES.dash,
-        key: "afterimageCount",
-        min: 0,
-        max: 8,
-        step: 1,
-        unit: "",
-        tip: "Number of ghost afterimages spawned during dash."
-      },
-      {
-        label: "Ghost Fade",
-        config: () => ABILITIES.dash,
-        key: "afterimageFadeDuration",
-        min: 50,
-        max: 1e3,
-        step: 25,
-        unit: "ms",
-        tip: "How long afterimage ghosts take to fade out."
-      },
-      {
-        label: "Shake",
-        config: () => ABILITIES.dash,
-        key: "screenShakeOnStart",
-        min: 0,
-        max: 8,
-        step: 0.5,
-        unit: "",
-        tip: "Screen shake intensity on dash start."
-      }
-    ]
-  },
-  // ── Force Push ──
-  {
-    section: "Force Push",
-    collapsed: true,
-    items: [
-      {
-        label: "Cooldown",
-        config: () => ABILITIES.ultimate,
-        key: "cooldown",
-        min: 100,
-        max: 15e3,
-        step: 100,
-        unit: "ms",
-        tip: "Force push cooldown."
-      },
-      {
-        label: "Charge Time",
-        config: () => ABILITIES.ultimate,
-        key: "chargeTimeMs",
-        min: 200,
-        max: 5e3,
-        step: 100,
-        unit: "ms",
-        tip: "Time to fully charge."
-      },
-      {
-        label: "Min Length",
-        config: () => ABILITIES.ultimate,
-        key: "minLength",
-        min: 1,
-        max: 8,
-        step: 0.5,
-        unit: "u",
-        tip: "Uncharged push range."
-      },
-      {
-        label: "Max Length",
-        config: () => ABILITIES.ultimate,
-        key: "maxLength",
-        min: 4,
-        max: 25,
-        step: 1,
-        unit: "u",
-        tip: "Fully charged push range."
-      },
-      {
-        label: "Width",
-        config: () => ABILITIES.ultimate,
-        key: "width",
-        min: 1,
-        max: 10,
-        step: 0.5,
-        unit: "u",
-        tip: "Push zone width."
-      },
-      {
-        label: "Min Knockback",
-        config: () => ABILITIES.ultimate,
-        key: "minKnockback",
-        min: 0.5,
-        max: 5,
-        step: 0.25,
-        unit: "u",
-        tip: "Knockback force at minimum charge."
-      },
-      {
-        label: "Max Knockback",
-        config: () => ABILITIES.ultimate,
-        key: "maxKnockback",
-        min: 2,
-        max: 15,
-        step: 0.5,
-        unit: "u",
-        tip: "Knockback force at full charge."
-      },
-      {
-        label: "Move Mult",
-        config: () => ABILITIES.ultimate,
-        key: "chargeMoveSpeedMult",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        unit: "x",
-        tip: "Movement speed multiplier while charging."
-      }
-    ]
-  },
-  // ── Bullet Time ──
-  {
-    section: "Bullet Time",
-    collapsed: true,
-    items: [
-      {
-        label: "Time Scale",
-        config: () => BULLET_TIME,
-        key: "timeScale",
-        min: 0.05,
-        max: 0.8,
-        step: 0.05,
-        unit: "x",
-        tip: "How slow the world runs during bullet time (0.25 = 25% speed)."
-      },
-      {
-        label: "Max Resource",
-        config: () => BULLET_TIME,
-        key: "maxResource",
-        min: 500,
-        max: 1e4,
-        step: 500,
-        unit: "ms",
-        tip: "Total bullet time available at full bar."
-      },
-      {
-        label: "Drain Rate",
-        config: () => BULLET_TIME,
-        key: "drainRate",
-        min: 200,
-        max: 3e3,
-        step: 100,
-        unit: "ms/s",
-        tip: "How fast the bar drains per real second."
-      },
-      {
-        label: "Kill Refill",
-        config: () => BULLET_TIME,
-        key: "killRefill",
-        min: 100,
-        max: 2e3,
-        step: 100,
-        unit: "ms",
-        tip: "Resource refilled per enemy kill."
-      },
-      {
-        label: "Min Activate",
-        config: () => BULLET_TIME,
-        key: "activationMinimum",
-        min: 0,
-        max: 1e3,
-        step: 50,
-        unit: "ms",
-        tip: "Minimum resource required to activate bullet time."
-      },
-      {
-        label: "Infinite",
-        config: () => BULLET_TIME,
-        key: "infinite",
-        min: 0,
-        max: 1,
-        step: 1,
-        unit: "",
-        tip: "1 = infinite bullet time (no drain). 0 = normal drain."
-      }
-    ]
-  },
-  // ── Physics ──
-  {
-    section: "Physics",
-    collapsed: true,
-    items: [
-      {
-        label: "Friction",
-        config: () => PHYSICS,
-        key: "friction",
-        min: 2,
-        max: 30,
-        step: 1,
-        unit: "u/s\xB2",
-        tip: "Knockback deceleration. Higher = snappier stop."
-      },
-      {
-        label: "Push Instant %",
-        config: () => PHYSICS,
-        key: "pushInstantRatio",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Fraction of knockback applied as instant offset. 1.0 = old instant feel."
-      },
-      {
-        label: "Wave Block Rad",
-        config: () => PHYSICS,
-        key: "pushWaveBlockRadius",
-        min: 0,
-        max: 2,
-        step: 0.1,
-        unit: "u",
-        tip: "Lateral distance for enemy occlusion. Nearer enemies block push to those behind. 0 = no blocking."
-      },
-      {
-        label: "Slam Min Speed",
-        config: () => PHYSICS,
-        key: "wallSlamMinSpeed",
-        min: 0,
-        max: 10,
-        step: 0.5,
-        unit: "u/s",
-        tip: "Minimum impact speed for wall slam damage."
-      },
-      {
-        label: "Slam Damage",
-        config: () => PHYSICS,
-        key: "wallSlamDamage",
-        min: 1,
-        max: 20,
-        step: 1,
-        unit: "/unit",
-        tip: "Damage per unit of speed above slam threshold."
-      },
-      {
-        label: "Slam Stun",
-        config: () => PHYSICS,
-        key: "wallSlamStun",
-        min: 0,
-        max: 1e3,
-        step: 50,
-        unit: "ms",
-        tip: "Stun duration on wall slam."
-      },
-      {
-        label: "Slam Bounce",
-        config: () => PHYSICS,
-        key: "wallSlamBounce",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Velocity reflection on wall hit. 0 = dead stop, 1 = perfect bounce."
-      },
-      {
-        label: "Slam Shake",
-        config: () => PHYSICS,
-        key: "wallSlamShake",
-        min: 0,
-        max: 8,
-        step: 0.5,
-        unit: "",
-        tip: "Screen shake intensity on wall slam."
-      },
-      {
-        label: "Enemy Bounce",
-        config: () => PHYSICS,
-        key: "enemyBounce",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Enemy-enemy collision restitution. 0 = stick, 1 = full bounce."
-      },
-      {
-        label: "Impact Min Spd",
-        config: () => PHYSICS,
-        key: "impactMinSpeed",
-        min: 0,
-        max: 10,
-        step: 0.5,
-        unit: "u/s",
-        tip: "Minimum relative speed for enemy-enemy impact damage."
-      },
-      {
-        label: "Impact Damage",
-        config: () => PHYSICS,
-        key: "impactDamage",
-        min: 1,
-        max: 20,
-        step: 1,
-        unit: "/unit",
-        tip: "Damage per unit of speed above impact threshold."
-      },
-      {
-        label: "Impact Stun",
-        config: () => PHYSICS,
-        key: "impactStun",
-        min: 0,
-        max: 1e3,
-        step: 50,
-        unit: "ms",
-        tip: "Stun duration when enemies collide at speed."
-      }
-    ]
-  },
-  // ── Animation ──
-  {
-    section: "Animation \u2014 Run",
-    collapsed: true,
-    items: [
-      {
-        label: "Cycle Rate",
-        config: () => C,
-        key: "runCycleRate",
-        min: 0.1,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Full leg cycles per world unit traveled."
-      },
-      {
-        label: "Stride Angle",
-        config: () => C,
-        key: "strideAngle",
-        min: 0.1,
-        max: 1.5,
-        step: 0.05,
-        unit: "rad",
-        tip: "Thigh swing amplitude in radians."
-      },
-      {
-        label: "Knee Bend",
-        config: () => C,
-        key: "kneeBendMax",
-        min: 0.1,
-        max: 1.5,
-        step: 0.05,
-        unit: "rad",
-        tip: "Maximum forward knee bend."
-      },
-      {
-        label: "Arm Swing",
-        config: () => C,
-        key: "armSwingRatio",
-        min: 0,
-        max: 1.5,
-        step: 0.05,
-        unit: "x",
-        tip: "Arm swing as fraction of leg amplitude."
-      },
-      {
-        label: "Body Bounce",
-        config: () => C,
-        key: "bodyBounceHeight",
-        min: 0,
-        max: 0.1,
-        step: 5e-3,
-        unit: "u",
-        tip: "Vertical bounce per step in world units."
-      },
-      {
-        label: "Lean",
-        config: () => C,
-        key: "forwardLean",
-        min: 0,
-        max: 0.3,
-        step: 0.01,
-        unit: "rad",
-        tip: "Forward lean into movement direction."
-      },
-      {
-        label: "Lean Speed",
-        config: () => C,
-        key: "forwardLeanSpeed",
-        min: 1,
-        max: 20,
-        step: 1,
-        unit: "/s",
-        tip: "How fast lean blends in/out per second."
-      },
-      {
-        label: "Hip Turn",
-        config: () => C,
-        key: "hipTurnSpeed",
-        min: 2,
-        max: 30,
-        step: 1,
-        unit: "rad/s",
-        tip: "How fast legs reorient to movement direction."
-      }
-    ]
-  },
-  {
-    section: "Animation \u2014 Idle",
-    collapsed: true,
-    items: [
-      {
-        label: "Breath Rate",
-        config: () => C,
-        key: "breathRate",
-        min: 0.5,
-        max: 5,
-        step: 0.1,
-        unit: "Hz",
-        tip: "Breathing oscillation speed."
-      },
-      {
-        label: "Breath Amp",
-        config: () => C,
-        key: "breathAmplitude",
-        min: 0,
-        max: 0.06,
-        step: 5e-3,
-        unit: "u",
-        tip: "Vertical breathing displacement."
-      },
-      {
-        label: "Weight Shift",
-        config: () => C,
-        key: "weightShiftRate",
-        min: 0.1,
-        max: 2,
-        step: 0.1,
-        unit: "Hz",
-        tip: "Side-to-side weight shift speed."
-      },
-      {
-        label: "Shift Angle",
-        config: () => C,
-        key: "weightShiftAngle",
-        min: 0,
-        max: 0.15,
-        step: 5e-3,
-        unit: "rad",
-        tip: "Weight shift lean angle."
-      },
-      {
-        label: "Head Drift",
-        config: () => C,
-        key: "headDriftRate",
-        min: 0.1,
-        max: 2,
-        step: 0.1,
-        unit: "Hz",
-        tip: "Head drift oscillation speed."
-      },
-      {
-        label: "Head Angle",
-        config: () => C,
-        key: "headDriftAngle",
-        min: 0,
-        max: 0.1,
-        step: 5e-3,
-        unit: "rad",
-        tip: "Head drift max rotation."
-      },
-      {
-        label: "Arm Droop",
-        config: () => C,
-        key: "idleArmDroop",
-        min: 0,
-        max: 0.5,
-        step: 0.01,
-        unit: "rad",
-        tip: "Slight outward arm droop at idle."
-      }
-    ]
-  },
-  {
-    section: "Animation \u2014 Dash",
-    collapsed: true,
-    items: [
-      {
-        label: "Squash Y",
-        config: () => C,
-        key: "squashScaleY",
-        min: 0.5,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Y scale during dash wind-up (< 1 = squash)."
-      },
-      {
-        label: "Squash XZ",
-        config: () => C,
-        key: "squashScaleXZ",
-        min: 1,
-        max: 1.5,
-        step: 0.05,
-        unit: "",
-        tip: "XZ scale during dash wind-up (> 1 = widen)."
-      },
-      {
-        label: "Stretch Y",
-        config: () => C,
-        key: "stretchScaleY",
-        min: 1,
-        max: 1.5,
-        step: 0.05,
-        unit: "",
-        tip: "Y scale mid-dash (> 1 = elongate)."
-      },
-      {
-        label: "Stretch XZ",
-        config: () => C,
-        key: "stretchScaleXZ",
-        min: 0.5,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "XZ scale mid-dash (< 1 = narrow)."
-      },
-      {
-        label: "Lean Angle",
-        config: () => C,
-        key: "dashLeanAngle",
-        min: 0,
-        max: 0.8,
-        step: 0.02,
-        unit: "rad",
-        tip: "Aggressive forward lean during dash."
-      },
-      {
-        label: "Arm Sweep",
-        config: () => C,
-        key: "dashArmSweep",
-        min: -1.5,
-        max: 0,
-        step: 0.05,
-        unit: "rad",
-        tip: "Arms swept back during dash."
-      },
-      {
-        label: "Leg Lunge",
-        config: () => C,
-        key: "dashLegLunge",
-        min: 0,
-        max: 1.5,
-        step: 0.05,
-        unit: "rad",
-        tip: "Front leg forward extension during dash."
-      },
-      {
-        label: "Leg Trail",
-        config: () => C,
-        key: "dashLegTrail",
-        min: -1.5,
-        max: 0,
-        step: 0.05,
-        unit: "rad",
-        tip: "Back leg trailing behind during dash."
-      }
-    ]
-  },
-  {
-    section: "Animation \u2014 Blends",
-    collapsed: true,
-    items: [
-      {
-        label: "Idle to Run",
-        config: () => C,
-        key: "idleToRunBlend",
-        min: 20,
-        max: 300,
-        step: 10,
-        unit: "ms",
-        tip: "Blend duration from idle to run state."
-      },
-      {
-        label: "Run to Idle",
-        config: () => C,
-        key: "runToIdleBlend",
-        min: 20,
-        max: 300,
-        step: 10,
-        unit: "ms",
-        tip: "Blend duration from run to idle state."
-      },
-      {
-        label: "End Lag Blend",
-        config: () => C,
-        key: "endLagToNormalBlend",
-        min: 20,
-        max: 300,
-        step: 10,
-        unit: "ms",
-        tip: "Blend out of dash end-lag state."
-      }
-    ]
-  },
-  // ── Audio ──
-  {
-    section: "Audio",
-    collapsed: true,
-    items: [
-      {
-        label: "Master Vol",
-        config: () => AUDIO_CONFIG,
-        key: "masterVolume",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        custom: "masterVolume",
-        unit: "",
-        tip: "Overall volume. Applied to AudioContext gain node."
-      },
-      {
-        label: "Hit Vol",
-        config: () => AUDIO_CONFIG,
-        key: "hitVolume",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Enemy hit sound volume."
-      },
-      {
-        label: "Death Vol",
-        config: () => AUDIO_CONFIG,
-        key: "deathVolume",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Enemy death sound volume."
-      },
-      {
-        label: "Dash Vol",
-        config: () => AUDIO_CONFIG,
-        key: "dashVolume",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Dash whoosh volume."
-      },
-      {
-        label: "Shield Vol",
-        config: () => AUDIO_CONFIG,
-        key: "shieldBreakVolume",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Shield break crash volume."
-      },
-      {
-        label: "Charge Vol",
-        config: () => AUDIO_CONFIG,
-        key: "chargeVolume",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Charge fire burst volume."
-      },
-      {
-        label: "Wave Clear",
-        config: () => AUDIO_CONFIG,
-        key: "waveClearVolume",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Wave clear chime volume."
-      },
-      {
-        label: "Player Hit",
-        config: () => AUDIO_CONFIG,
-        key: "playerHitVolume",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Player damage taken sound volume."
-      },
-      {
-        label: "Melee Swing",
-        config: () => AUDIO_CONFIG,
-        key: "meleeSwingVolume",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Melee swing whoosh volume."
-      },
-      {
-        label: "Melee Hit",
-        config: () => AUDIO_CONFIG,
-        key: "meleeHitVolume",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        unit: "",
-        tip: "Melee hit thump volume."
-      }
-    ]
-  },
-  {
-    section: "Spawn Pacing",
-    collapsed: true,
-    items: [
-      {
-        label: "Telegraph Dur",
-        config: () => SPAWN_CONFIG,
-        key: "telegraphDuration",
-        min: 500,
-        max: 3e3,
-        step: 100,
-        unit: "ms",
-        tip: "How long spawn warnings show before enemies appear."
-      },
-      {
-        label: "Spawn Cooldown",
-        config: () => SPAWN_CONFIG,
-        key: "spawnCooldown",
-        min: 200,
-        max: 2e3,
-        step: 100,
-        unit: "ms",
-        tip: "Minimum delay between consecutive pack dispatches."
-      },
-      {
-        label: "Max Conc. Mult",
-        config: () => SPAWN_CONFIG,
-        key: "maxConcurrentMult",
-        min: 0.5,
-        max: 2,
-        step: 0.1,
-        unit: "",
-        tip: "Multiplier on max concurrent enemies (affects all rooms)."
-      },
-      {
-        label: "Ahead Dist Min",
-        config: () => SPAWN_CONFIG,
-        key: "spawnAheadMin",
-        min: 3,
-        max: 15,
-        step: 1,
-        unit: "u",
-        tip: "Min distance ahead of player to spawn enemies."
-      },
-      {
-        label: "Ahead Dist Max",
-        config: () => SPAWN_CONFIG,
-        key: "spawnAheadMax",
-        min: 8,
-        max: 25,
-        step: 1,
-        unit: "u",
-        tip: "Max distance ahead of player to spawn enemies."
-      }
-    ]
-  },
-  {
-    section: "Door",
-    collapsed: true,
-    items: [
-      {
-        label: "Unlock Duration",
-        config: () => DOOR_CONFIG,
-        key: "unlockDuration",
-        min: 300,
-        max: 2e3,
-        step: 100,
-        unit: "ms",
-        tip: "Door unlock animation duration."
-      },
-      {
-        label: "Interact Radius",
-        config: () => DOOR_CONFIG,
-        key: "interactRadius",
-        min: 1,
-        max: 4,
-        step: 0.5,
-        unit: "u",
-        tip: "How close player must be to enter door."
-      },
-      {
-        label: "Rest Pause",
-        config: () => DOOR_CONFIG,
-        key: "restPause",
-        min: 500,
-        max: 5e3,
-        step: 500,
-        unit: "ms",
-        tip: "How long before rest room door opens."
-      }
-    ]
-  }
-];
-var enemySpeedMultiplier = 1;
-var originalSpeeds = {};
-function captureOriginalSpeeds() {
-  for (const [name, cfg] of Object.entries(ENEMY_TYPES)) {
-    originalSpeeds[name] = cfg.speed;
-  }
-}
-function applyEnemySpeedMultiplier(mult) {
-  enemySpeedMultiplier = mult;
-  for (const [name, cfg] of Object.entries(ENEMY_TYPES)) {
-    cfg.speed = originalSpeeds[name] * mult;
-  }
-}
-function applyMasterVolume(val) {
-  setMasterVolume(val);
-}
-var panel;
-var isCollapsed = true;
-var sectionCollapsedState = /* @__PURE__ */ new Map();
-function initTuningPanel() {
-  captureOriginalSpeeds();
-  for (const sec of SECTIONS) {
-    sectionCollapsedState.set(sec.section, sec.collapsed ?? false);
-  }
-  panel = document.createElement("div");
-  panel.id = "tuning-panel";
-  panel.innerHTML = "";
-  const toggle = document.createElement("div");
-  toggle.id = "tuning-toggle";
-  toggle.textContent = "Tune";
-  toggle.addEventListener("click", () => {
-    isCollapsed = !isCollapsed;
-    panel.classList.toggle("collapsed", isCollapsed);
-    toggle.textContent = isCollapsed ? "Tune" : "\xD7";
-  });
-  panel.appendChild(toggle);
-  const content = document.createElement("div");
-  content.id = "tuning-content";
-  panel.appendChild(content);
-  for (const section of SECTIONS) {
-    const sectionEl = document.createElement("div");
-    sectionEl.className = "tuning-section";
-    const header = document.createElement("div");
-    header.className = "tuning-section-header";
-    const isSecCollapsed = sectionCollapsedState.get(section.section) ?? false;
-    header.innerHTML = `<span class="tuning-section-arrow">${isSecCollapsed ? "\u25B6" : "\u25BC"}</span> ${section.section}`;
-    const itemsContainer = document.createElement("div");
-    itemsContainer.className = "tuning-section-items";
-    if (isSecCollapsed) {
-      itemsContainer.style.display = "none";
-    }
-    header.addEventListener("click", () => {
-      const collapsed = sectionCollapsedState.get(section.section) ?? false;
-      const newState = !collapsed;
-      sectionCollapsedState.set(section.section, newState);
-      itemsContainer.style.display = newState ? "none" : "";
-      const arrow = header.querySelector(".tuning-section-arrow");
-      arrow.textContent = newState ? "\u25B6" : "\u25BC";
-    });
-    sectionEl.appendChild(header);
-    for (const item of section.items) {
-      const row = document.createElement("div");
-      row.className = "tuning-row";
-      const label = document.createElement("span");
-      label.className = "tuning-label";
-      label.textContent = item.label;
-      if (item.tip) {
-        label.setAttribute("data-tip", item.tip);
-        label.classList.add("has-tooltip");
-      }
-      const slider = document.createElement("input");
-      slider.type = "range";
-      slider.className = "tuning-slider";
-      slider.min = String(item.min);
-      slider.max = String(item.max);
-      slider.step = String(item.step);
-      let currentVal;
-      if (item.custom === "enemySpeed") {
-        currentVal = enemySpeedMultiplier;
-      } else {
-        currentVal = item.config()[item.key];
-      }
-      slider.value = String(currentVal);
-      const valueDisplay = document.createElement("span");
-      valueDisplay.className = "tuning-value";
-      valueDisplay.textContent = formatValue(currentVal, item);
-      slider.addEventListener("input", () => {
-        const val = parseFloat(slider.value);
-        if (item.custom === "enemySpeed") {
-          applyEnemySpeedMultiplier(val);
-        } else if (item.custom === "masterVolume") {
-          applyMasterVolume(val);
-        } else {
-          item.config()[item.key] = val;
-        }
-        valueDisplay.textContent = formatValue(val, item);
-      });
-      row.appendChild(label);
-      row.appendChild(slider);
-      row.appendChild(valueDisplay);
-      itemsContainer.appendChild(row);
-    }
-    sectionEl.appendChild(itemsContainer);
-    content.appendChild(sectionEl);
-  }
-  const copyBtn = document.createElement("div");
-  copyBtn.id = "tuning-copy";
-  copyBtn.textContent = "Copy Values";
-  copyBtn.addEventListener("click", () => {
-    const text = buildCopyText();
-    navigator.clipboard.writeText(text).then(() => {
-      copyBtn.textContent = "Copied!";
-      copyBtn.classList.add("copied");
-      setTimeout(() => {
-        copyBtn.textContent = "Copy Values";
-        copyBtn.classList.remove("copied");
-      }, 1200);
-    });
-  });
-  content.appendChild(copyBtn);
-  const shareBtn = document.createElement("div");
-  shareBtn.id = "tuning-share";
-  shareBtn.textContent = "Share URL";
-  shareBtn.addEventListener("click", () => {
-    const url = buildShareUrl(window.__configDefaults || {});
-    navigator.clipboard.writeText(url).then(() => {
-      shareBtn.textContent = "Copied URL!";
-      shareBtn.classList.add("copied");
-      setTimeout(() => {
-        shareBtn.textContent = "Share URL";
-        shareBtn.classList.remove("copied");
-      }, 1200);
-    });
-  });
-  content.appendChild(shareBtn);
-  const tooltipEl = document.createElement("div");
-  tooltipEl.id = "tuning-tooltip";
-  document.body.appendChild(tooltipEl);
-  let tuningTipTarget = null;
-  panel.addEventListener("mouseover", (e) => {
-    const el = e.target.closest(".has-tooltip");
-    if (el && el.getAttribute("data-tip")) {
-      tuningTipTarget = el;
-      tooltipEl.textContent = el.getAttribute("data-tip");
-      tooltipEl.classList.add("visible");
-      const rect = el.getBoundingClientRect();
-      let left = rect.left - tooltipEl.offsetWidth - 8;
-      let top = rect.top + rect.height / 2 - tooltipEl.offsetHeight / 2;
-      if (left < 4) {
-        left = rect.right + 8;
-      }
-      top = Math.max(4, Math.min(window.innerHeight - tooltipEl.offsetHeight - 4, top));
-      tooltipEl.style.left = left + "px";
-      tooltipEl.style.top = top + "px";
-    }
-  });
-  panel.addEventListener("mouseout", (e) => {
-    const el = e.target.closest(".has-tooltip");
-    if (el === tuningTipTarget) {
-      tuningTipTarget = null;
-      tooltipEl.classList.remove("visible");
-    }
-  });
-  panel.classList.add("collapsed");
-  document.body.appendChild(panel);
-  injectStyles();
-}
-function buildCopyText() {
-  const lines = [];
-  for (const section of SECTIONS) {
-    lines.push(`${section.section}:`);
-    for (const item of section.items) {
-      let val;
-      if (item.custom === "enemySpeed") {
-        val = enemySpeedMultiplier;
-      } else {
-        val = item.config()[item.key];
-      }
-      const display = Number.isInteger(val) ? val : parseFloat(val.toFixed(4));
-      const suffix = item.suffix ? " " + item.suffix : "";
-      lines.push(`  ${item.label}: ${display}${suffix}`);
-    }
-  }
-  return lines.join("\n");
-}
-function formatValue(val, item) {
-  const display = Number.isInteger(val) ? val : val.toFixed(2);
-  const unitStr = item.unit || item.suffix || "";
-  return display + (unitStr ? " " + unitStr : "");
-}
-function injectStyles() {
-  const style = document.createElement("style");
-  style.textContent = `
-    #tuning-panel {
-      position: fixed;
-      top: 60px;
-      right: 20px;
-      width: 300px;
-      z-index: 200;
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      pointer-events: all;
-      transition: transform 0.25s ease;
-    }
-
-    #tuning-panel.collapsed #tuning-content {
-      display: none;
-    }
-
-    #tuning-toggle {
-      position: absolute;
-      top: 0;
-      right: 0;
-      width: 48px;
-      height: 28px;
-      background: rgba(20, 20, 40, 0.85);
-      border: 1px solid rgba(68, 255, 136, 0.3);
-      border-radius: 4px;
-      color: rgba(68, 255, 136, 0.8);
-      font-family: inherit;
-      font-size: 11px;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      user-select: none;
-      transition: all 0.15s ease;
-    }
-
-    #tuning-toggle:hover {
-      background: rgba(68, 255, 136, 0.1);
-      border-color: rgba(68, 255, 136, 0.6);
-    }
-
-    #tuning-content {
-      margin-top: 36px;
-      background: rgba(10, 10, 26, 0.94);
-      border: 1px solid rgba(68, 255, 136, 0.2);
-      border-radius: 6px;
-      padding: 12px;
-      backdrop-filter: blur(8px);
-      max-height: calc(100vh - 120px);
-      overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(68, 255, 136, 0.3) transparent;
-    }
-
-    #tuning-content::-webkit-scrollbar {
-      width: 6px;
-    }
-
-    #tuning-content::-webkit-scrollbar-track {
-      background: transparent;
-    }
-
-    #tuning-content::-webkit-scrollbar-thumb {
-      background: rgba(68, 255, 136, 0.3);
-      border-radius: 3px;
-    }
-
-    .tuning-section {
-      margin-bottom: 4px;
-    }
-
-    .tuning-section:last-of-type {
-      margin-bottom: 0;
-    }
-
-    .tuning-section-header {
-      font-size: 9px;
-      color: rgba(68, 255, 136, 0.7);
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      padding: 6px 4px;
-      cursor: pointer;
-      user-select: none;
-      border-bottom: 1px solid rgba(68, 255, 136, 0.1);
-      transition: color 0.15s ease;
-    }
-
-    .tuning-section-header:hover {
-      color: rgba(68, 255, 136, 1);
-    }
-
-    .tuning-section-arrow {
-      font-size: 7px;
-      margin-right: 4px;
-      display: inline-block;
-      width: 10px;
-    }
-
-    .tuning-section-items {
-      padding: 6px 0 4px 0;
-    }
-
-    .tuning-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 6px;
-    }
-
-    .tuning-row:last-child {
-      margin-bottom: 0;
-    }
-
-    .tuning-label {
-      font-size: 10px;
-      color: rgba(255, 255, 255, 0.55);
-      width: 80px;
-      flex-shrink: 0;
-    }
-
-    .tuning-label.has-tooltip {
-      cursor: help;
-      text-decoration: underline dotted rgba(255, 255, 255, 0.2);
-      text-underline-offset: 2px;
-    }
-
-    .tuning-slider {
-      flex: 1;
-      height: 3px;
-      -webkit-appearance: none;
-      appearance: none;
-      background: rgba(100, 100, 160, 0.3);
-      border-radius: 2px;
-      outline: none;
-      cursor: pointer;
-    }
-
-    .tuning-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #44ff88;
-      cursor: pointer;
-      border: none;
-      box-shadow: 0 0 4px rgba(68, 255, 136, 0.4);
-    }
-
-    .tuning-slider::-moz-range-thumb {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #44ff88;
-      cursor: pointer;
-      border: none;
-      box-shadow: 0 0 4px rgba(68, 255, 136, 0.4);
-    }
-
-    .tuning-value {
-      font-size: 10px;
-      color: rgba(255, 255, 255, 0.7);
-      width: 54px;
-      text-align: right;
-      flex-shrink: 0;
-    }
-
-    #tuning-copy, #tuning-share {
-      margin-top: 10px;
-      padding: 5px 0;
-      text-align: center;
-      font-size: 9px;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      color: rgba(68, 255, 136, 0.7);
-      background: rgba(68, 255, 136, 0.06);
-      border: 1px solid rgba(68, 255, 136, 0.2);
-      border-radius: 4px;
-      cursor: pointer;
-      user-select: none;
-      transition: all 0.15s ease;
-    }
-
-    #tuning-share {
-      margin-top: 4px;
-    }
-
-    #tuning-copy:hover, #tuning-share:hover {
-      background: rgba(68, 255, 136, 0.12);
-      border-color: rgba(68, 255, 136, 0.5);
-      color: rgba(68, 255, 136, 1);
-    }
-
-    #tuning-copy.copied, #tuning-share.copied {
-      color: #ffcc44;
-      border-color: rgba(255, 204, 68, 0.4);
-      background: rgba(255, 204, 68, 0.08);
-    }
-
-    #tuning-tooltip {
-      position: fixed;
-      z-index: 300;
-      max-width: 220px;
-      padding: 6px 10px;
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      font-size: 10px;
-      line-height: 1.4;
-      color: rgba(255, 255, 255, 0.9);
-      background: rgba(10, 10, 30, 0.95);
-      border: 1px solid rgba(68, 255, 136, 0.4);
-      border-radius: 4px;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.12s ease;
-      backdrop-filter: blur(6px);
-    }
-
-    #tuning-tooltip.visible {
-      opacity: 1;
-    }
-  `;
-  document.head.appendChild(style);
-}
-
-// src/config/waves.ts
-var WAVES = [
-  {
-    wave: 1,
-    message: "Wave 1 \u2014 The dungeon stirs...",
-    groups: [
-      {
-        id: "w1g1",
-        triggerDelay: 0,
-        telegraphDuration: 1500,
-        stagger: 200,
-        spawns: [
-          { type: "goblin", x: 5, z: 2 },
-          { type: "goblin", x: 11, z: 0 },
-          { type: "goblin", x: 0, z: 5 },
-          { type: "iceMortarImp", x: 7, z: -11 },
-          { type: "iceMortarImp", x: -10, z: 9 }
-        ]
-      },
-      {
-        id: "w1g2",
-        triggerDelay: 0,
-        telegraphDuration: 1500,
-        stagger: 200,
-        spawns: [
-          { type: "goblin", x: -2, z: -9 },
-          { type: "goblin", x: -10, z: -3 },
-          { type: "goblin", x: -10, z: 0 }
-        ]
-      }
-    ]
-  },
-  {
-    wave: 2,
-    message: "Wave 2 \u2014 Watch the big ones",
-    groups: [
-      {
-        id: "w2g1",
-        triggerDelay: 0,
-        telegraphDuration: 1500,
-        stagger: 150,
-        spawns: [
-          { type: "goblin", x: 14, z: 0 },
-          { type: "stoneGolem", x: 12, z: 2 },
-          { type: "goblin", x: 12, z: -2 },
-          { type: "goblin", x: -14, z: 0 },
-          { type: "goblin", x: -12, z: 2 },
-          { type: "stoneGolem", x: -12, z: -1 },
-          { type: "goblin", x: 6, z: -7 },
-          { type: "goblin", x: -6, z: 6 }
-        ]
-      },
-      {
-        id: "w2g2",
-        triggerDelay: 3e3,
-        telegraphDuration: 2e3,
-        stagger: 400,
-        spawns: [
-          { type: "skeletonArcher", x: 12, z: 12 },
-          { type: "skeletonArcher", x: -12, z: -12 },
-          { type: "skeletonArcher", x: -12, z: 12 }
-        ]
-      }
-    ]
-  },
-  {
-    wave: 3,
-    message: "Wave 3 \u2014 Final wave?",
-    groups: [
-      {
-        id: "w3g1",
-        triggerDelay: 0,
-        telegraphDuration: 1500,
-        stagger: 100,
-        spawns: [
-          { type: "goblin", x: 15, z: 5 },
-          { type: "goblin", x: 15, z: -5 },
-          { type: "goblin", x: -15, z: 5 },
-          { type: "goblin", x: -15, z: -5 },
-          { type: "goblin", x: 5, z: 15 },
-          { type: "goblin", x: -5, z: 15 }
-        ]
-      },
-      {
-        id: "w3g2",
-        triggerDelay: 2e3,
-        telegraphDuration: 2e3,
-        stagger: 300,
-        spawns: [
-          { type: "skeletonArcher", x: 14, z: 10 },
-          { type: "skeletonArcher", x: -14, z: 10 },
-          { type: "skeletonArcher", x: 0, z: -16 },
-          { type: "skeletonArcher", x: 14, z: -10 }
-        ]
-      },
-      {
-        id: "w3g3",
-        triggerDelay: 6e3,
-        telegraphDuration: 2500,
-        stagger: 500,
-        spawns: [
-          { type: "stoneGolem", x: 0, z: 15 },
-          { type: "stoneGolem", x: -15, z: -5 },
-          { type: "stoneGolem", x: 15, z: -5 }
-        ]
-      },
-      {
-        id: "w3g4",
-        triggerDelay: 7e3,
-        telegraphDuration: 1500,
-        stagger: 200,
-        spawns: [
-          { type: "iceMortarImp", x: -13, z: 0 },
-          { type: "iceMortarImp", x: -3, z: -12 },
-          { type: "iceMortarImp", x: 12, z: 1 },
-          { type: "iceMortarImp", x: -5, z: 11 }
-        ]
-      }
-    ]
-  }
-];
-
-// src/engine/waveRunner.ts
-var waveState = {
-  status: "idle",
-  // 'idle' | 'announce' | 'running' | 'cleared' | 'victory'
-  waveIndex: 0,
-  elapsedMs: 0,
-  // ms since wave entered 'running'
-  announceTimer: 0,
-  clearPauseTimer: 0,
-  groups: []
-  // runtime state per group
-};
-var announceEl2;
-function startWave(index, gameState2) {
-  if (index >= WAVES.length) {
-    waveState.status = "victory";
-    showAnnounce2("VICTORY");
-    return;
-  }
-  waveState.waveIndex = index;
-  waveState.status = "announce";
-  waveState.announceTimer = 2e3;
-  waveState.elapsedMs = 0;
-  waveState.groups = [];
-  gameState2.currentWave = WAVES[index].wave;
-  showAnnounce2(WAVES[index].message);
-}
-function resetWaveRunner() {
-  for (const g of waveState.groups) {
-    for (const t of g.telegraphs) {
-      removeTelegraph2(t);
-    }
-  }
-  waveState.status = "idle";
-  waveState.waveIndex = 0;
-  waveState.elapsedMs = 0;
-  waveState.groups = [];
-  hideAnnounce2();
-}
-function showAnnounce2(text) {
-  if (!announceEl2) return;
-  announceEl2.textContent = text;
-  announceEl2.classList.add("visible");
-}
-function hideAnnounce2() {
-  if (!announceEl2) return;
-  announceEl2.classList.remove("visible");
-}
-
-// src/ui/spawnEditor.ts
-console.log("[spawnEditor] v2 loaded \u2014 tabs enabled");
-var sceneRef9;
-var gameStateRef;
-var panel2;
-var active2 = false;
-var previousPhase = "playing";
-var currentTab = "spawn";
-var editorState = {
-  waveIndex: 0,
-  groupIndex: 0,
-  enemyType: "goblin",
-  selectedSpawnIdx: -1
-  // index into current group's spawns, -1 = none
-};
-var levelState = {
-  selectedType: null,
-  // 'obstacle' or 'pit'
-  selectedIdx: -1
-  // index into OBSTACLES or PITS
-};
-var currentPresetName = null;
-var isDragging = false;
-var dragStarted = false;
-var dragStartWorld = null;
-var undoStack = [];
-var redoStack = [];
-var MAX_UNDO = 50;
-function snapshotGroup() {
-  const wave = WAVES[editorState.waveIndex];
-  if (!wave) return null;
-  const group = wave.groups[editorState.groupIndex];
-  if (!group) return null;
-  return {
-    tab: "spawn",
-    waveIndex: editorState.waveIndex,
-    groupIndex: editorState.groupIndex,
-    spawns: JSON.parse(JSON.stringify(group.spawns)),
-    triggerDelay: group.triggerDelay,
-    telegraphDuration: group.telegraphDuration,
-    stagger: group.stagger
-  };
-}
-function snapshotLevel() {
-  return {
-    tab: "level",
-    obstacles: JSON.parse(JSON.stringify(OBSTACLES)),
-    pits: JSON.parse(JSON.stringify(PITS)),
-    selectedType: levelState.selectedType,
-    selectedIdx: levelState.selectedIdx
-  };
-}
-function pushUndo() {
-  const snap = currentTab === "level" ? snapshotLevel() : snapshotGroup();
-  if (!snap) return;
-  undoStack.push(snap);
-  if (undoStack.length > MAX_UNDO) undoStack.shift();
-  redoStack.length = 0;
-}
-function applySnapshot(snap) {
-  if (snap.tab === "level") {
-    OBSTACLES.length = 0;
-    for (const o of snap.obstacles) OBSTACLES.push(o);
-    PITS.length = 0;
-    for (const p of snap.pits) PITS.push(p);
-    levelState.selectedType = snap.selectedType;
-    levelState.selectedIdx = snap.selectedIdx;
-    onArenaChanged();
-    rebuildLevelMarkers();
-    refreshUI();
-  } else {
-    editorState.waveIndex = snap.waveIndex;
-    editorState.groupIndex = snap.groupIndex;
-    const wave = WAVES[snap.waveIndex];
-    if (!wave) return;
-    const group = wave.groups[snap.groupIndex];
-    if (!group) return;
-    group.spawns = snap.spawns;
-    group.triggerDelay = snap.triggerDelay;
-    group.telegraphDuration = snap.telegraphDuration;
-    group.stagger = snap.stagger;
-    rebuildMarkers();
-    refreshUI();
-  }
-}
-function popUndo() {
-  if (undoStack.length === 0) return;
-  const current = currentTab === "level" ? snapshotLevel() : snapshotGroup();
-  if (current) redoStack.push(current);
-  applySnapshot(undoStack.pop());
-}
-function popRedo() {
-  if (redoStack.length === 0) return;
-  const current = currentTab === "level" ? snapshotLevel() : snapshotGroup();
-  if (current) undoStack.push(current);
-  applySnapshot(redoStack.pop());
-}
-var markers = [];
-var levelMarkers = [];
-var markerGeo;
-var markerMats = {};
-var waveLabel;
-var groupLabel;
-var spawnCountLabel;
-var bannerEl;
-var spawnTabContent;
-var levelTabContent;
-var TYPE_SHORT = {
-  goblin: "G",
-  skeletonArcher: "A",
-  iceMortarImp: "M",
-  stoneGolem: "T"
-};
-var ENEMY_TYPE_KEYS = Object.keys(ENEMY_TYPES);
-var ENEMY_TUNING_SLIDERS = {
-  goblin: [
-    { label: "Health", key: "health", min: 5, max: 200, step: 5, suffix: "", unit: "HP", tip: "Hit points before death." },
-    { label: "Speed", key: "speed", min: 0.5, max: 6, step: 0.1, suffix: "", unit: "u/s", tip: "Movement speed in units per second." },
-    { label: "Damage", key: "damage", min: 1, max: 50, step: 1, suffix: "", unit: "HP", tip: "Melee damage per hit." },
-    { label: "Attack Rate", key: "attackRate", min: 200, max: 3e3, step: 50, suffix: "ms", unit: "ms", tip: "Minimum time between melee attacks." },
-    { label: "KB Resist", key: "knockbackResist", min: 0, max: 1, step: 0.05, suffix: "", unit: "", tip: "Resistance to knockback. 0 = full knockback, 1 = immune." },
-    { label: "Stop Dist", key: "rush.stopDistance", min: 0.1, max: 3, step: 0.1, suffix: "", unit: "u", tip: "How close to the player before the goblin stops moving." },
-    { label: "Leap Edge", key: "pitLeap.edgeTimeRequired", min: 200, max: 4e3, step: 100, suffix: "ms", unit: "ms", tip: "How long a goblin must hug a pit edge before leaping." },
-    { label: "Leap Speed", key: "pitLeap.leapSpeed", min: 2, max: 20, step: 0.5, suffix: "", unit: "u/s", tip: "Travel speed along the arc. Lower = slower, more dramatic." },
-    { label: "Leap Height", key: "pitLeap.arcHeight", min: 1, max: 12, step: 0.5, suffix: "", unit: "u", tip: "Peak height of the parabolic leap arc." },
-    { label: "Leap CD", key: "pitLeap.cooldown", min: 500, max: 1e4, step: 250, suffix: "ms", unit: "ms", tip: "Cooldown before a goblin can leap again." }
-  ],
-  skeletonArcher: [
-    { label: "Health", key: "health", min: 5, max: 200, step: 5, suffix: "", unit: "HP", tip: "Hit points before death." },
-    { label: "Speed", key: "speed", min: 0.5, max: 6, step: 0.1, suffix: "", unit: "u/s", tip: "Movement speed in units per second." },
-    { label: "Damage", key: "damage", min: 1, max: 50, step: 1, suffix: "", unit: "HP", tip: "Base damage value." },
-    { label: "Attack Rate", key: "attackRate", min: 500, max: 5e3, step: 100, suffix: "ms", unit: "ms", tip: "Cooldown between sniper shots (includes telegraph time)." },
-    { label: "Attack Range", key: "attackRange", min: 3, max: 20, step: 0.5, suffix: "", unit: "u", tip: "Maximum distance to initiate a sniper shot." },
-    { label: "KB Resist", key: "knockbackResist", min: 0, max: 1, step: 0.05, suffix: "", unit: "", tip: "Resistance to knockback. 0 = full knockback, 1 = immune." },
-    { label: "Sniper Telegraph", key: "sniper.telegraphDuration", min: 200, max: 2e3, step: 50, suffix: "ms", unit: "ms", tip: "How long the laser sight shows before firing. This is the player's dodge window." },
-    { label: "Shot Width", key: "sniper.shotWidth", min: 0.5, max: 4, step: 0.1, suffix: "", unit: "u", tip: "Width of the damage corridor (perpendicular to aim)." },
-    { label: "Shot Length", key: "sniper.shotLength", min: 4, max: 25, step: 1, suffix: "", unit: "u", tip: "Length of the damage corridor (along aim direction)." },
-    { label: "Sniper Dmg", key: "sniper.damage", min: 1, max: 50, step: 1, suffix: "", unit: "HP", tip: "Damage dealt to everything in the corridor (player + enemies)." },
-    { label: "Slow Dur", key: "sniper.slowDuration", min: 200, max: 3e3, step: 100, suffix: "ms", unit: "ms", tip: "How long enemies hit by sniper are slowed." },
-    { label: "Slow Mult", key: "sniper.slowMult", min: 0.1, max: 1, step: 0.05, suffix: "", unit: "x", tip: "Speed multiplier while slowed. 0.5 = half speed." },
-    { label: "Pref Range %", key: "kite.preferredRangeMult", min: 0.3, max: 1, step: 0.05, suffix: "", unit: "x", tip: "Multiplier on attackRange for ideal distance. Lower = fights closer." },
-    { label: "Retreat Buf", key: "kite.retreatBuffer", min: 0, max: 5, step: 0.5, suffix: "", unit: "u", tip: "How far inside preferred range before retreating." },
-    { label: "Advance Buf", key: "kite.advanceBuffer", min: 0, max: 8, step: 0.5, suffix: "", unit: "u", tip: "How far outside preferred range before advancing." }
-  ],
-  iceMortarImp: [
-    { label: "Health", key: "health", min: 5, max: 200, step: 5, suffix: "", unit: "HP", tip: "Hit points before death." },
-    { label: "Speed", key: "speed", min: 0.5, max: 6, step: 0.1, suffix: "", unit: "u/s", tip: "Movement speed in units per second." },
-    { label: "Damage", key: "damage", min: 1, max: 50, step: 1, suffix: "", unit: "HP", tip: "Base damage value." },
-    { label: "Attack Rate", key: "attackRate", min: 1e3, max: 8e3, step: 250, suffix: "ms", unit: "ms", tip: "Cooldown between mortar shots (includes aim time)." },
-    { label: "Attack Range", key: "attackRange", min: 5, max: 25, step: 0.5, suffix: "", unit: "u", tip: "Maximum distance to initiate a mortar shot." },
-    { label: "KB Resist", key: "knockbackResist", min: 0, max: 1, step: 0.05, suffix: "", unit: "", tip: "Resistance to knockback." },
-    { label: "Aim Duration", key: "mortar.aimDuration", min: 400, max: 3e3, step: 100, suffix: "ms", unit: "ms", tip: "How long the aim arc + ground circle telegraph shows. This is the dodge window." },
-    { label: "Proj Speed", key: "mortar.projectileSpeed", min: 3, max: 20, step: 0.5, suffix: "", unit: "u/s", tip: "Projectile travel speed along the arc." },
-    { label: "Arc Height", key: "mortar.arcHeight", min: 2, max: 15, step: 0.5, suffix: "", unit: "u", tip: "Peak height of the parabolic arc." },
-    { label: "Blast Radius", key: "mortar.blastRadius", min: 1, max: 8, step: 0.5, suffix: "", unit: "u", tip: "AoE damage radius on impact." },
-    { label: "Mortar Dmg", key: "mortar.damage", min: 1, max: 50, step: 1, suffix: "", unit: "HP", tip: "Damage dealt to everything in the blast radius." },
-    { label: "Inaccuracy", key: "mortar.inaccuracy", min: 0, max: 5, step: 0.25, suffix: "", unit: "u", tip: "Random offset from player position. Higher = less accurate." },
-    { label: "Slow Dur", key: "mortar.slowDuration", min: 200, max: 3e3, step: 100, suffix: "ms", unit: "ms", tip: "How long targets hit by mortar are slowed." },
-    { label: "Slow Mult", key: "mortar.slowMult", min: 0.1, max: 1, step: 0.05, suffix: "", unit: "x", tip: "Speed multiplier while slowed." },
-    { label: "Circle Start", key: "mortar.circleStartScale", min: 0.05, max: 1, step: 0.05, suffix: "", unit: "x", tip: "Initial scale of ground circle on aim lock (0.25 = starts at 25% size)." },
-    { label: "Circle Scale", key: "mortar.circleScaleTime", min: 50, max: 1e3, step: 50, suffix: "ms", unit: "ms", tip: "How long the ground circle takes to scale from start size to full size." },
-    { label: "Pref Range %", key: "kite.preferredRangeMult", min: 0.3, max: 1, step: 0.05, suffix: "", unit: "x", tip: "Multiplier on attackRange for ideal distance." },
-    { label: "Retreat Buf", key: "kite.retreatBuffer", min: 0, max: 5, step: 0.5, suffix: "", unit: "u", tip: "How far inside preferred range before retreating." },
-    { label: "Advance Buf", key: "kite.advanceBuffer", min: 0, max: 8, step: 0.5, suffix: "", unit: "u", tip: "How far outside preferred range before advancing." }
-  ],
-  stoneGolem: [
-    { label: "Health", key: "health", min: 20, max: 500, step: 10, suffix: "", unit: "HP", tip: "Hit points after shield is broken." },
-    { label: "Speed", key: "speed", min: 0.3, max: 4, step: 0.05, suffix: "", unit: "u/s", tip: "Base movement speed in units per second." },
-    { label: "Damage", key: "damage", min: 5, max: 80, step: 5, suffix: "", unit: "HP", tip: "Base melee damage per hit." },
-    { label: "Attack Rate", key: "attackRate", min: 200, max: 5e3, step: 100, suffix: "ms", unit: "ms", tip: "Minimum time between melee hits." },
-    { label: "KB Resist", key: "knockbackResist", min: 0, max: 1, step: 0.05, suffix: "", unit: "", tip: "Knockback resistance. Golem barely moves when hit." },
-    { label: "Charge Speed", key: "tank.chargeSpeedMult", min: 1, max: 6, step: 0.5, suffix: "x", unit: "x", tip: "Speed multiplier during charge attack." },
-    { label: "Charge Dur", key: "tank.chargeDuration", min: 100, max: 2e3, step: 50, suffix: "ms", unit: "ms", tip: "How long the charge lasts." },
-    { label: "Charge CD Min", key: "tank.chargeCooldownMin", min: 1e3, max: 1e4, step: 500, suffix: "ms", unit: "ms", tip: "Minimum cooldown between charges." },
-    { label: "Charge CD Max", key: "tank.chargeCooldownMax", min: 1e3, max: 15e3, step: 500, suffix: "ms", unit: "ms", tip: "Maximum cooldown between charges (random in range)." },
-    { label: "Charge Dmg", key: "tank.chargeDamageMult", min: 1, max: 4, step: 0.25, suffix: "x", unit: "x", tip: "Damage multiplier when hitting player during charge." },
-    { label: "Shield HP", key: "shield.maxHealth", min: 0, max: 200, step: 5, suffix: "", unit: "HP", tip: "Shield hit points. Set to 0 to disable shield." },
-    { label: "Stun Radius", key: "shield.stunRadius", min: 1, max: 15, step: 0.5, suffix: "", unit: "u", tip: "AoE stun radius when shield breaks." },
-    { label: "Stun Dur", key: "shield.stunDuration", min: 500, max: 5e3, step: 250, suffix: "ms", unit: "ms", tip: "How long the golem + nearby enemies are stunned after shield break." },
-    { label: "Explode Rad", key: "deathExplosion.radius", min: 1, max: 10, step: 0.5, suffix: "", unit: "u", tip: "AoE radius of the death explosion. Damages nearby enemies and player." },
-    { label: "Explode Dmg", key: "deathExplosion.damage", min: 5, max: 80, step: 5, suffix: "", unit: "HP", tip: "Damage dealt by the death explosion." },
-    { label: "Explode Stun", key: "deathExplosion.stunDuration", min: 0, max: 3e3, step: 250, suffix: "ms", unit: "ms", tip: "Stun duration applied to enemies caught in death explosion. 0 = no stun." },
-    { label: "Explode Delay", key: "deathExplosion.telegraphDuration", min: 0, max: 3e3, step: 100, suffix: "ms", unit: "ms", tip: "Telegraph delay before explosion. Golem can be pushed during this window. 0 = instant." }
-  ]
-};
-function getNestedValue2(obj, path) {
-  const parts = path.split(".");
-  let cur = obj;
-  for (const p of parts) {
-    if (cur == null) return void 0;
-    cur = cur[p];
-  }
-  return cur;
-}
-function setNestedValue2(obj, path, value) {
-  const parts = path.split(".");
-  let cur = obj;
-  for (let i = 0; i < parts.length - 1; i++) {
-    if (cur[parts[i]] == null) cur[parts[i]] = {};
-    cur = cur[parts[i]];
-  }
-  cur[parts[parts.length - 1]] = value;
-}
-var lastBuiltTuningType = null;
-function initSpawnEditor(scene2, gameState2) {
-  sceneRef9 = scene2;
-  gameStateRef = gameState2;
-  markerGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.8, 8);
-  for (const [name, cfg] of Object.entries(ENEMY_TYPES)) {
-    markerMats[name] = new THREE.MeshStandardMaterial({
-      color: cfg.color,
-      emissive: cfg.color,
-      emissiveIntensity: 0.5,
-      transparent: true,
-      opacity: 0.8
-    });
-  }
-  buildPanel();
-  injectStyles2();
-  window.addEventListener("mousedown", onMouseDown);
-  window.addEventListener("mousemove", onMouseMove);
-  window.addEventListener("mouseup", onMouseUp);
-  window.addEventListener("keydown", onEditorKey);
-}
-function updateSpawnEditor(dt) {
-  const input = getInputState();
-  if (input.toggleEditor) {
-    toggleEditor();
-    consumeInput();
-    return;
-  }
-}
-function checkEditorToggle() {
-  const input = getInputState();
-  if (input.toggleEditor) {
-    toggleEditor();
-  }
-}
-function toggleEditor() {
-  if (active2) {
-    exitEditor();
-  } else {
-    enterEditor();
-  }
-}
-function onEditorWheel(e) {
-  e.preventDefault();
-  const delta = e.deltaY > 0 ? 1 : -1;
-  setZoom(getCurrentFrustum() + delta);
-}
-function enterEditor() {
-  active2 = true;
-  previousPhase = gameStateRef.phase;
-  gameStateRef.phase = "editorPaused";
-  panel2.classList.remove("hidden");
-  bannerEl.classList.add("visible");
-  window.addEventListener("wheel", onEditorWheel, { passive: false });
-  if (currentTab === "spawn") {
-    rebuildMarkers();
-  } else {
-    rebuildLevelMarkers();
-  }
-  refreshUI();
-}
-function exitEditor() {
-  active2 = false;
-  gameStateRef.phase = previousPhase;
-  panel2.classList.add("hidden");
-  bannerEl.classList.remove("visible");
-  window.removeEventListener("wheel", onEditorWheel);
-  resetZoom();
-  clearMarkers();
-  clearLevelMarkers();
-}
-function switchTab(tab) {
-  if (tab === currentTab) return;
-  currentTab = tab;
-  clearMarkers();
-  clearLevelMarkers();
-  editorState.selectedSpawnIdx = -1;
-  levelState.selectedType = null;
-  levelState.selectedIdx = -1;
-  isDragging = false;
-  dragStarted = false;
-  if (spawnTabContent && levelTabContent) {
-    spawnTabContent.style.display = tab === "spawn" ? "block" : "none";
-    levelTabContent.style.display = tab === "level" ? "block" : "none";
-  }
-  const tabs = panel2.querySelectorAll(".se-tab");
-  tabs.forEach((t) => t.classList.toggle("active", t.dataset.tab === tab));
-  if (tab === "spawn") {
-    rebuildMarkers();
-  } else {
-    rebuildLevelMarkers();
-  }
-  refreshUI();
-}
-function mouseToWorld(e) {
-  const ndcX = e.clientX / window.innerWidth * 2 - 1;
-  const ndcY = -(e.clientY / window.innerHeight) * 2 + 1;
-  return screenToWorld(ndcX, ndcY);
-}
-function clampToArena(x, z) {
-  const cx = ARENA_HALF_X - 1.5;
-  const cz = ARENA_HALF_Z - 1.5;
-  return {
-    x: Math.round(Math.max(-cx, Math.min(cx, x))),
-    z: Math.round(Math.max(-cz, Math.min(cz, z)))
-  };
-}
-function findNearestSpawn(worldX, worldZ, radius) {
-  const group = getCurrentGroup();
-  if (!group) return -1;
-  let bestIdx = -1, bestDist = radius * radius;
-  for (let i = 0; i < group.spawns.length; i++) {
-    const s = group.spawns[i];
-    const dx = s.x - worldX;
-    const dz = s.z - worldZ;
-    const distSq = dx * dx + dz * dz;
-    if (distSq < bestDist) {
-      bestDist = distSq;
-      bestIdx = i;
-    }
-  }
-  return bestIdx;
-}
-function findNearestSpawnAcrossGroups(worldX, worldZ, radius) {
-  const wave = WAVES[editorState.waveIndex];
-  if (!wave) return null;
-  let bestGroupIdx = -1, bestSpawnIdx = -1, bestDist = radius * radius;
-  for (let gi = 0; gi < wave.groups.length; gi++) {
-    const group = wave.groups[gi];
-    for (let si = 0; si < group.spawns.length; si++) {
-      const s = group.spawns[si];
-      const dx = s.x - worldX;
-      const dz = s.z - worldZ;
-      const distSq = dx * dx + dz * dz;
-      if (distSq < bestDist) {
-        bestDist = distSq;
-        bestGroupIdx = gi;
-        bestSpawnIdx = si;
-      }
-    }
-  }
-  if (bestGroupIdx < 0) return null;
-  return { groupIdx: bestGroupIdx, spawnIdx: bestSpawnIdx };
-}
-function findNearestLevelObject(worldX, worldZ, radius) {
-  let bestType = null, bestIdx = -1, bestDist = radius * radius;
-  for (let i = 0; i < OBSTACLES.length; i++) {
-    const o = OBSTACLES[i];
-    const dx = o.x - worldX;
-    const dz = o.z - worldZ;
-    const distSq = dx * dx + dz * dz;
-    if (distSq < bestDist) {
-      bestDist = distSq;
-      bestType = "obstacle";
-      bestIdx = i;
-    }
-  }
-  for (let i = 0; i < PITS.length; i++) {
-    const p = PITS[i];
-    const dx = p.x - worldX;
-    const dz = p.z - worldZ;
-    const distSq = dx * dx + dz * dz;
-    if (distSq < bestDist) {
-      bestDist = distSq;
-      bestType = "pit";
-      bestIdx = i;
-    }
-  }
-  if (bestType === null) return null;
-  return { type: bestType, idx: bestIdx };
-}
-function onMouseDown(e) {
-  if (!active2) return;
-  if (e.target.closest("#spawn-editor")) return;
-  if (currentTab === "level") {
-    onLevelMouseDown(e);
-    return;
-  }
-  const worldPos = mouseToWorld(e);
-  const group = getCurrentGroup();
-  if (!group) return;
-  if (e.button === 2 || e.shiftKey) {
-    let idx = findNearestSpawn(worldPos.x, worldPos.z, 1.5);
-    if (idx >= 0) {
-      pushUndo();
-      group.spawns.splice(idx, 1);
-      if (editorState.selectedSpawnIdx === idx) editorState.selectedSpawnIdx = -1;
-      else if (editorState.selectedSpawnIdx > idx) editorState.selectedSpawnIdx--;
-      rebuildMarkers();
-      refreshUI();
-    } else {
-      const hit = findNearestSpawnAcrossGroups(worldPos.x, worldPos.z, 1.5);
-      if (hit) {
-        editorState.groupIndex = hit.groupIdx;
-        editorState.selectedSpawnIdx = -1;
-        const targetGroup = WAVES[editorState.waveIndex].groups[hit.groupIdx];
-        pushUndo();
-        targetGroup.spawns.splice(hit.spawnIdx, 1);
-        rebuildMarkers();
-        refreshUI();
-      }
-    }
-    return;
-  }
-  const hitIdx = findNearestSpawn(worldPos.x, worldPos.z, 1.5);
-  if (hitIdx >= 0) {
-    editorState.selectedSpawnIdx = hitIdx;
-    isDragging = true;
-    dragStarted = false;
-    dragStartWorld = { x: worldPos.x, z: worldPos.z };
-    rebuildMarkers();
-    refreshUI();
-  } else {
-    const hit = findNearestSpawnAcrossGroups(worldPos.x, worldPos.z, 0.8);
-    if (hit) {
-      editorState.groupIndex = hit.groupIdx;
-      editorState.selectedSpawnIdx = hit.spawnIdx;
-      isDragging = true;
-      dragStarted = false;
-      dragStartWorld = { x: worldPos.x, z: worldPos.z };
-      rebuildMarkers();
-      refreshUI();
-    } else {
-      pushUndo();
-      const clamped = clampToArena(worldPos.x, worldPos.z);
-      group.spawns.push({ type: editorState.enemyType, x: clamped.x, z: clamped.z });
-      editorState.selectedSpawnIdx = group.spawns.length - 1;
-      rebuildMarkers();
-      refreshUI();
-    }
-  }
-}
-function onLevelMouseDown(e) {
-  const worldPos = mouseToWorld(e);
-  if (e.button === 2 || e.shiftKey) {
-    const hit2 = findNearestLevelObject(worldPos.x, worldPos.z, 3);
-    if (hit2) {
-      pushUndo();
-      if (hit2.type === "obstacle") {
-        OBSTACLES.splice(hit2.idx, 1);
-      } else {
-        PITS.splice(hit2.idx, 1);
-      }
-      if (levelState.selectedType === hit2.type && levelState.selectedIdx === hit2.idx) {
-        levelState.selectedType = null;
-        levelState.selectedIdx = -1;
-      } else if (levelState.selectedType === hit2.type && levelState.selectedIdx > hit2.idx) {
-        levelState.selectedIdx--;
-      }
-      onArenaChanged();
-      rebuildLevelMarkers();
-      refreshUI();
-    }
-    return;
-  }
-  const hit = findNearestLevelObject(worldPos.x, worldPos.z, 3);
-  if (hit) {
-    levelState.selectedType = hit.type;
-    levelState.selectedIdx = hit.idx;
-    isDragging = true;
-    dragStarted = false;
-    dragStartWorld = { x: worldPos.x, z: worldPos.z };
-    rebuildLevelMarkers();
-    refreshUI();
-  } else {
-    levelState.selectedType = null;
-    levelState.selectedIdx = -1;
-    rebuildLevelMarkers();
-    refreshUI();
-  }
-}
-function onMouseMove(e) {
-  if (!active2 || !isDragging) return;
-  if (currentTab === "level") {
-    onLevelMouseMove(e);
-    return;
-  }
-  const worldPos = mouseToWorld(e);
-  const group = getCurrentGroup();
-  if (!group || editorState.selectedSpawnIdx < 0) return;
-  if (!dragStarted) {
-    const dx = worldPos.x - dragStartWorld.x;
-    const dz = worldPos.z - dragStartWorld.z;
-    if (dx * dx + dz * dz < 0.25) return;
-    dragStarted = true;
-    pushUndo();
-  }
-  const clamped = clampToArena(worldPos.x, worldPos.z);
-  const spawn = group.spawns[editorState.selectedSpawnIdx];
-  spawn.x = clamped.x;
-  spawn.z = clamped.z;
-  const marker = markers.find(
-    (m) => m.groupIdx === editorState.groupIndex && m.spawnIdx === editorState.selectedSpawnIdx
-  );
-  if (marker) {
-    marker.mesh.position.set(clamped.x, 0, clamped.z);
-  }
-}
-function onLevelMouseMove(e) {
-  if (levelState.selectedType === null || levelState.selectedIdx < 0) return;
-  const worldPos = mouseToWorld(e);
-  if (!dragStarted) {
-    const dx = worldPos.x - dragStartWorld.x;
-    const dz = worldPos.z - dragStartWorld.z;
-    if (dx * dx + dz * dz < 0.25) return;
-    dragStarted = true;
-    pushUndo();
-  }
-  const arr = levelState.selectedType === "obstacle" ? OBSTACLES : PITS;
-  const obj = arr[levelState.selectedIdx];
-  if (!obj) return;
-  obj.x = Math.round(worldPos.x * 2) / 2;
-  obj.z = Math.round(worldPos.z * 2) / 2;
-  const marker = levelMarkers.find(
-    (m) => m.type === levelState.selectedType && m.idx === levelState.selectedIdx
-  );
-  if (marker) {
-    marker.mesh.position.set(obj.x, marker.mesh.position.y, obj.z);
-  }
-}
-function onMouseUp(e) {
-  if (!active2) return;
-  if (currentTab === "level") {
-    if (isDragging && dragStarted) {
-      onArenaChanged();
-      rebuildLevelMarkers();
-      refreshUI();
-    }
-    isDragging = false;
-    dragStarted = false;
-    dragStartWorld = null;
-    return;
-  }
-  if (isDragging && dragStarted) {
-    rebuildMarkers();
-    refreshUI();
-  }
-  isDragging = false;
-  dragStarted = false;
-  dragStartWorld = null;
-}
-function onArenaChanged() {
-  rebuildArenaVisuals();
-  invalidateCollisionBounds();
-}
-var hasArenaBackend = () => window.ARENA_BACKEND === true;
-async function fetchPresetList() {
-  if (!hasArenaBackend()) return [];
-  try {
-    const res = await fetch("/arenas");
-    if (!res.ok) return [];
-    return await res.json();
-  } catch (e) {
-    console.warn("[spawnEditor] Could not fetch preset list:", e);
-    return [];
-  }
-}
-async function refreshPresetDropdown() {
-  const select = document.getElementById("se-preset-select");
-  if (!select) return;
-  const list = await fetchPresetList();
-  let html = '<option value="">(unsaved)</option>';
-  for (const name of list) {
-    const sel = name === currentPresetName ? " selected" : "";
-    html += `<option value="${name}"${sel}>${name}</option>`;
-  }
-  select.innerHTML = html;
-}
-async function loadPreset(name) {
-  if (!name || !hasArenaBackend()) return;
-  try {
-    const res = await fetch(`/arenas/load?name=${encodeURIComponent(name)}`);
-    if (!res.ok) throw new Error(res.statusText);
-    const data = await res.json();
-    pushUndo();
-    OBSTACLES.length = 0;
-    for (const o of data.obstacles) OBSTACLES.push(o);
-    PITS.length = 0;
-    for (const p of data.pits) PITS.push(p);
-    currentPresetName = name;
-    levelState.selectedType = null;
-    levelState.selectedIdx = -1;
-    onArenaChanged();
-    rebuildLevelMarkers();
-    refreshLevelUI();
-    refreshPresetDropdown();
-  } catch (e) {
-    console.error("[spawnEditor] Load preset failed:", e);
-  }
-}
-async function savePreset(name) {
-  if (!name || !hasArenaBackend()) return;
-  try {
-    const res = await fetch("/arenas/save", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, obstacles: OBSTACLES, pits: PITS })
-    });
-    if (!res.ok) throw new Error(res.statusText);
-    currentPresetName = name;
-    refreshPresetDropdown();
-  } catch (e) {
-    console.error("[spawnEditor] Save preset failed:", e);
-  }
-}
-async function deletePreset(name) {
-  if (!name || !hasArenaBackend()) return;
-  try {
-    const res = await fetch("/arenas/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name })
-    });
-    if (!res.ok) throw new Error(res.statusText);
-    if (currentPresetName === name) currentPresetName = null;
-    refreshPresetDropdown();
-  } catch (e) {
-    console.error("[spawnEditor] Delete preset failed:", e);
-  }
-}
-function onEditorKey(e) {
-  if (!active2) return;
-  if (e.code === "KeyZ" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
-    e.preventDefault();
-    popUndo();
-    return;
-  }
-  if (e.code === "KeyY" && (e.metaKey || e.ctrlKey) || e.code === "KeyZ" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
-    e.preventDefault();
-    popRedo();
-    return;
-  }
-  if (e.code === "Escape") {
-    if (currentTab === "level") {
-      levelState.selectedType = null;
-      levelState.selectedIdx = -1;
-      rebuildLevelMarkers();
-    } else {
-      editorState.selectedSpawnIdx = -1;
-      rebuildMarkers();
-    }
-    refreshUI();
-    return;
-  }
-  if (currentTab === "level") {
-    onLevelKey(e);
-    return;
-  }
-  const typeKeyMap = { "Digit1": 0, "Digit2": 1, "Digit3": 2, "Digit4": 3 };
-  if (e.code in typeKeyMap) {
-    const idx = typeKeyMap[e.code];
-    if (idx < ENEMY_TYPE_KEYS.length) {
-      editorState.enemyType = ENEMY_TYPE_KEYS[idx];
-      if (editorState.selectedSpawnIdx >= 0) {
-        const group = getCurrentGroup();
-        if (group && group.spawns[editorState.selectedSpawnIdx]) {
-          pushUndo();
-          group.spawns[editorState.selectedSpawnIdx].type = ENEMY_TYPE_KEYS[idx];
-          rebuildMarkers();
-        }
-      }
-      refreshUI();
-    }
-  }
-  if (e.code === "Delete" || e.code === "Backspace") {
-    if (e.target.tagName === "INPUT") return;
-    const group = getCurrentGroup();
-    if (!group) return;
-    if (editorState.selectedSpawnIdx >= 0 && editorState.selectedSpawnIdx < group.spawns.length) {
-      pushUndo();
-      group.spawns.splice(editorState.selectedSpawnIdx, 1);
-      editorState.selectedSpawnIdx = -1;
-      rebuildMarkers();
-      refreshUI();
-    } else {
-      pushUndo();
-      group.spawns = [];
-      rebuildMarkers();
-      refreshUI();
-    }
-  }
-  if (e.code === "KeyP") {
-    playCurrentWave();
-  }
-}
-function onLevelKey(e) {
-  if (e.code === "Delete" || e.code === "Backspace") {
-    if (e.target.tagName === "INPUT") return;
-    if (levelState.selectedType && levelState.selectedIdx >= 0) {
-      pushUndo();
-      if (levelState.selectedType === "obstacle") {
-        OBSTACLES.splice(levelState.selectedIdx, 1);
-      } else {
-        PITS.splice(levelState.selectedIdx, 1);
-      }
-      levelState.selectedType = null;
-      levelState.selectedIdx = -1;
-      onArenaChanged();
-      rebuildLevelMarkers();
-      refreshUI();
-    }
-  }
-}
-function clearMarkers() {
-  for (const m of markers) {
-    sceneRef9.remove(m.mesh);
-    m.mesh.children.forEach((c) => {
-      if (c.material && c.material !== markerMats[m.type]) c.material.dispose();
-    });
-  }
-  markers = [];
-}
-function rebuildMarkers() {
-  clearMarkers();
-  for (let wi = 0; wi < WAVES.length; wi++) {
-    const wave = WAVES[wi];
-    if (wi !== editorState.waveIndex) continue;
-    for (let gi = 0; gi < wave.groups.length; gi++) {
-      const group = wave.groups[gi];
-      const isCurrent = gi === editorState.groupIndex;
-      for (let si = 0; si < group.spawns.length; si++) {
-        const spawn = group.spawns[si];
-        const mat = markerMats[spawn.type] || markerMats.goblin;
-        const isSelected = isCurrent && si === editorState.selectedSpawnIdx;
-        const clonedMat = mat.clone();
-        clonedMat.opacity = isCurrent ? 0.85 : 0.25;
-        if (isSelected) {
-          clonedMat.emissiveIntensity = 1;
-        }
-        const mesh = new THREE.Group();
-        const body = new THREE.Mesh(markerGeo, clonedMat);
-        body.position.y = 0.4;
-        mesh.add(body);
-        const ringColor = isSelected ? 16777215 : ENEMY_TYPES[spawn.type] ? ENEMY_TYPES[spawn.type].color : 16777215;
-        const ringGeo3 = new THREE.RingGeometry(
-          isSelected ? 0.55 : 0.5,
-          isSelected ? 0.75 : 0.65,
-          16
-        );
-        ringGeo3.rotateX(-Math.PI / 2);
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: ringColor,
-          transparent: true,
-          opacity: isSelected ? 0.9 : isCurrent ? 0.5 : 0.15,
-          side: THREE.DoubleSide,
-          depthWrite: false
-        });
-        const ring = new THREE.Mesh(ringGeo3, ringMat);
-        ring.position.y = 0.02;
-        mesh.add(ring);
-        mesh.position.set(spawn.x, 0, spawn.z);
-        sceneRef9.add(mesh);
-        markers.push({
-          mesh,
-          type: spawn.type,
-          waveIdx: wi,
-          groupIdx: gi,
-          spawnIdx: si
-        });
-      }
-    }
-  }
-}
-function clearLevelMarkers() {
-  for (const m of levelMarkers) {
-    sceneRef9.remove(m.mesh);
-    m.mesh.children.forEach((c) => {
-      if (c.material) c.material.dispose();
-      if (c.geometry) c.geometry.dispose();
-    });
-  }
-  levelMarkers = [];
-}
-function rebuildLevelMarkers() {
-  clearLevelMarkers();
-  const isObsSelected = levelState.selectedType === "obstacle";
-  const isPitSelected = levelState.selectedType === "pit";
-  for (let i = 0; i < OBSTACLES.length; i++) {
-    const o = OBSTACLES[i];
-    const selected = isObsSelected && levelState.selectedIdx === i;
-    const group = new THREE.Group();
-    const boxGeo2 = new THREE.BoxGeometry(o.w, o.h, o.d);
-    const edgesGeo = new THREE.EdgesGeometry(boxGeo2);
-    const lineMat = new THREE.LineBasicMaterial({
-      color: selected ? 4521864 : 6728447,
-      linewidth: 1
-    });
-    const wireframe = new THREE.LineSegments(edgesGeo, lineMat);
-    wireframe.position.y = o.h / 2;
-    group.add(wireframe);
-    const ringGeo3 = new THREE.RingGeometry(
-      selected ? 0.6 : 0.5,
-      selected ? 0.85 : 0.7,
-      16
-    );
-    ringGeo3.rotateX(-Math.PI / 2);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: selected ? 4521864 : 6728447,
-      transparent: true,
-      opacity: selected ? 0.8 : 0.4,
-      side: THREE.DoubleSide,
-      depthWrite: false
-    });
-    const ring = new THREE.Mesh(ringGeo3, ringMat);
-    ring.position.y = 0.03;
-    group.add(ring);
-    group.position.set(o.x, 0, o.z);
-    sceneRef9.add(group);
-    levelMarkers.push({ mesh: group, type: "obstacle", idx: i });
-  }
-  for (let i = 0; i < PITS.length; i++) {
-    const p = PITS[i];
-    const selected = isPitSelected && levelState.selectedIdx === i;
-    const group = new THREE.Group();
-    const planeGeo = new THREE.PlaneGeometry(p.w, p.d);
-    const edgesGeo = new THREE.EdgesGeometry(planeGeo);
-    const lineMat = new THREE.LineBasicMaterial({
-      color: selected ? 16729258 : 16729190,
-      linewidth: 1
-    });
-    const wireframe = new THREE.LineSegments(edgesGeo, lineMat);
-    wireframe.rotation.x = -Math.PI / 2;
-    wireframe.position.y = 0.1;
-    group.add(wireframe);
-    const ringGeo3 = new THREE.RingGeometry(
-      selected ? 0.6 : 0.5,
-      selected ? 0.85 : 0.7,
-      16
-    );
-    ringGeo3.rotateX(-Math.PI / 2);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: selected ? 16729258 : 16729190,
-      transparent: true,
-      opacity: selected ? 0.8 : 0.4,
-      side: THREE.DoubleSide,
-      depthWrite: false
-    });
-    const ring = new THREE.Mesh(ringGeo3, ringMat);
-    ring.position.y = 0.03;
-    group.add(ring);
-    group.position.set(p.x, 0, p.z);
-    sceneRef9.add(group);
-    levelMarkers.push({ mesh: group, type: "pit", idx: i });
-  }
-}
-function buildPanel() {
-  panel2 = document.createElement("div");
-  panel2.id = "spawn-editor";
-  panel2.className = "hidden";
-  panel2.addEventListener("contextmenu", (e) => e.preventDefault());
-  bannerEl = document.createElement("div");
-  bannerEl.id = "editor-banner";
-  document.body.appendChild(bannerEl);
-  bannerEl.textContent = "EDITOR MODE \u2014 press ` to exit";
-  let html = "";
-  html += '<div class="se-tabs">';
-  html += '<div class="se-tab active" data-tab="spawn">Spawn</div>';
-  html += '<div class="se-tab" data-tab="level">Level</div>';
-  html += "</div>";
-  html += '<div id="se-spawn-content">';
-  html += '<div class="se-section">';
-  html += '<div class="se-group-label">Wave</div>';
-  html += '<div class="se-selector">';
-  html += '<div class="se-btn" id="se-wave-prev">&lt;</div>';
-  html += '<span id="se-wave-label">1</span>';
-  html += '<div class="se-btn" id="se-wave-next">&gt;</div>';
-  html += '<div class="se-btn se-add" id="se-wave-add">+</div>';
-  html += "</div>";
-  html += '<input type="text" id="se-wave-msg" class="se-wave-msg" placeholder="Wave announcement message...">';
-  html += "</div>";
-  html += '<div class="se-section">';
-  html += '<div class="se-group-label">Group</div>';
-  html += '<div class="se-selector">';
-  html += '<div class="se-btn" id="se-group-prev">&lt;</div>';
-  html += '<span id="se-group-label">g1</span>';
-  html += '<div class="se-btn" id="se-group-next">&gt;</div>';
-  html += '<div class="se-btn se-add" id="se-group-add">+</div>';
-  html += '<div class="se-btn se-del" id="se-group-del">\xD7</div>';
-  html += "</div></div>";
-  html += '<div class="se-section">';
-  html += '<div class="se-group-label">Timing</div>';
-  html += `<div class="se-slider-row"><span class="has-tooltip" data-tip="Time after wave starts before this group's telegraph begins. Use to stagger multiple groups.">Trigger Delay</span><input type="range" id="se-trigger" min="0" max="10000" step="250" value="0"><input type="text" class="se-timing-val" id="se-trigger-val" value="0 ms"></div>`;
-  html += `<div class="se-slider-row"><span class="has-tooltip" data-tip="How long the pulsing warning circles appear on the ground before enemies materialize. This is the player's reaction window.">Telegraph Time</span><input type="range" id="se-telegraph" min="500" max="5000" step="250" value="1500"><input type="text" class="se-timing-val" id="se-telegraph-val" value="1500 ms"></div>`;
-  html += '<div class="se-slider-row"><span class="has-tooltip" data-tip="Time between each individual enemy spawning within a group. 0 = all spawn simultaneously.">Spawn Stagger</span><input type="range" id="se-stagger" min="0" max="1000" step="50" value="200"><input type="text" class="se-timing-val" id="se-stagger-val" value="200 ms"></div>';
-  html += "</div>";
-  html += '<div class="se-section">';
-  html += '<div class="se-group-label">Enemy Type (1/2/3/4)</div>';
-  html += '<div class="se-type-picker" id="se-type-picker">';
-  for (const [name, cfg] of Object.entries(ENEMY_TYPES)) {
-    const short = TYPE_SHORT[name] || name[0].toUpperCase();
-    html += `<div class="se-type-btn" data-type="${name}" style="border-color: #${cfg.color.toString(16).padStart(6, "0")}">${short} ${cfg.name}</div>`;
-  }
-  html += "</div></div>";
-  html += '<div class="se-section" id="se-enemy-tuning">';
-  html += '<div class="se-group-label se-collapsible" id="se-tuning-header">Enemy Properties &#x25BC;</div>';
-  html += '<div id="se-tuning-body"></div>';
-  html += "</div>";
-  html += '<div class="se-section">';
-  html += '<div class="se-spawn-count">Spawns: <span id="se-spawn-count">0</span></div>';
-  html += '<div class="se-selected-info" id="se-selected-info"></div>';
-  html += '<div class="se-btn se-action" id="se-clear">Clear Group</div>';
-  html += "</div>";
-  html += '<div class="se-section se-actions">';
-  html += '<div class="se-btn se-action se-play" id="se-play">Play Wave</div>';
-  html += '<div class="se-btn se-action se-save" id="se-save-spawns">Save All</div>';
-  html += '<div class="se-btn se-action" id="se-copy-wave">Copy Wave</div>';
-  html += '<div class="se-btn se-action" id="se-copy-all">Copy All</div>';
-  html += '<div class="se-btn se-action" id="se-copy-enemies">Copy Enemy Config</div>';
-  html += "</div>";
-  html += "</div>";
-  html += '<div id="se-level-content" style="display:none">';
-  html += '<div class="se-section">';
-  html += '<div class="se-group-label">Arena Preset</div>';
-  html += '<div class="se-preset-row">';
-  html += '<select id="se-preset-select" class="se-preset-select"><option value="">(unsaved)</option></select>';
-  html += '<div class="se-btn se-action se-small" id="se-preset-load">Load</div>';
-  html += "</div>";
-  html += '<div class="se-preset-row" style="margin-top:4px">';
-  html += '<div class="se-btn se-action se-save se-small" id="se-preset-save">Save Preset</div>';
-  html += '<div class="se-btn se-action se-del se-small" id="se-preset-delete">Delete</div>';
-  html += "</div>";
-  html += "</div>";
-  html += '<div class="se-section">';
-  html += '<div class="se-group-label">Obstacles</div>';
-  html += '<div id="se-obstacle-list" class="se-item-list"></div>';
-  html += '<div class="se-btn se-action se-add" id="se-add-obstacle">+ Add Obstacle</div>';
-  html += "</div>";
-  html += '<div class="se-section">';
-  html += '<div class="se-group-label">Pits</div>';
-  html += '<div id="se-pit-list" class="se-item-list"></div>';
-  html += '<div class="se-btn se-action se-add" id="se-add-pit">+ Add Pit</div>';
-  html += "</div>";
-  html += '<div class="se-section" id="se-level-props" style="display:none">';
-  html += '<div class="se-group-label" id="se-level-props-label">Properties</div>';
-  html += '<div id="se-level-props-body"></div>';
-  html += "</div>";
-  html += '<div class="se-section se-actions">';
-  html += '<div class="se-btn se-action se-save" id="se-save-arena">Save Arena</div>';
-  html += '<div class="se-btn se-action" id="se-copy-arena">Copy Arena Config</div>';
-  html += "</div>";
-  html += "</div>";
-  panel2.innerHTML = html;
-  document.body.appendChild(panel2);
-  spawnTabContent = document.getElementById("se-spawn-content");
-  levelTabContent = document.getElementById("se-level-content");
-  const tooltipEl = document.createElement("div");
-  tooltipEl.id = "se-tooltip";
-  document.body.appendChild(tooltipEl);
-  setTimeout(() => wireEvents(), 0);
-}
-function wireEvents() {
-  panel2.querySelectorAll(".se-tab").forEach((tab) => {
-    tab.addEventListener("click", () => switchTab(tab.dataset.tab));
-  });
-  document.getElementById("se-wave-prev").addEventListener("click", () => {
-    editorState.waveIndex = Math.max(0, editorState.waveIndex - 1);
-    editorState.groupIndex = 0;
-    editorState.selectedSpawnIdx = -1;
-    rebuildMarkers();
-    refreshUI();
-  });
-  document.getElementById("se-wave-next").addEventListener("click", () => {
-    editorState.waveIndex = Math.min(WAVES.length - 1, editorState.waveIndex + 1);
-    editorState.groupIndex = 0;
-    editorState.selectedSpawnIdx = -1;
-    rebuildMarkers();
-    refreshUI();
-  });
-  document.getElementById("se-wave-add").addEventListener("click", () => {
-    const newWave = {
-      wave: WAVES.length + 1,
-      message: `Wave ${WAVES.length + 1}`,
-      groups: [{
-        id: `w${WAVES.length + 1}g1`,
-        triggerDelay: 0,
-        telegraphDuration: 1500,
-        stagger: 200,
-        spawns: []
-      }]
-    };
-    WAVES.push(newWave);
-    editorState.waveIndex = WAVES.length - 1;
-    editorState.groupIndex = 0;
-    editorState.selectedSpawnIdx = -1;
-    rebuildMarkers();
-    refreshUI();
-  });
-  const waveMsgInput = document.getElementById("se-wave-msg");
-  waveMsgInput.addEventListener("input", () => {
-    const wave = WAVES[editorState.waveIndex];
-    if (wave) wave.message = waveMsgInput.value;
-  });
-  waveMsgInput.addEventListener("keydown", (e) => {
-    e.stopPropagation();
-    if (e.key === "Enter") waveMsgInput.blur();
-  });
-  waveMsgInput.addEventListener("focus", () => waveMsgInput.select());
-  document.getElementById("se-group-prev").addEventListener("click", () => {
-    editorState.groupIndex = Math.max(0, editorState.groupIndex - 1);
-    editorState.selectedSpawnIdx = -1;
-    rebuildMarkers();
-    refreshUI();
-  });
-  document.getElementById("se-group-next").addEventListener("click", () => {
-    const wave = WAVES[editorState.waveIndex];
-    if (wave) {
-      editorState.groupIndex = Math.min(wave.groups.length - 1, editorState.groupIndex + 1);
-      editorState.selectedSpawnIdx = -1;
-      rebuildMarkers();
-      refreshUI();
-    }
-  });
-  document.getElementById("se-group-add").addEventListener("click", () => {
-    const wave = WAVES[editorState.waveIndex];
-    if (!wave) return;
-    const newGroup = {
-      id: `w${editorState.waveIndex + 1}g${wave.groups.length + 1}`,
-      triggerDelay: 0,
-      telegraphDuration: 1500,
-      stagger: 200,
-      spawns: []
-    };
-    wave.groups.push(newGroup);
-    editorState.groupIndex = wave.groups.length - 1;
-    rebuildMarkers();
-    refreshUI();
-  });
-  document.getElementById("se-group-del").addEventListener("click", () => {
-    const wave = WAVES[editorState.waveIndex];
-    if (!wave || wave.groups.length <= 1) return;
-    wave.groups.splice(editorState.groupIndex, 1);
-    editorState.groupIndex = Math.min(editorState.groupIndex, wave.groups.length - 1);
-    rebuildMarkers();
-    refreshUI();
-  });
-  const triggerSlider = document.getElementById("se-trigger");
-  const telegraphSlider = document.getElementById("se-telegraph");
-  const staggerSlider = document.getElementById("se-stagger");
-  const sliderUndoOnce = (slider) => {
-    let pushed = false;
-    slider.addEventListener("mousedown", () => {
-      pushUndo();
-      pushed = true;
-    });
-    slider.addEventListener("touchstart", () => {
-      if (!pushed) pushUndo();
-      pushed = true;
-    });
-    slider.addEventListener("mouseup", () => {
-      pushed = false;
-    });
-    slider.addEventListener("touchend", () => {
-      pushed = false;
-    });
-  };
-  sliderUndoOnce(triggerSlider);
-  sliderUndoOnce(telegraphSlider);
-  sliderUndoOnce(staggerSlider);
-  triggerSlider.addEventListener("input", () => {
-    const group = getCurrentGroup();
-    if (group) group.triggerDelay = parseInt(triggerSlider.value);
-    document.getElementById("se-trigger-val").value = triggerSlider.value + " ms";
-  });
-  telegraphSlider.addEventListener("input", () => {
-    const group = getCurrentGroup();
-    if (group) group.telegraphDuration = parseInt(telegraphSlider.value);
-    document.getElementById("se-telegraph-val").value = telegraphSlider.value + " ms";
-  });
-  staggerSlider.addEventListener("input", () => {
-    const group = getCurrentGroup();
-    if (group) group.stagger = parseInt(staggerSlider.value);
-    document.getElementById("se-stagger-val").value = staggerSlider.value + " ms";
-  });
-  const timingInputs = [
-    { inputId: "se-trigger-val", sliderId: "se-trigger", prop: "triggerDelay", min: 0, max: 1e4 },
-    { inputId: "se-telegraph-val", sliderId: "se-telegraph", prop: "telegraphDuration", min: 500, max: 5e3 },
-    { inputId: "se-stagger-val", sliderId: "se-stagger", prop: "stagger", min: 0, max: 1e3 }
-  ];
-  for (const t of timingInputs) {
-    const inp = document.getElementById(t.inputId);
-    const slider = document.getElementById(t.sliderId);
-    const commitTimingValue = () => {
-      const parsed = parseInt(inp.value);
-      if (isNaN(parsed)) {
-        const group2 = getCurrentGroup();
-        inp.value = (group2 ? group2[t.prop] : slider.value) + " ms";
-        return;
-      }
-      const clamped = Math.max(t.min, Math.min(t.max, parsed));
-      const group = getCurrentGroup();
-      if (group) group[t.prop] = clamped;
-      slider.value = clamped;
-      inp.value = clamped + " ms";
-    };
-    inp.addEventListener("change", commitTimingValue);
-    inp.addEventListener("blur", commitTimingValue);
-    inp.addEventListener("keydown", (e) => {
-      e.stopPropagation();
-      if (e.key === "Enter") inp.blur();
-    });
-    inp.addEventListener("focus", () => inp.select());
-  }
-  document.getElementById("se-type-picker").addEventListener("click", (e) => {
-    const btn = e.target.closest(".se-type-btn");
-    if (btn) {
-      editorState.enemyType = btn.dataset.type;
-      refreshUI();
-    }
-  });
-  document.getElementById("se-clear").addEventListener("click", () => {
-    const group = getCurrentGroup();
-    if (group) {
-      pushUndo();
-      group.spawns = [];
-      rebuildMarkers();
-      refreshUI();
-    }
-  });
-  document.getElementById("se-play").addEventListener("click", playCurrentWave);
-  document.getElementById("se-copy-wave").addEventListener("click", () => {
-    const text = buildWaveText(editorState.waveIndex);
-    copyToClipboard(text, document.getElementById("se-copy-wave"));
-  });
-  document.getElementById("se-copy-all").addEventListener("click", () => {
-    const text = buildAllWavesText();
-    copyToClipboard(text, document.getElementById("se-copy-all"));
-  });
-  document.getElementById("se-copy-enemies").addEventListener("click", () => {
-    const text = buildEnemyConfigText();
-    copyToClipboard(text, document.getElementById("se-copy-enemies"));
-  });
-  document.getElementById("se-tuning-header").addEventListener("click", () => {
-    const body = document.getElementById("se-tuning-body");
-    body.classList.toggle("collapsed");
-    const header = document.getElementById("se-tuning-header");
-    header.innerHTML = body.classList.contains("collapsed") ? "Enemy Properties &#x25B6;" : "Enemy Properties &#x25BC;";
-  });
-  document.getElementById("se-preset-load").addEventListener("click", () => {
-    const select = document.getElementById("se-preset-select");
-    if (select.value) loadPreset(select.value);
-  });
-  document.getElementById("se-preset-save").addEventListener("click", async () => {
-    let name = currentPresetName;
-    if (!name) {
-      name = prompt("Preset name:");
-      if (!name) return;
-    }
-    const btn = document.getElementById("se-preset-save");
-    await savePreset(name);
-    const orig = btn.textContent;
-    btn.textContent = "Saved \u2713";
-    btn.classList.add("copied");
-    setTimeout(() => {
-      btn.textContent = orig;
-      btn.classList.remove("copied");
-    }, 1200);
-  });
-  document.getElementById("se-preset-delete").addEventListener("click", async () => {
-    const select = document.getElementById("se-preset-select");
-    const name = select.value;
-    if (!name) return;
-    if (!confirm(`Delete preset "${name}"?`)) return;
-    await deletePreset(name);
-  });
-  refreshPresetDropdown();
-  document.getElementById("se-add-obstacle").addEventListener("click", () => {
-    pushUndo();
-    OBSTACLES.push({ x: 0, z: 0, w: 2, h: 1.5, d: 2 });
-    levelState.selectedType = "obstacle";
-    levelState.selectedIdx = OBSTACLES.length - 1;
-    onArenaChanged();
-    rebuildLevelMarkers();
-    refreshUI();
-  });
-  document.getElementById("se-add-pit").addEventListener("click", () => {
-    pushUndo();
-    PITS.push({ x: 0, z: 0, w: 3, d: 3 });
-    levelState.selectedType = "pit";
-    levelState.selectedIdx = PITS.length - 1;
-    onArenaChanged();
-    rebuildLevelMarkers();
-    refreshUI();
-  });
-  document.getElementById("se-copy-arena").addEventListener("click", () => {
-    const text = buildArenaConfigText();
-    copyToClipboard(text, document.getElementById("se-copy-arena"));
-  });
-  document.getElementById("se-save-spawns").addEventListener("click", async () => {
-    const btn = document.getElementById("se-save-spawns");
-    const wavesText = buildAllWavesText();
-    const enemiesText = buildEnemyConfigText();
-    await saveToFile("config/waves.js", wavesText, btn);
-    await saveToFile("config/enemies.js", enemiesText, btn);
-  });
-  document.getElementById("se-save-arena").addEventListener("click", () => {
-    const text = buildArenaConfigText();
-    saveToFile("config/arena.js", text, document.getElementById("se-save-arena"));
-  });
-  window.addEventListener("contextmenu", (e) => {
-    if (active2) e.preventDefault();
-  });
-  const tooltipEl = document.getElementById("se-tooltip");
-  let tooltipTarget = null;
-  panel2.addEventListener("mouseover", (e) => {
-    const el = e.target.closest(".has-tooltip");
-    if (el && el.getAttribute("data-tip")) {
-      tooltipTarget = el;
-      tooltipEl.textContent = el.getAttribute("data-tip");
-      tooltipEl.classList.add("visible");
-      positionTooltip(el);
-    }
-  });
-  panel2.addEventListener("mouseout", (e) => {
-    const el = e.target.closest(".has-tooltip");
-    if (el === tooltipTarget) {
-      tooltipTarget = null;
-      tooltipEl.classList.remove("visible");
-    }
-  });
-  function positionTooltip(targetEl) {
-    const rect = targetEl.getBoundingClientRect();
-    const tipRect = tooltipEl.getBoundingClientRect();
-    let left = rect.right + 8;
-    let top = rect.top + rect.height / 2 - tipRect.height / 2;
-    if (left + 200 > window.innerWidth) {
-      left = rect.left;
-      top = rect.bottom + 6;
-    }
-    top = Math.max(4, Math.min(window.innerHeight - tipRect.height - 4, top));
-    tooltipEl.style.left = left + "px";
-    tooltipEl.style.top = top + "px";
-  }
-  waveLabel = document.getElementById("se-wave-label");
-  groupLabel = document.getElementById("se-group-label");
-  spawnCountLabel = document.getElementById("se-spawn-count");
-}
-function getCurrentGroup() {
-  const wave = WAVES[editorState.waveIndex];
-  if (!wave) return null;
-  return wave.groups[editorState.groupIndex] || null;
-}
-function refreshUI() {
-  if (currentTab === "spawn") {
-    refreshSpawnUI();
-  } else {
-    refreshLevelUI();
-  }
-}
-function refreshSpawnUI() {
-  const wave = WAVES[editorState.waveIndex];
-  if (waveLabel) waveLabel.textContent = wave ? wave.wave : "?";
-  const waveMsgInput = document.getElementById("se-wave-msg");
-  if (waveMsgInput) waveMsgInput.value = wave ? wave.message || "" : "";
-  const group = getCurrentGroup();
-  if (groupLabel) groupLabel.textContent = group ? group.id : "?";
-  if (spawnCountLabel) spawnCountLabel.textContent = group ? group.spawns.length : 0;
-  const triggerSlider = document.getElementById("se-trigger");
-  const telegraphSlider = document.getElementById("se-telegraph");
-  const staggerSlider = document.getElementById("se-stagger");
-  if (group && triggerSlider) {
-    triggerSlider.value = group.triggerDelay;
-    document.getElementById("se-trigger-val").value = group.triggerDelay + " ms";
-    telegraphSlider.value = group.telegraphDuration;
-    document.getElementById("se-telegraph-val").value = group.telegraphDuration + " ms";
-    staggerSlider.value = group.stagger;
-    document.getElementById("se-stagger-val").value = group.stagger + " ms";
-  }
-  const btns = document.querySelectorAll(".se-type-btn");
-  btns.forEach((btn) => {
-    btn.classList.toggle("selected", btn.dataset.type === editorState.enemyType);
-  });
-  const infoEl = document.getElementById("se-selected-info");
-  if (infoEl) {
-    if (editorState.selectedSpawnIdx >= 0 && group && group.spawns[editorState.selectedSpawnIdx]) {
-      const s = group.spawns[editorState.selectedSpawnIdx];
-      const typeName = ENEMY_TYPES[s.type] ? ENEMY_TYPES[s.type].name : s.type;
-      infoEl.textContent = `Selected: ${typeName} (${s.x}, ${s.z})`;
-      infoEl.style.display = "block";
-    } else {
-      infoEl.style.display = "none";
-    }
-  }
-  rebuildEnemyTuningSliders();
-}
-function refreshLevelUI() {
-  const obsList = document.getElementById("se-obstacle-list");
-  if (obsList) {
-    let html = "";
-    for (let i = 0; i < OBSTACLES.length; i++) {
-      const o = OBSTACLES[i];
-      const sel = levelState.selectedType === "obstacle" && levelState.selectedIdx === i;
-      html += `<div class="se-item-row${sel ? " selected" : ""}" data-type="obstacle" data-idx="${i}">`;
-      html += `<span class="se-item-label">Obs ${i + 1}</span>`;
-      html += `<span class="se-item-coords">(${o.x}, ${o.z})</span>`;
-      html += `<span class="se-item-dims">${o.w}\xD7${o.d}\xD7${o.h}</span>`;
-      html += "</div>";
-    }
-    obsList.innerHTML = html;
-    obsList.querySelectorAll(".se-item-row").forEach((row) => {
-      row.addEventListener("click", () => {
-        levelState.selectedType = row.dataset.type;
-        levelState.selectedIdx = parseInt(row.dataset.idx);
-        rebuildLevelMarkers();
-        refreshLevelUI();
-      });
-    });
-  }
-  const pitList = document.getElementById("se-pit-list");
-  if (pitList) {
-    let html = "";
-    for (let i = 0; i < PITS.length; i++) {
-      const p = PITS[i];
-      const sel = levelState.selectedType === "pit" && levelState.selectedIdx === i;
-      html += `<div class="se-item-row${sel ? " selected" : ""}" data-type="pit" data-idx="${i}">`;
-      html += `<span class="se-item-label">Pit ${i + 1}</span>`;
-      html += `<span class="se-item-coords">(${p.x}, ${p.z})</span>`;
-      html += `<span class="se-item-dims">${p.w}\xD7${p.d}</span>`;
-      html += "</div>";
-    }
-    pitList.innerHTML = html;
-    pitList.querySelectorAll(".se-item-row").forEach((row) => {
-      row.addEventListener("click", () => {
-        levelState.selectedType = row.dataset.type;
-        levelState.selectedIdx = parseInt(row.dataset.idx);
-        rebuildLevelMarkers();
-        refreshLevelUI();
-      });
-    });
-  }
-  const propsPanel = document.getElementById("se-level-props");
-  const propsLabel = document.getElementById("se-level-props-label");
-  const propsBody = document.getElementById("se-level-props-body");
-  if (propsPanel && levelState.selectedType && levelState.selectedIdx >= 0) {
-    const arr = levelState.selectedType === "obstacle" ? OBSTACLES : PITS;
-    const obj = arr[levelState.selectedIdx];
-    if (!obj) {
-      propsPanel.style.display = "none";
-      return;
-    }
-    propsPanel.style.display = "block";
-    const label = levelState.selectedType === "obstacle" ? `Obstacle ${levelState.selectedIdx + 1}` : `Pit ${levelState.selectedIdx + 1}`;
-    propsLabel.textContent = label;
-    const sliders = levelState.selectedType === "obstacle" ? [
-      { label: "X", key: "x", min: -19, max: 19, step: 0.5, unit: "" },
-      { label: "Z", key: "z", min: -19, max: 19, step: 0.5, unit: "" },
-      { label: "Width", key: "w", min: 0.5, max: 10, step: 0.5, unit: "u" },
-      { label: "Depth", key: "d", min: 0.5, max: 10, step: 0.5, unit: "u" },
-      { label: "Height", key: "h", min: 0.5, max: 5, step: 0.5, unit: "u" }
-    ] : [
-      { label: "X", key: "x", min: -19, max: 19, step: 0.5, unit: "" },
-      { label: "Z", key: "z", min: -19, max: 19, step: 0.5, unit: "" },
-      { label: "Width", key: "w", min: 1, max: 10, step: 0.5, unit: "u" },
-      { label: "Depth", key: "d", min: 1, max: 10, step: 0.5, unit: "u" }
-    ];
-    let html = "";
-    for (const s of sliders) {
-      const val = obj[s.key];
-      const display = Number.isInteger(val) ? val : parseFloat(val).toFixed(1);
-      const unitDisplay = s.unit ? " " + s.unit : "";
-      html += `<div class="se-slider-row">`;
-      html += `<span>${s.label}</span>`;
-      html += `<input type="range" class="se-level-slider" data-key="${s.key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${val}">`;
-      html += `<input type="text" class="se-level-val" data-key="${s.key}" value="${display}${unitDisplay}">`;
-      html += `</div>`;
-    }
-    html += `<div class="se-btn se-action se-del" id="se-delete-level-obj">Delete ${levelState.selectedType === "obstacle" ? "Obstacle" : "Pit"}</div>`;
-    propsBody.innerHTML = html;
-    propsBody.querySelectorAll(".se-level-slider").forEach((el) => {
-      const key = el.dataset.key;
-      const sdef = sliders.find((s) => s.key === key);
-      el.addEventListener("input", () => {
-        const newVal = parseFloat(el.value);
-        const arrRef = levelState.selectedType === "obstacle" ? OBSTACLES : PITS;
-        const objRef = arrRef[levelState.selectedIdx];
-        if (!objRef) return;
-        objRef[key] = newVal;
-        const unitDisplay = sdef.unit ? " " + sdef.unit : "";
-        const display = Number.isInteger(newVal) ? newVal : parseFloat(newVal).toFixed(1);
-        propsBody.querySelector(`.se-level-val[data-key="${key}"]`).value = display + unitDisplay;
-        onArenaChanged();
-        rebuildLevelMarkers();
-      });
-      let pushed = false;
-      el.addEventListener("mousedown", () => {
-        pushUndo();
-        pushed = true;
-      });
-      el.addEventListener("mouseup", () => {
-        pushed = false;
-      });
-    });
-    propsBody.querySelectorAll(".se-level-val").forEach((inp) => {
-      const key = inp.dataset.key;
-      const sdef = sliders.find((s) => s.key === key);
-      const commitValue = () => {
-        const parsed = parseFloat(inp.value);
-        if (isNaN(parsed)) {
-          const arrRef2 = levelState.selectedType === "obstacle" ? OBSTACLES : PITS;
-          const objRef2 = arrRef2[levelState.selectedIdx];
-          if (objRef2) {
-            const val = objRef2[key];
-            const unitDisplay2 = sdef.unit ? " " + sdef.unit : "";
-            inp.value = (Number.isInteger(val) ? val : parseFloat(val).toFixed(1)) + unitDisplay2;
-          }
-          return;
-        }
-        const clamped = Math.max(sdef.min, Math.min(sdef.max, parsed));
-        const arrRef = levelState.selectedType === "obstacle" ? OBSTACLES : PITS;
-        const objRef = arrRef[levelState.selectedIdx];
-        if (!objRef) return;
-        pushUndo();
-        objRef[key] = clamped;
-        const rangeEl = propsBody.querySelector(`.se-level-slider[data-key="${key}"]`);
-        if (rangeEl) rangeEl.value = clamped;
-        const unitDisplay = sdef.unit ? " " + sdef.unit : "";
-        inp.value = (Number.isInteger(clamped) ? clamped : parseFloat(clamped).toFixed(1)) + unitDisplay;
-        onArenaChanged();
-        rebuildLevelMarkers();
-      };
-      inp.addEventListener("change", commitValue);
-      inp.addEventListener("blur", commitValue);
-      inp.addEventListener("keydown", (e) => {
-        e.stopPropagation();
-        if (e.key === "Enter") inp.blur();
-      });
-      inp.addEventListener("focus", () => inp.select());
-    });
-    const deleteBtn = document.getElementById("se-delete-level-obj");
-    if (deleteBtn) {
-      deleteBtn.addEventListener("click", () => {
-        pushUndo();
-        if (levelState.selectedType === "obstacle") {
-          OBSTACLES.splice(levelState.selectedIdx, 1);
-        } else {
-          PITS.splice(levelState.selectedIdx, 1);
-        }
-        levelState.selectedType = null;
-        levelState.selectedIdx = -1;
-        onArenaChanged();
-        rebuildLevelMarkers();
-        refreshLevelUI();
-      });
-    }
-  } else if (propsPanel) {
-    propsPanel.style.display = "none";
-  }
-}
-function rebuildEnemyTuningSliders() {
-  const container = document.getElementById("se-tuning-body");
-  if (!container) return;
-  if (lastBuiltTuningType === editorState.enemyType) {
-    updateTuningSliderValues();
-    return;
-  }
-  lastBuiltTuningType = editorState.enemyType;
-  const sliders = ENEMY_TUNING_SLIDERS[editorState.enemyType];
-  if (!sliders) {
-    container.innerHTML = '<div style="color:rgba(255,255,255,0.3);font-size:9px;padding:4px;">No tuning available</div>';
-    return;
-  }
-  const cfg = ENEMY_TYPES[editorState.enemyType];
-  let html = "";
-  for (let i = 0; i < sliders.length; i++) {
-    const s = sliders[i];
-    const val = getNestedValue2(cfg, s.key);
-    const displayVal = val != null ? Number.isInteger(s.step) ? val : parseFloat(val).toFixed(2) : "?";
-    const unitStr = s.unit || s.suffix || "";
-    const unitDisplay = unitStr ? " " + unitStr : "";
-    const tipAttr = s.tip ? ` data-tip="${s.tip.replace(/"/g, "&quot;")}"` : "";
-    const tipClass = s.tip ? " has-tooltip" : "";
-    html += `<div class="se-slider-row">`;
-    html += `<span class="${tipClass}"${tipAttr}>${s.label}</span>`;
-    html += `<input type="range" class="se-tuning-slider" data-idx="${i}" min="${s.min}" max="${s.max}" step="${s.step}" value="${val != null ? val : s.min}">`;
-    html += `<input type="text" class="se-tuning-val" data-idx="${i}" value="${displayVal}${unitDisplay}">`;
-    html += `</div>`;
-  }
-  container.innerHTML = html;
-  const sliderEls = container.querySelectorAll(".se-tuning-slider");
-  sliderEls.forEach((el) => {
-    const idx = parseInt(el.dataset.idx);
-    const s = sliders[idx];
-    el.addEventListener("input", () => {
-      const newVal = parseFloat(el.value);
-      setNestedValue2(ENEMY_TYPES[editorState.enemyType], s.key, newVal);
-      const unitStr = s.unit || s.suffix || "";
-      const unitDisplay = unitStr ? " " + unitStr : "";
-      const display = Number.isInteger(s.step) ? newVal : parseFloat(newVal).toFixed(2);
-      container.querySelector(`.se-tuning-val[data-idx="${idx}"]`).setAttribute("value", display + unitDisplay);
-      container.querySelector(`.se-tuning-val[data-idx="${idx}"]`).value = display + unitDisplay;
-    });
-  });
-  const valInputs = container.querySelectorAll(".se-tuning-val");
-  valInputs.forEach((inp) => {
-    const idx = parseInt(inp.dataset.idx);
-    const s = sliders[idx];
-    const commitValue = () => {
-      const parsed = parseFloat(inp.value);
-      if (isNaN(parsed)) {
-        const cur = getNestedValue2(ENEMY_TYPES[editorState.enemyType], s.key);
-        const unitStr2 = s.unit || s.suffix || "";
-        const unitDisplay2 = unitStr2 ? " " + unitStr2 : "";
-        const display2 = cur != null ? Number.isInteger(s.step) ? cur : parseFloat(cur).toFixed(2) : s.min;
-        inp.value = display2 + unitDisplay2;
-        return;
-      }
-      const clamped = Math.max(s.min, Math.min(s.max, parsed));
-      setNestedValue2(ENEMY_TYPES[editorState.enemyType], s.key, clamped);
-      const rangeEl = container.querySelector(`.se-tuning-slider[data-idx="${idx}"]`);
-      if (rangeEl) rangeEl.value = clamped;
-      const unitStr = s.unit || s.suffix || "";
-      const unitDisplay = unitStr ? " " + unitStr : "";
-      const display = Number.isInteger(s.step) ? clamped : parseFloat(clamped).toFixed(2);
-      inp.value = display + unitDisplay;
-    };
-    inp.addEventListener("change", commitValue);
-    inp.addEventListener("blur", commitValue);
-    inp.addEventListener("keydown", (e) => {
-      e.stopPropagation();
-      if (e.key === "Enter") inp.blur();
-    });
-    inp.addEventListener("focus", () => inp.select());
-  });
-}
-function updateTuningSliderValues() {
-  const container = document.getElementById("se-tuning-body");
-  if (!container) return;
-  const sliders = ENEMY_TUNING_SLIDERS[editorState.enemyType];
-  if (!sliders) return;
-  const cfg = ENEMY_TYPES[editorState.enemyType];
-  const sliderEls = container.querySelectorAll(".se-tuning-slider");
-  sliderEls.forEach((el) => {
-    const idx = parseInt(el.dataset.idx);
-    const s = sliders[idx];
-    if (!s) return;
-    const val = getNestedValue2(cfg, s.key);
-    if (val != null) {
-      el.value = val;
-      const unitStr = s.unit || s.suffix || "";
-      const unitDisplay = unitStr ? " " + unitStr : "";
-      const display = Number.isInteger(s.step) ? val : parseFloat(val).toFixed(2);
-      container.querySelector(`.se-tuning-val[data-idx="${idx}"]`).value = display + unitDisplay;
-    }
-  });
-}
-function buildEnemyConfigText() {
-  let text = "export const ENEMY_TYPES = {\n";
-  for (const [name, cfg] of Object.entries(ENEMY_TYPES)) {
-    text += `  ${name}: ${JSON.stringify(cfg, null, 4).split("\n").map((l, i) => i === 0 ? l : "  " + l).join("\n")},
-`;
-  }
-  text += "};\n";
-  return text;
-}
-function buildArenaConfigText() {
-  let text = "// Arena layout \u2014 shared between renderer (meshes) and physics (collision)\n";
-  text += "// All obstacles and walls defined here so designer can rearrange the arena\n\n";
-  text += `export let ARENA_HALF_X = ${ARENA_HALF_X};
-`;
-  text += `export let ARENA_HALF_Z = ${ARENA_HALF_Z};
-`;
-  text += `export let ARENA_HALF = ${ARENA_HALF_X}; // legacy alias
-
-`;
-  text += "// Obstacles: x, z = center position; w, d = width/depth on xz plane; h = height (visual only)\n";
-  text += "export const OBSTACLES = [\n";
-  for (const o of OBSTACLES) {
-    text += `  { x: ${o.x}, z: ${o.z}, w: ${o.w}, h: ${o.h}, d: ${o.d} },
-`;
-  }
-  text += "];\n\n";
-  text += "// Walls: auto-generated from ARENA_HALF\n";
-  text += "export const WALL_THICKNESS = 0.5;\n";
-  text += "export const WALL_HEIGHT = 2;\n\n";
-  text += "// Pits: x, z = center position; w, d = width/depth on xz plane\n";
-  text += "// Entities that enter a pit die instantly. Enemies edge-slide around them.\n";
-  text += "export const PITS = [\n";
-  for (const p of PITS) {
-    text += `  { x: ${p.x}, z: ${p.z}, w: ${p.w}, d: ${p.d} },
-`;
-  }
-  text += "];\n";
-  text += ARENA_STATIC_SUFFIX;
-  return text;
-}
-var ARENA_STATIC_SUFFIX = `
-// Convert pits to AABB format for collision
-export function getPitBounds() {
-  return PITS.map(p => ({
-    minX: p.x - p.w / 2,
-    maxX: p.x + p.w / 2,
-    minZ: p.z - p.d / 2,
-    maxZ: p.z + p.d / 2,
-  }));
-}
-
-// Pre-computed AABB list for collision (obstacles + walls)
-// Each entry: { minX, maxX, minZ, maxZ }
-export function getCollisionBounds() {
-  const bounds = [];
-
-  // Obstacles
-  for (const o of OBSTACLES) {
-    bounds.push({
-      minX: o.x - o.w / 2,
-      maxX: o.x + o.w / 2,
-      minZ: o.z - o.d / 2,
-      maxZ: o.z + o.d / 2,
-    });
-  }
-
-  // Walls
-  const hx = ARENA_HALF_X;
-  const hz = ARENA_HALF_Z;
-  const t = WALL_THICKNESS;
-  // North wall (far end, +Z)
-  bounds.push({ minX: -hx - t/2, maxX: hx + t/2, minZ: hz - t/2, maxZ: hz + t/2 });
-  // South wall (near end, -Z)
-  bounds.push({ minX: -hx - t/2, maxX: hx + t/2, minZ: -hz - t/2, maxZ: -hz + t/2 });
-  // East wall (+X)
-  bounds.push({ minX: hx - t/2, maxX: hx + t/2, minZ: -hz - t/2, maxZ: hz + t/2 });
-  // West wall (-X)
-  bounds.push({ minX: -hx - t/2, maxX: -hx + t/2, minZ: -hz - t/2, maxZ: hz + t/2 });
-
-  return bounds;
-}
-`;
-function playCurrentWave() {
-  exitEditor();
-  clearEnemies(gameStateRef);
-  releaseAllProjectiles();
-  resetWaveRunner();
-  gameStateRef.phase = "playing";
-  startWave(editorState.waveIndex, gameStateRef);
-}
-async function saveToFile(filename, content, btnEl) {
-  const orig = btnEl.textContent;
-  btnEl.textContent = "Saving...";
-  try {
-    const res = await fetch("/save", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ file: filename, content })
-    });
-    if (!res.ok) throw new Error(res.statusText);
-    btnEl.textContent = "Saved \u2713";
-    btnEl.classList.add("copied");
-  } catch (e) {
-    btnEl.textContent = "Error!";
-    console.error("[spawnEditor] Save failed:", filename, e);
-  }
-  setTimeout(() => {
-    btnEl.textContent = orig;
-    btnEl.classList.remove("copied");
-  }, 1200);
-}
-function copyToClipboard(text, btnEl) {
-  navigator.clipboard.writeText(text).then(() => {
-    const orig = btnEl.textContent;
-    btnEl.textContent = "Copied!";
-    btnEl.classList.add("copied");
-    setTimeout(() => {
-      btnEl.textContent = orig;
-      btnEl.classList.remove("copied");
-    }, 1200);
-  });
-}
-function buildWaveText(waveIdx) {
-  const wave = WAVES[waveIdx];
-  if (!wave) return "";
-  return formatWaveObj(wave);
-}
-function buildAllWavesText() {
-  const lines = [
-    "// Wave definitions \u2014 each wave has groups of spawns with independent timing",
-    "// Designer edits this file or uses the spawn editor (backtick key) to place visually",
-    "",
-    "export const WAVES = ["
-  ];
-  for (let i = 0; i < WAVES.length; i++) {
-    lines.push("  " + formatWaveObj(WAVES[i]).split("\n").join("\n  ") + ",");
-  }
-  lines.push("];");
-  lines.push("");
-  return lines.join("\n");
-}
-function formatWaveObj(wave) {
-  let s = "{\n";
-  s += `  wave: ${wave.wave},
-`;
-  s += `  message: '${wave.message}',
-`;
-  s += `  groups: [
-`;
-  for (const g of wave.groups) {
-    s += `    {
-`;
-    s += `      id: '${g.id}',
-`;
-    s += `      triggerDelay: ${g.triggerDelay},
-`;
-    s += `      telegraphDuration: ${g.telegraphDuration},
-`;
-    s += `      stagger: ${g.stagger},
-`;
-    s += `      spawns: [
-`;
-    for (const sp of g.spawns) {
-      s += `        { type: '${sp.type}', x: ${sp.x}, z: ${sp.z} },
-`;
-    }
-    s += `      ],
-`;
-    s += `    },
-`;
-  }
-  s += `  ]
-`;
-  s += `}`;
-  return s;
-}
-function injectStyles2() {
-  const style = document.createElement("style");
-  style.textContent = `
-    #spawn-editor {
-      position: fixed;
-      top: 60px;
-      left: 20px;
-      width: 320px;
-      max-height: calc(100vh - 80px);
-      overflow-y: auto;
-      z-index: 200;
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      pointer-events: all;
-      background: rgba(10, 10, 26, 0.94);
-      border: 1px solid rgba(68, 255, 136, 0.2);
-      border-radius: 6px;
-      padding: 14px;
-      backdrop-filter: blur(8px);
-    }
-
-    #spawn-editor.hidden {
-      display: none;
-    }
-
-    #spawn-editor::-webkit-scrollbar {
-      width: 4px;
-    }
-    #spawn-editor::-webkit-scrollbar-track {
-      background: rgba(0, 0, 0, 0.2);
-    }
-    #spawn-editor::-webkit-scrollbar-thumb {
-      background: rgba(68, 255, 136, 0.3);
-      border-radius: 2px;
-    }
-
-    /* \u2500\u2500\u2500 Tabs \u2500\u2500\u2500 */
-    .se-tabs {
-      display: flex;
-      gap: 2px;
-      margin-bottom: 12px;
-      border-bottom: 1px solid rgba(68, 255, 136, 0.15);
-      padding-bottom: 0;
-    }
-
-    .se-tab {
-      flex: 1;
-      text-align: center;
-      padding: 6px 0;
-      font-size: 10px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.4);
-      cursor: pointer;
-      user-select: none;
-      border-bottom: 2px solid transparent;
-      transition: all 0.15s ease;
-      margin-bottom: -1px;
-    }
-
-    .se-tab:hover {
-      color: rgba(255, 255, 255, 0.7);
-    }
-
-    .se-tab.active {
-      color: rgba(68, 255, 136, 0.9);
-      border-bottom-color: rgba(68, 255, 136, 0.8);
-    }
-
-    .se-title {
-      font-size: 10px;
-      color: rgba(68, 255, 136, 0.8);
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      margin-bottom: 12px;
-      padding-bottom: 4px;
-      border-bottom: 1px solid rgba(68, 255, 136, 0.15);
-    }
-
-    .se-section {
-      margin-bottom: 10px;
-    }
-
-    .se-group-label {
-      font-size: 9px;
-      color: rgba(68, 255, 136, 0.5);
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-      margin-bottom: 5px;
-    }
-
-    .se-wave-msg {
-      width: 100%;
-      margin-top: 6px;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 3px;
-      color: rgba(255, 255, 255, 0.8);
-      font-size: 10px;
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      padding: 4px 6px;
-      outline: none;
-      box-sizing: border-box;
-    }
-    .se-wave-msg:hover {
-      border-color: rgba(255, 255, 255, 0.2);
-    }
-    .se-wave-msg:focus {
-      border-color: rgba(68, 255, 136, 0.5);
-      background: rgba(0, 0, 0, 0.3);
-    }
-
-    .se-selector {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .se-selector span {
-      font-size: 13px;
-      color: rgba(255, 255, 255, 0.8);
-      min-width: 30px;
-      text-align: center;
-    }
-
-    .se-btn {
-      padding: 3px 8px;
-      font-size: 11px;
-      color: rgba(255, 255, 255, 0.6);
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 3px;
-      cursor: pointer;
-      user-select: none;
-      transition: all 0.12s ease;
-    }
-
-    .se-btn:hover {
-      background: rgba(68, 255, 136, 0.1);
-      border-color: rgba(68, 255, 136, 0.4);
-      color: rgba(255, 255, 255, 0.9);
-    }
-
-    .se-btn.se-add {
-      color: rgba(68, 255, 136, 0.7);
-    }
-
-    .se-btn.se-del {
-      color: rgba(255, 68, 102, 0.7);
-    }
-    .se-btn.se-del:hover {
-      background: rgba(255, 68, 102, 0.1);
-      border-color: rgba(255, 68, 102, 0.4);
-    }
-
-    .se-slider-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      margin-bottom: 5px;
-    }
-
-    .se-slider-row span:first-child {
-      font-size: 10px;
-      color: rgba(255, 255, 255, 0.5);
-      width: 75px;
-      flex-shrink: 0;
-    }
-
-    .se-slider-row span.has-tooltip {
-      cursor: help;
-      text-decoration: underline dotted rgba(255, 255, 255, 0.2);
-      text-underline-offset: 2px;
-    }
-
-    .se-slider-row input[type="range"] {
-      flex: 1;
-      height: 4px;
-      -webkit-appearance: none;
-      appearance: none;
-      background: rgba(100, 100, 160, 0.3);
-      border-radius: 2px;
-      outline: none;
-      cursor: pointer;
-    }
-
-    .se-slider-row input[type="range"]::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #44ff88;
-      cursor: pointer;
-      border: none;
-    }
-
-    .se-slider-row span:last-child {
-      font-size: 10px;
-      color: rgba(255, 255, 255, 0.7);
-      min-width: 55px;
-      text-align: right;
-      flex-shrink: 0;
-    }
-
-    .se-slider-row input[type="text"] {
-      background: transparent;
-      border: 1px solid transparent;
-      border-radius: 3px;
-      color: rgba(255, 255, 255, 0.7);
-      font-size: 10px;
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      min-width: 55px;
-      max-width: 65px;
-      text-align: right;
-      padding: 1px 4px;
-      flex-shrink: 0;
-      outline: none;
-    }
-    .se-slider-row input[type="text"]:hover {
-      border-color: rgba(255, 255, 255, 0.15);
-    }
-    .se-slider-row input[type="text"]:focus {
-      border-color: rgba(68, 255, 136, 0.5);
-      color: rgba(255, 255, 255, 0.9);
-      background: rgba(0, 0, 0, 0.3);
-    }
-
-    .se-type-picker {
-      display: flex;
-      gap: 4px;
-      flex-wrap: wrap;
-    }
-
-    .se-type-btn {
-      padding: 4px 8px;
-      font-size: 10px;
-      color: rgba(255, 255, 255, 0.5);
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 3px;
-      cursor: pointer;
-      user-select: none;
-      transition: all 0.12s ease;
-    }
-
-    .se-type-btn:hover {
-      opacity: 1;
-      color: rgba(255, 255, 255, 0.9);
-    }
-
-    .se-type-btn.selected {
-      color: #fff;
-      background: rgba(255, 255, 255, 0.1);
-      border-width: 2px;
-      opacity: 1;
-    }
-
-    .se-collapsible {
-      cursor: pointer;
-      user-select: none;
-    }
-    .se-collapsible:hover {
-      color: rgba(68, 255, 136, 0.8);
-    }
-
-    #se-tuning-body {
-      max-height: 300px;
-      overflow-y: auto;
-      transition: max-height 0.2s ease;
-    }
-    #se-tuning-body.collapsed {
-      max-height: 0;
-      overflow: hidden;
-    }
-    #se-tuning-body::-webkit-scrollbar {
-      width: 4px;
-    }
-    #se-tuning-body::-webkit-scrollbar-track {
-      background: rgba(0, 0, 0, 0.2);
-    }
-    #se-tuning-body::-webkit-scrollbar-thumb {
-      background: rgba(68, 255, 136, 0.3);
-      border-radius: 2px;
-    }
-
-    /* .se-tuning-val styling handled by input[type="text"] rule above */
-
-    .se-spawn-count {
-      font-size: 10px;
-      color: rgba(255, 255, 255, 0.5);
-      margin-bottom: 4px;
-    }
-
-    .se-selected-info {
-      font-size: 10px;
-      color: rgba(255, 255, 255, 0.8);
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 3px;
-      padding: 4px 6px;
-      margin-bottom: 6px;
-      display: none;
-    }
-
-    .se-action {
-      margin-top: 4px;
-      text-align: center;
-      padding: 5px 0;
-    }
-
-    .se-actions {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .se-play {
-      color: rgba(68, 255, 136, 0.8) !important;
-      border-color: rgba(68, 255, 136, 0.3) !important;
-    }
-    .se-play:hover {
-      background: rgba(68, 255, 136, 0.12) !important;
-      border-color: rgba(68, 255, 136, 0.6) !important;
-    }
-
-    .se-save {
-      color: rgba(68, 200, 255, 0.8) !important;
-      border-color: rgba(68, 200, 255, 0.3) !important;
-    }
-    .se-save:hover {
-      background: rgba(68, 200, 255, 0.12) !important;
-      border-color: rgba(68, 200, 255, 0.6) !important;
-    }
-
-    .se-btn.copied {
-      color: #ffcc44 !important;
-      border-color: rgba(255, 204, 68, 0.4) !important;
-    }
-
-    /* \u2500\u2500\u2500 Preset Selector \u2500\u2500\u2500 */
-    .se-preset-row {
-      display: flex;
-      gap: 4px;
-      align-items: center;
-    }
-
-    .se-preset-select {
-      flex: 1;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 3px;
-      color: rgba(255, 255, 255, 0.8);
-      font-size: 10px;
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      padding: 4px 6px;
-      outline: none;
-    }
-
-    .se-preset-select:focus {
-      border-color: rgba(68, 200, 255, 0.5);
-    }
-
-    .se-btn.se-small {
-      font-size: 9px;
-      padding: 3px 8px;
-    }
-
-    /* \u2500\u2500\u2500 Level Tab Item List \u2500\u2500\u2500 */
-    .se-item-list {
-      max-height: 180px;
-      overflow-y: auto;
-      margin-bottom: 6px;
-    }
-
-    .se-item-list::-webkit-scrollbar {
-      width: 4px;
-    }
-    .se-item-list::-webkit-scrollbar-thumb {
-      background: rgba(68, 255, 136, 0.3);
-      border-radius: 2px;
-    }
-
-    .se-item-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 6px;
-      font-size: 10px;
-      color: rgba(255, 255, 255, 0.6);
-      border: 1px solid transparent;
-      border-radius: 3px;
-      cursor: pointer;
-      transition: all 0.1s ease;
-      margin-bottom: 2px;
-    }
-
-    .se-item-row:hover {
-      background: rgba(255, 255, 255, 0.05);
-      border-color: rgba(255, 255, 255, 0.1);
-    }
-
-    .se-item-row.selected {
-      background: rgba(68, 255, 136, 0.08);
-      border-color: rgba(68, 255, 136, 0.3);
-      color: rgba(255, 255, 255, 0.9);
-    }
-
-    .se-item-label {
-      flex-shrink: 0;
-      width: 50px;
-    }
-
-    .se-item-coords {
-      color: rgba(255, 255, 255, 0.4);
-      flex: 1;
-    }
-
-    .se-item-dims {
-      color: rgba(100, 180, 255, 0.6);
-      flex-shrink: 0;
-    }
-
-    #se-tooltip {
-      position: fixed;
-      z-index: 300;
-      max-width: 220px;
-      padding: 6px 10px;
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      font-size: 10px;
-      line-height: 1.4;
-      color: rgba(255, 255, 255, 0.9);
-      background: rgba(10, 10, 30, 0.95);
-      border: 1px solid rgba(68, 255, 136, 0.4);
-      border-radius: 4px;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.12s ease;
-      backdrop-filter: blur(6px);
-    }
-
-    #se-tooltip.visible {
-      opacity: 1;
-    }
-
-    #editor-banner {
-      position: fixed;
-      top: 8px;
-      left: 50%;
-      transform: translateX(-50%);
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      font-size: 11px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: rgba(68, 255, 136, 0.8);
-      background: rgba(10, 10, 26, 0.85);
-      border: 1px solid rgba(68, 255, 136, 0.3);
-      border-radius: 4px;
-      padding: 5px 16px;
-      z-index: 250;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.2s ease;
-    }
-
-    #editor-banner.visible {
-      opacity: 1;
-    }
-  `;
-  document.head.appendChild(style);
-}
 
 // src/engine/game.ts
 var gameState = {
@@ -10339,13 +6733,6 @@ function gameLoop(timestamp) {
   }
   if (gameState.phase === "gameOver") {
     getRendererInstance().render(getScene(), getCamera());
-    return;
-  }
-  if (gameState.phase === "editorPaused") {
-    updateInput();
-    updateSpawnEditor(0);
-    getRendererInstance().render(getScene(), getCamera());
-    consumeInput();
     return;
   }
   let dt = (timestamp - lastTime) / 1e3;
@@ -10382,7 +6769,6 @@ function gameLoop(timestamp) {
   }
   updateCamera(getPlayerPos(), dt);
   updateHUD(gameState);
-  checkEditorToggle();
   consumeInput();
   getRendererInstance().render(getScene(), getCamera());
   updateDamageNumbers(gameDt);
@@ -10424,13 +6810,17 @@ function init() {
     });
     initHUD();
     initDamageNumbers();
-    initTuningPanel();
-    initSpawnEditor(scene2, gameState);
     initScreens(restart, () => {
       resumeAudio();
       gameState.phase = "playing";
       document.getElementById("hud").style.visibility = "visible";
       loadRoom(0, gameState);
+      lastTime = performance.now();
+    }, (roomIndex) => {
+      resumeAudio();
+      gameState.phase = "playing";
+      document.getElementById("hud").style.visibility = "visible";
+      loadRoom(roomIndex, gameState);
       lastTime = performance.now();
     });
     document.getElementById("hud").style.visibility = "hidden";

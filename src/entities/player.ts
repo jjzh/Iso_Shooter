@@ -9,6 +9,8 @@ import { createPlayerRig, getGhostGeometries } from './playerRig';
 import type { PlayerRig } from './playerRig';
 import { createAnimatorState, updateAnimation, resetAnimatorState } from './playerAnimator';
 import type { AnimatorState } from './playerAnimator';
+import { getActiveProfile } from '../engine/profileManager';
+import { fireProjectile } from './projectile';
 
 let playerGroup: any, aimIndicator: any;
 let rig: PlayerRig;
@@ -48,6 +50,10 @@ let chargeFillMesh: any = null;
 let chargeBorderMesh: any = null;
 let chargeBorderGeo: any = null;
 
+// Origin model (cylinder+sphere — Feb 7 prototype visual)
+let originGroup: any = null;
+let lastFireTime = 0;
+
 // Original emissive colors (used for charge glow reset)
 const DEFAULT_EMISSIVE = 0x22aa66;
 const DEFAULT_EMISSIVE_INTENSITY = 0.4;
@@ -60,12 +66,41 @@ function restoreDefaultEmissive() {
   }
 }
 
+export function setPlayerVisual(profile: string) {
+  if (!originGroup || !rig) return;
+  const isOrigin = profile === 'origin';
+  originGroup.visible = isOrigin;
+  rig.joints.rigRoot.visible = !isOrigin;
+}
+
+function updateOriginBob(dt: number) {
+  if (!originGroup || !originGroup.visible) return;
+  const t = performance.now() * 0.003;
+  originGroup.position.y = Math.sin(t) * 0.04;
+  originGroup.rotation.y = 0; // no spin — facing handled by playerGroup
+}
+
 export function createPlayer(scene: any) {
   playerGroup = new THREE.Group();
 
   // Build bipedal rig (joint hierarchy + box-limb meshes)
   rig = createPlayerRig(playerGroup);
   animState = createAnimatorState();
+
+  // Build origin model (cylinder+sphere — Feb 7 prototype)
+  originGroup = new THREE.Group();
+  const bodyGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.9, 8);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x44ff88, emissive: 0x22aa66, emissiveIntensity: 0.4 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 0.45;
+  originGroup.add(body);
+  const headGeo = new THREE.SphereGeometry(0.25, 8, 6);
+  const headMat = new THREE.MeshStandardMaterial({ color: 0x66ffaa, emissive: 0x22aa66, emissiveIntensity: 0.4 });
+  const head = new THREE.Mesh(headGeo, headMat);
+  head.position.y = 1.1;
+  originGroup.add(head);
+  originGroup.visible = false;
+  playerGroup.add(originGroup);
 
   // Aim indicator — attached to playerGroup directly (not rig)
   // so squash/stretch doesn't affect it
@@ -106,9 +141,13 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     // During end lag, don't process movement or abilities
     playerGroup.position.copy(playerPos);
     aimAtCursor(inputState);
-    updateAnimation(rig.joints, animState, dt,
-      { moveX: 0, moveZ: 0 }, playerGroup.rotation.y,
-      false, true, 0);
+    if (getActiveProfile() === 'origin') {
+      updateOriginBob(dt);
+    } else {
+      updateAnimation(rig.joints, animState, dt,
+        { moveX: 0, moveZ: 0 }, playerGroup.rotation.y,
+        false, true, 0);
+    }
     updateAfterimages(dt);
     return;
   }
@@ -121,9 +160,13 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     // Aim still tracks cursor during dash
     aimAtCursor(inputState);
 
-    updateAnimation(rig.joints, animState, dt,
-      { moveX: inputState.moveX, moveZ: inputState.moveZ }, playerGroup.rotation.y,
-      true, false, Math.min(dashTimer / dashDuration, 1));
+    if (getActiveProfile() === 'origin') {
+      updateOriginBob(dt);
+    } else {
+      updateAnimation(rig.joints, animState, dt,
+        { moveX: inputState.moveX, moveZ: inputState.moveZ }, playerGroup.rotation.y,
+        true, false, Math.min(dashTimer / dashDuration, 1));
+    }
     updateAfterimages(dt);
     return;
   }
@@ -133,8 +176,8 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     startDash(inputState, gameState);
   }
 
-  // Trigger charge (start)
-  if (inputState.ultimate && gameState.abilities.ultimate.cooldownRemaining <= 0 && !isCharging) {
+  // Trigger charge (start) — not available in origin profile
+  if (getActiveProfile() !== 'origin' && inputState.ultimate && gameState.abilities.ultimate.cooldownRemaining <= 0 && !isCharging) {
     startCharge(inputState, gameState);
   }
 
@@ -161,18 +204,33 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   aimAtCursor(inputState);
 
   // === PROCEDURAL ANIMATION ===
-  updateAnimation(
-    rig.joints,
-    animState,
-    dt,
-    { moveX: inputState.moveX, moveZ: inputState.moveZ },
-    playerGroup.rotation.y,
-    isDashing,
-    endLagTimer > 0,
-    isDashing ? Math.min(dashTimer / dashDuration, 1) : 0,
-    meleeSwinging,
-    meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0
-  );
+  if (getActiveProfile() === 'origin') {
+    updateOriginBob(dt);
+  } else {
+    updateAnimation(
+      rig.joints,
+      animState,
+      dt,
+      { moveX: inputState.moveX, moveZ: inputState.moveZ },
+      playerGroup.rotation.y,
+      isDashing,
+      endLagTimer > 0,
+      isDashing ? Math.min(dashTimer / dashDuration, 1) : 0,
+      meleeSwinging,
+      meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0
+    );
+  }
+
+  // === AUTO-FIRE (origin profile only) ===
+  if (getActiveProfile() === 'origin' && !isDashing) {
+    if (now - lastFireTime >= PLAYER.fireRate) {
+      lastFireTime = now;
+      const aimDx = inputState.aimWorldPos.x - playerPos.x;
+      const aimDz = inputState.aimWorldPos.z - playerPos.z;
+      const aimDir = new THREE.Vector3(aimDx, 0, aimDz).normalize();
+      fireProjectile(playerPos, aimDir, PLAYER.projectile);
+    }
+  }
 
   // === MELEE COOLDOWN ===
   if (meleeCooldownTimer > 0) {
@@ -188,8 +246,8 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
     }
   }
 
-  // === MELEE ATTACK (left click) ===
-  if (inputState.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging) {
+  // === MELEE ATTACK (left click) — not available in origin profile ===
+  if (getActiveProfile() !== 'origin' && inputState.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging) {
     // Auto-targeting: snap aim to nearest enemy within cone before swinging
     const enemies = gameState.enemies;
     if (enemies) {
@@ -316,8 +374,8 @@ function updateDash(dt: number, gameState: any) {
   // I-frame window
   isInvincible = cfg.invincible && (dashTimer >= cfg.iFrameStart && dashTimer <= cfg.iFrameEnd);
 
-  // Spawn afterimages at intervals
-  if (cfg.afterimageCount > 0) {
+  // Spawn afterimages at intervals (skip for origin profile — no rig ghosts)
+  if (cfg.afterimageCount > 0 && getActiveProfile() !== 'origin') {
     const interval = dashDuration / (cfg.afterimageCount + 1);
     const prevCount = Math.floor((dashTimer - dt * 1000) / interval);
     const currCount = Math.floor(dashTimer / interval);
@@ -406,10 +464,12 @@ function startCharge(inputState: any, gameState: any) {
   // Create telegraph visual
   createChargeTelegraph(cfg);
 
-  // Visual feedback — player glows while charging
-  for (const mat of rig.materials) {
-    mat.emissive.setHex(0x44ffaa);
-    mat.emissiveIntensity = 0.6;
+  // Visual feedback — player glows while charging (skip for origin profile)
+  if (getActiveProfile() !== 'origin') {
+    for (const mat of rig.materials) {
+      mat.emissive.setHex(0x44ffaa);
+      mat.emissiveIntensity = 0.6;
+    }
   }
 }
 
@@ -496,9 +556,11 @@ function updateCharge(inputState: any, dt: number, gameState: any) {
     chargeFillMesh.material.opacity = cfg.telegraphOpacity + chargeT * 0.2;
   }
 
-  // Player glow intensifies with charge
-  for (const mat of rig.materials) {
-    mat.emissiveIntensity = 0.6 + chargeT * 0.4;
+  // Player glow intensifies with charge (skip for origin profile)
+  if (getActiveProfile() !== 'origin') {
+    for (const mat of rig.materials) {
+      mat.emissiveIntensity = 0.6 + chargeT * 0.4;
+    }
   }
 
   // Auto-fire at max charge OR release key (100ms grace period prevents instant-fire)
@@ -600,6 +662,7 @@ export function resetPlayer() {
   isCharging = false;
   chargeTimer = 0;
   pushEvent = null;
+  lastFireTime = 0;
   removeChargeTelegraph();
   restoreDefaultEmissive();
   resetAnimatorState(animState);

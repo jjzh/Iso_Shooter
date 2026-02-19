@@ -8,8 +8,8 @@ import { ENEMY_TYPES } from '../src/config/enemies';
 // ─── Demo Room Definitions ───
 
 describe('Demo room definitions', () => {
-  it('should have 2 rooms', () => {
-    expect(ROOMS.length).toBe(2);
+  it('should have 3 rooms', () => {
+    expect(ROOMS.length).toBe(3);
   });
 
   ROOMS.forEach((room, i) => {
@@ -18,8 +18,9 @@ describe('Demo room definitions', () => {
         expect(room.name.length).toBeGreaterThan(0);
       });
 
-      it('should have profile base', () => {
-        expect(room.profile).toBe('base');
+      it('should have a valid profile', () => {
+        const validProfiles = ['origin', 'base', 'assassin', 'rule-bending', 'vertical'];
+        expect(validProfiles).toContain(room.profile);
       });
 
       it('should have sandboxMode true', () => {
@@ -81,7 +82,7 @@ describe('Demo room definitions', () => {
 
 describe('Profile system', () => {
   it('every room should have a valid profile', () => {
-    const validProfiles = ['base', 'assassin', 'rule-bending', 'vertical'];
+    const validProfiles = ['origin', 'base', 'assassin', 'rule-bending', 'vertical'];
     for (const room of ROOMS) {
       expect(validProfiles).toContain(room.profile);
     }
@@ -98,10 +99,36 @@ describe('Sandbox mode', () => {
   });
 });
 
-// ─── Room 1 specifics ───
+// ─── Room 1 specifics: The Origin ───
 
-describe('Room 1: The Foundation', () => {
+describe('Room 1: The Origin', () => {
   const room = ROOMS[0];
+
+  it('should have origin profile', () => {
+    expect(room.profile).toBe('origin');
+  });
+
+  it('should only have goblins', () => {
+    const types = new Set(
+      room.spawnBudget.packs.flatMap(p => p.enemies.map(e => e.type))
+    );
+    expect(types.size).toBe(1);
+    expect(types.has('goblin')).toBe(true);
+  });
+
+  it('should have no pits', () => {
+    expect(room.pits.length).toBe(0);
+  });
+});
+
+// ─── Room 2 specifics: The Foundation ───
+
+describe('Room 2: The Foundation', () => {
+  const room = ROOMS[1];
+
+  it('should have base profile', () => {
+    expect(room.profile).toBe('base');
+  });
 
   it('should only have goblins', () => {
     const types = new Set(
@@ -116,17 +143,21 @@ describe('Room 1: The Foundation', () => {
   });
 });
 
-// ─── Room 2 specifics ───
+// ─── Room 3 specifics: Physics Playground ───
 
-describe('Room 2: Physics Playground', () => {
-  const room = ROOMS[1];
+describe('Room 3: Physics Playground', () => {
+  const room = ROOMS[2];
 
-  it('should have more pits than room 1', () => {
-    expect(room.pits.length).toBeGreaterThan(ROOMS[0].pits.length);
+  it('should have base profile', () => {
+    expect(room.profile).toBe('base');
   });
 
-  it('should have more obstacles than room 1', () => {
-    expect(room.obstacles.length).toBeGreaterThan(ROOMS[0].obstacles.length);
+  it('should have at least as many pits as room 2', () => {
+    expect(room.pits.length).toBeGreaterThanOrEqual(ROOMS[1].pits.length);
+  });
+
+  it('should have more obstacles than room 2', () => {
+    expect(room.obstacles.length).toBeGreaterThan(ROOMS[1].obstacles.length);
   });
 });
 

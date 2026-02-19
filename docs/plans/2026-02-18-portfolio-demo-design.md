@@ -11,12 +11,15 @@ Jeff wants a playable portfolio piece that walks through his design exploration 
 ## Room Sequence (Linear)
 
 ```
-Room 1: Base combat — auto-fire, melee, pit + force push
-Room 2: Physics sandbox — wall slams, enemy-enemy collisions, force push as universal tool
-Room 3: Assassin exploration — vision cones, stealth, bullet time (branch Jeff explored + shifted away from)
-Room 4: Rule-bending — physics objects (crates/boulders), enlarge/shrink in bullet time
-Room 5: Vertical combat — Y-axis, jump, launch, dunk, spike (current direction)
+Room 1: The Origin — Feb 7 prototype (auto-fire, cylinder+sphere, pure movement)
+Room 2: Base combat — melee, dash, pit + force push
+Room 3: Physics sandbox — wall slams, enemy-enemy collisions, force push as universal tool
+Room 4: Assassin exploration — vision cones, stealth, bullet time (branch Jeff explored + shifted away from)
+Room 5: Rule-bending — physics objects (crates/boulders), enlarge/shrink in bullet time
+Room 6: Vertical combat — Y-axis, jump, launch, dunk, spike (current direction)
 ```
+
+Note: Tuning panel and spawn editor are excluded from the portfolio demo build.
 
 - Progression is linear (1->2->3->4->5), no backtracking
 - Each room is sandbox (no required combat, door always open)
@@ -49,9 +52,9 @@ Room 5: Vertical combat — Y-axis, jump, launch, dunk, spike (current direction
 
 ### Profile system
 ```typescript
-type PlayerProfile = 'base' | 'assassin' | 'rule-bending' | 'vertical';
+type PlayerProfile = 'origin' | 'base' | 'assassin' | 'rule-bending' | 'vertical';
 ```
-- Exactly 4 known profiles, will never grow (this is a demo, not a platform)
+- 5 known profiles: origin (Feb 7 prototype), base, assassin, rule-bending, vertical
 - Simple if/else in conflict files, not a plugin architecture
 - Each room declares its profile in config
 

@@ -8,7 +8,7 @@ import { setProfile } from './profileManager';
 import { setArenaConfig, ARENA_HALF_X, ARENA_HALF_Z } from '../config/arena';
 import { SPAWN_CONFIG } from '../config/spawn';
 import { spawnEnemy, clearEnemies } from '../entities/enemy';
-import { getPlayerPos, isPlayerDashing } from '../entities/player';
+import { getPlayerPos, isPlayerDashing, setPlayerVisual } from '../entities/player';
 import { setPlayerPosition } from '../entities/player';
 import { getInputState } from './input';
 import { releaseAllProjectiles } from '../entities/projectile';
@@ -21,6 +21,7 @@ import { invalidateCollisionBounds, getBounds, getPits } from './physics';
 import { rebuildArenaVisuals } from './renderer';
 import { emit, on } from './events';
 import { createTelegraph, updateTelegraph, removeTelegraph, initTelegraph } from './telegraph';
+import { triggerRoomHighlights, clearHighlights } from './roomHighlights';
 import { initDoor, createDoor, unlockDoor, updateDoor, removeDoor } from './door';
 import { DOOR_CONFIG } from '../config/door';
 import { SpawnPack } from '../types/index';
@@ -87,7 +88,8 @@ export function loadRoom(index: number, gameState: any) {
   restRoomTimer = 0;
 
   // Clear everything from previous room
-  clearEnemies(gameState);
+  clearHighlights();
+  clearEnemies(gameState)
   releaseAllProjectiles();
   clearMortarProjectiles();
   clearIcePatches();
@@ -114,6 +116,7 @@ export function loadRoom(index: number, gameState: any) {
 
   // Profile switch (before special room handling so it applies to all rooms)
   setProfile(room.profile);
+  setPlayerVisual(room.profile);
 
   // Handle special rooms
   if (room.isRestRoom) {
@@ -146,6 +149,11 @@ export function loadRoom(index: number, gameState: any) {
   // Sandbox mode — door starts unlocked, enemies still spawn
   if (room.sandboxMode) {
     unlockDoor();
+  }
+
+  // Trigger feature highlights (pits, obstacles, etc.)
+  if (room.highlights && room.highlights.length > 0) {
+    triggerRoomHighlights(room.highlights);
   }
 }
 
@@ -354,6 +362,10 @@ function isInsidePit(x: number, z: number): boolean {
 }
 
 // ─── Public Getters ───
+
+export function getCurrentRoom(): RoomDefinition | null {
+  return ROOMS[currentRoomIndex] ?? null;
+}
 
 export function getCurrentRoomIndex(): number {
   return currentRoomIndex;

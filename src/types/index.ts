@@ -14,7 +14,7 @@ export interface Position extends Vector3 {}
 // PROFILE
 // ═══════════════════════════════════════════════════════════════════════════
 
-export type PlayerProfile = 'base' | 'assassin' | 'rule-bending' | 'vertical';
+export type PlayerProfile = 'origin' | 'base' | 'assassin' | 'rule-bending' | 'vertical';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MODIFIERS
@@ -410,7 +410,7 @@ export interface AbilityState {
 }
 
 export interface GameState {
-  phase: 'waiting' | 'playing' | 'gameOver' | 'editorPaused';
+  phase: 'waiting' | 'playing' | 'gameOver';
   playerHealth: number;
   playerMaxHealth: number;
   currency: number;
@@ -502,7 +502,6 @@ export interface InputState {
   attack: boolean;
   ultimate: boolean;
   ultimateHeld: boolean;
-  toggleEditor: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
