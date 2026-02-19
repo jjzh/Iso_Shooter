@@ -5423,6 +5423,9 @@ function isPlayerInvincible() {
 function isPlayerDashing() {
   return isDashing;
 }
+function getLaunchCooldownTimer() {
+  return launchCooldownTimer;
+}
 function consumePushEvent() {
   const evt = pushEvent;
   pushEvent = null;
@@ -5739,6 +5742,29 @@ function triggerUltimate() {
 }
 function setUltimateHeld(held) {
   _touchUltHeld = held;
+}
+function triggerAttack() {
+  inputState.attack = true;
+}
+function triggerJump() {
+  inputState.jump = true;
+}
+function triggerLaunch() {
+  inputState.launch = true;
+}
+function setAttackHeld(held) {
+  inputState.attackHeld = held;
+}
+var _cancelRequested = false;
+function triggerCancel() {
+  _cancelRequested = true;
+}
+function consumeCancel() {
+  if (_cancelRequested) {
+    _cancelRequested = false;
+    return true;
+  }
+  return false;
 }
 var _abilityAimActive = false;
 function setAimFromScreenDrag(screenX, screenY) {
@@ -7753,6 +7779,32 @@ function hideAnnounce() {
   announceEl.classList.remove("visible");
 }
 
+// src/config/mobileControls.ts
+var MOBILE_CONTROLS = {
+  // Layout
+  primarySize: 85,
+  // px — Attack/Push button
+  fanSize: 60,
+  // px — Dash, Jump, Launch
+  cancelSize: 45,
+  // px — Cancel button
+  arcRadius: 100,
+  // px — distance from primary center to fan buttons
+  arcStartAngle: 10,
+  // degrees — 0=left, 90=up; 10 = slightly above left
+  arcSpread: 80,
+  // degrees — total angle spread across fan buttons
+  edgeMargin: 20,
+  // px — offset from screen edge
+  // Behavior
+  holdThreshold: 180,
+  // ms — tap vs hold on Attack/Push button
+  dragThreshold: 15,
+  // px — min distance to register as drag
+  dragMaxRadius: 80
+  // px — full deflection range for drag-to-aim
+};
+
 // src/engine/bulletTime.ts
 var BULLET_TIME = {
   timeScale: 0.25,
@@ -7834,8 +7886,11 @@ var bulletTimeFill;
 var btVignette;
 var btCeremony;
 var btCeremonyTimeout = null;
-var mobileBtnDash;
-var mobileBtnUlt;
+var mobileBtnAttack = null;
+var mobileBtnDash = null;
+var mobileBtnJump = null;
+var mobileBtnLaunch = null;
+var mobileBtnCancel = null;
 function initHUD() {
   healthBar = document.getElementById("health-bar");
   healthText = document.getElementById("health-text");
@@ -7941,17 +7996,62 @@ function showBTCeremony(text, durationMs) {
     btCeremonyTimeout = null;
   }, durationMs);
 }
-var DRAG_THRESHOLD = 15;
-var DRAG_MAX_RADIUS = 80;
 var INV_SQRT22 = 1 / Math.SQRT2;
 var ISO_RIGHT_X2 = INV_SQRT22;
 var ISO_RIGHT_Z2 = -INV_SQRT22;
 var ISO_UP_X2 = -INV_SQRT22;
 var ISO_UP_Z2 = -INV_SQRT22;
+var _mobileButtonsWired = false;
 function initMobileButtons() {
+  if (_mobileButtonsWired) return;
+  mobileBtnAttack = document.getElementById("mobile-btn-attack");
   mobileBtnDash = document.getElementById("mobile-btn-dash");
-  mobileBtnUlt = document.getElementById("mobile-btn-ultimate");
-  if (!mobileBtnDash || !mobileBtnUlt) return;
+  mobileBtnJump = document.getElementById("mobile-btn-jump");
+  mobileBtnLaunch = document.getElementById("mobile-btn-launch");
+  mobileBtnCancel = document.getElementById("mobile-btn-cancel");
+  if (!mobileBtnAttack) {
+    console.warn("[mobile] mobile-btn-attack not found in DOM");
+    return;
+  }
+  console.log("[mobile] initMobileButtons: all elements found, positioning...");
+  _mobileButtonsWired = true;
+  positionMobileButtons();
+  wireButtonHandlers();
+}
+function wireButtonHandlers() {
+  let attackHoldTimeout = null;
+  setupDragToAim(mobileBtnAttack, {
+    onDragStart: () => {
+      attackHoldTimeout = window.setTimeout(() => {
+        triggerUltimate();
+        setUltimateHeld(true);
+        attackHoldTimeout = null;
+      }, MOBILE_CONTROLS.holdThreshold);
+    },
+    onDragMove: (normX, normY) => {
+      setAimFromScreenDrag(normX, normY);
+    },
+    onRelease: (wasDrag, heldMs) => {
+      if (attackHoldTimeout !== null) {
+        clearTimeout(attackHoldTimeout);
+        attackHoldTimeout = null;
+      }
+      if (heldMs < MOBILE_CONTROLS.holdThreshold && !wasDrag) {
+        triggerAttack();
+      } else {
+        setUltimateHeld(false);
+        clearAbilityDirOverride();
+      }
+    },
+    onCancel: () => {
+      if (attackHoldTimeout !== null) {
+        clearTimeout(attackHoldTimeout);
+        attackHoldTimeout = null;
+      }
+      setUltimateHeld(false);
+      clearAbilityDirOverride();
+    }
+  });
   setupDragToAim(mobileBtnDash, {
     onDragStart: () => {
     },
@@ -7969,28 +8069,75 @@ function initMobileButtons() {
       clearAbilityDirOverride();
     }
   });
-  setupDragToAim(mobileBtnUlt, {
+  mobileBtnJump.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    triggerJump();
+  }, { passive: false });
+  setupDragToAim(mobileBtnLaunch, {
     onDragStart: () => {
-      triggerUltimate();
-      setUltimateHeld(true);
+      if (playerHasTag(TAG.AERIAL)) {
+        setAttackHeld(true);
+      }
     },
     onDragMove: (normX, normY) => {
-      setAimFromScreenDrag(normX, normY);
+      if (playerHasTag(TAG.AERIAL)) {
+        setAimFromScreenDrag(normX, normY);
+      }
     },
-    onRelease: () => {
-      setUltimateHeld(false);
-      clearAbilityDirOverride();
+    onRelease: (wasDrag, heldMs) => {
+      if (playerHasTag(TAG.AERIAL)) {
+        if (heldMs < MOBILE_CONTROLS.holdThreshold && !wasDrag) {
+          triggerAttack();
+        }
+        setAttackHeld(false);
+        clearAbilityDirOverride();
+      } else {
+        triggerLaunch();
+      }
     },
     onCancel: () => {
-      setUltimateHeld(false);
+      setAttackHeld(false);
       clearAbilityDirOverride();
     }
   });
+  mobileBtnCancel.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    triggerCancel();
+  }, { passive: false });
+}
+function positionMobileButtons() {
+  const C2 = MOBILE_CONTROLS;
+  if (!mobileBtnAttack) return;
+  const pCX = C2.edgeMargin + C2.primarySize / 2;
+  const pCY = C2.edgeMargin + C2.primarySize / 2;
+  console.log("[mobile] positionMobileButtons called, pCX=", pCX, "pCY=", pCY, "arcStart=", C2.arcStartAngle, "arcSpread=", C2.arcSpread, "radius=", C2.arcRadius);
+  placeButtonAtCenter(mobileBtnAttack, pCX, pCY, C2.primarySize);
+  const fanButtons = [mobileBtnDash, mobileBtnJump, mobileBtnLaunch];
+  for (let i = 0; i < fanButtons.length; i++) {
+    const btn = fanButtons[i];
+    if (!btn) continue;
+    const t = fanButtons.length > 1 ? i / (fanButtons.length - 1) : 0.5;
+    const angleDeg = C2.arcStartAngle + t * C2.arcSpread;
+    const angleRad = angleDeg * (Math.PI / 180);
+    const cx = pCX + Math.cos(angleRad) * C2.arcRadius;
+    const cy = pCY + Math.sin(angleRad) * C2.arcRadius;
+    placeButtonAtCenter(btn, cx, cy, C2.fanSize);
+  }
+  placeButtonAtCenter(mobileBtnCancel, pCX, pCY + C2.arcRadius + C2.fanSize / 2 + 10, C2.cancelSize);
+}
+function placeButtonAtCenter(btn, cx, cy, size) {
+  if (!btn) return;
+  btn.style.width = size + "px";
+  btn.style.height = size + "px";
+  btn.style.right = cx - size / 2 + "px";
+  btn.style.bottom = cy - size / 2 + "px";
+  console.log("[mobile] placed", btn.id, "right=", btn.style.right, "bottom=", btn.style.bottom, "size=", size);
 }
 function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel }) {
   let touchId = null;
   let startX = 0, startY = 0;
   let isDragging2 = false;
+  let touchStartTime = 0;
   btnEl.addEventListener("touchstart", (e) => {
     e.preventDefault();
     if (touchId !== null) return;
@@ -7999,6 +8146,7 @@ function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel })
     startX = touch.clientX;
     startY = touch.clientY;
     isDragging2 = false;
+    touchStartTime = performance.now();
     onDragStart();
   });
   window.addEventListener("touchmove", (e) => {
@@ -8008,11 +8156,11 @@ function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel })
     const dx = touch.clientX - startX;
     const dy = touch.clientY - startY;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist > DRAG_THRESHOLD) {
+    if (dist > MOBILE_CONTROLS.dragThreshold) {
       isDragging2 = true;
-      const clampedDist = Math.min(dist, DRAG_MAX_RADIUS);
-      const normX = dx / dist * (clampedDist / DRAG_MAX_RADIUS);
-      const normY = -dy / dist * (clampedDist / DRAG_MAX_RADIUS);
+      const clampedDist = Math.min(dist, MOBILE_CONTROLS.dragMaxRadius);
+      const normX = dx / dist * (clampedDist / MOBILE_CONTROLS.dragMaxRadius);
+      const normY = -dy / dist * (clampedDist / MOBILE_CONTROLS.dragMaxRadius);
       onDragMove(normX, normY);
     }
   }, { passive: true });
@@ -8021,7 +8169,8 @@ function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel })
     const touch = findTouch(e.changedTouches, touchId);
     if (!touch) return;
     touchId = null;
-    onRelease(isDragging2);
+    const heldMs = performance.now() - touchStartTime;
+    onRelease(isDragging2, heldMs);
   });
   window.addEventListener("touchcancel", (e) => {
     if (touchId === null) return;
@@ -8036,6 +8185,22 @@ function findTouch(touchList, id) {
     if (touchList[i].identifier === id) return touchList[i];
   }
   return null;
+}
+function updateMobileBtnCooldown(btn, cooldownRemaining, cooldownTotal) {
+  const cdOverlay = btn.querySelector(".mobile-btn-cd-overlay");
+  const cdText = btn.querySelector(".mobile-btn-cd-text");
+  if (!cdOverlay || !cdText) return;
+  if (cooldownRemaining > 0) {
+    btn.classList.remove("ready");
+    const ratio = cooldownRemaining / cooldownTotal;
+    cdOverlay.style.height = ratio * 100 + "%";
+    cdText.style.display = "block";
+    cdText.textContent = Math.ceil(cooldownRemaining / 1e3).toString();
+  } else {
+    btn.classList.add("ready");
+    cdOverlay.style.height = "0%";
+    cdText.style.display = "none";
+  }
 }
 function updateHUD(gameState2) {
   const pct = Math.max(0, gameState2.playerHealth / gameState2.playerMaxHealth);
@@ -8094,38 +8259,32 @@ function updateHUD(gameState2) {
         overlay.style.backgroundColor = "";
       }
     }
-    const mBtn = key === "dash" ? mobileBtnDash : key === "ultimate" ? mobileBtnUlt : null;
-    if (mBtn) {
-      const mOverlay = mBtn.querySelector(".mobile-btn-cd-overlay");
-      const mCdText = mBtn.querySelector(".mobile-btn-cd-text");
-      if (state.cooldownRemaining > 0) {
-        const pctRemaining = Math.max(0, state.cooldownRemaining / cfg.cooldown);
-        mOverlay.style.height = pctRemaining * 100 + "%";
-        mBtn.classList.remove("ready");
-        const secs = Math.ceil(state.cooldownRemaining / 1e3);
-        mCdText.textContent = secs;
-        mCdText.style.display = "flex";
+  }
+  if (mobileBtnAttack) {
+    const ult = gameState2.abilities.ultimate;
+    updateMobileBtnCooldown(mobileBtnAttack, ult.cooldownRemaining, ABILITIES.ultimate.cooldown);
+    const cdOverlay = mobileBtnAttack.querySelector(".mobile-btn-cd-overlay");
+    if (cdOverlay) {
+      if (ult.charging) {
+        cdOverlay.style.height = (1 - ult.chargeT) * 100 + "%";
+        cdOverlay.style.background = "rgba(255, 200, 0, 0.4)";
       } else {
-        mOverlay.style.height = "0%";
-        mBtn.classList.add("ready");
-        mCdText.style.display = "none";
-      }
-      if (key === "ultimate" && state.charging) {
-        const chargePct = Math.round(state.chargeT * 100);
-        mBtn.style.borderColor = "rgba(68, 255, 170, 0.9)";
-        mBtn.style.boxShadow = "0 0 16px rgba(68, 255, 170, 0.5)";
-        mCdText.textContent = chargePct + "%";
-        mCdText.style.display = "flex";
-        mCdText.style.color = "#44ffaa";
-        mOverlay.style.height = (1 - state.chargeT) * 100 + "%";
-        mOverlay.style.backgroundColor = "rgba(68, 255, 170, 0.3)";
-      } else if (key === "ultimate") {
-        if (mBtn.style.borderColor) mBtn.style.borderColor = "";
-        if (mBtn.style.boxShadow) mBtn.style.boxShadow = "";
-        mCdText.style.color = "";
-        mOverlay.style.backgroundColor = "";
+        cdOverlay.style.background = "rgba(0,0,0,0.6)";
       }
     }
+  }
+  if (mobileBtnDash) {
+    const dash = gameState2.abilities.dash;
+    updateMobileBtnCooldown(mobileBtnDash, dash.cooldownRemaining, ABILITIES.dash.cooldown);
+  }
+  if (mobileBtnLaunch) {
+    const launchCdRemaining = getLaunchCooldownTimer();
+    updateMobileBtnCooldown(mobileBtnLaunch, launchCdRemaining, LAUNCH.cooldown);
+  }
+  if (mobileBtnCancel) {
+    const hasActiveVerb = playerHasTag(TAG.AERIAL);
+    const isCharging2 = gameState2.abilities.ultimate.charging;
+    mobileBtnCancel.classList.toggle("active", hasActiveVerb || isCharging2);
   }
 }
 
@@ -10300,6 +10459,22 @@ var SECTIONS = [
         tip: "XZ speed toward landing target."
       }
     ]
+  },
+  // ── Mobile Controls ──
+  {
+    section: "Mobile Controls",
+    collapsed: true,
+    items: [
+      { label: "Primary Size", config: () => MOBILE_CONTROLS, key: "primarySize", min: 60, max: 120, step: 5, suffix: "px" },
+      { label: "Fan Size", config: () => MOBILE_CONTROLS, key: "fanSize", min: 40, max: 90, step: 5, suffix: "px" },
+      { label: "Cancel Size", config: () => MOBILE_CONTROLS, key: "cancelSize", min: 30, max: 70, step: 5, suffix: "px" },
+      { label: "Arc Radius", config: () => MOBILE_CONTROLS, key: "arcRadius", min: 60, max: 160, step: 5, suffix: "px" },
+      { label: "Arc Start Angle", config: () => MOBILE_CONTROLS, key: "arcStartAngle", min: 90, max: 270, step: 5, suffix: "\xB0" },
+      { label: "Arc Spread", config: () => MOBILE_CONTROLS, key: "arcSpread", min: 30, max: 150, step: 5, suffix: "\xB0" },
+      { label: "Edge Margin", config: () => MOBILE_CONTROLS, key: "edgeMargin", min: 10, max: 40, step: 2, suffix: "px" },
+      { label: "Hold Threshold", config: () => MOBILE_CONTROLS, key: "holdThreshold", min: 100, max: 400, step: 10, suffix: "ms" },
+      { label: "Drag Threshold", config: () => MOBILE_CONTROLS, key: "dragThreshold", min: 8, max: 30, step: 1, suffix: "px" }
+    ]
   }
 ];
 var enemySpeedMultiplier = 1;
@@ -10396,6 +10571,9 @@ function initTuningPanel() {
           applyMasterVolume(val);
         } else {
           item.config()[item.key] = val;
+        }
+        if (item.config() === MOBILE_CONTROLS) {
+          positionMobileButtons();
         }
         valueDisplay.textContent = formatValue(val, item);
       });
@@ -13202,6 +13380,10 @@ function gameLoop(timestamp) {
     return;
   }
   updateInput();
+  if (consumeCancel()) {
+    cancelActiveVerb();
+    setUltimateHeld(false);
+  }
   autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
   if (input.bulletTime) toggleBulletTime();
