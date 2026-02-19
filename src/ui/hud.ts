@@ -2,9 +2,11 @@ import { ABILITIES } from '../config/abilities';
 import { MOBILE_CONTROLS } from '../config/mobileControls';
 import { PLAYER } from '../config/player';
 import {
-  triggerDash, triggerUltimate, setUltimateHeld,
+  triggerDash, triggerAttack, triggerJump, triggerLaunch, triggerCancel,
+  triggerUltimate, setUltimateHeld, setAttackHeld,
   setAimFromScreenDrag, setAbilityDirOverride, clearAbilityDirOverride
 } from '../engine/input';
+import { playerHasTag, TAG } from '../engine/tags';
 import { isBulletTimeActive, getBulletTimeResource, getBulletTimeMax } from '../engine/bulletTime';
 import { on } from '../engine/events';
 
@@ -166,7 +168,98 @@ function initMobileButtons() {
   if (!mobileBtnAttack) return;
 
   positionMobileButtons();
-  // wireButtonHandlers() will be added in Task 7
+  wireButtonHandlers();
+}
+
+function wireButtonHandlers(): void {
+  // --- Attack/Push: tap = attack, hold = force push ---
+  setupDragToAim(mobileBtnAttack!, {
+    onDragStart: () => {
+      // Start as force push charge (will cancel if released quickly)
+      triggerUltimate();
+      setUltimateHeld(true);
+    },
+    onDragMove: (normX: number, normY: number) => {
+      setAimFromScreenDrag(normX, normY);
+    },
+    onRelease: (wasDrag: boolean, heldMs: number) => {
+      if (heldMs < MOBILE_CONTROLS.holdThreshold && !wasDrag) {
+        // Short tap — cancel the push charge and fire attack instead
+        setUltimateHeld(false);
+        triggerAttack();
+      } else {
+        // Long hold or drag — release force push
+        setUltimateHeld(false);
+        clearAbilityDirOverride();
+      }
+    },
+    onCancel: () => {
+      setUltimateHeld(false);
+      clearAbilityDirOverride();
+    },
+  });
+
+  // --- Dash: drag-to-aim, release to fire ---
+  setupDragToAim(mobileBtnDash!, {
+    onDragStart: () => {},
+    onDragMove: (normX: number, normY: number) => {
+      const isoX = normX * ISO_RIGHT_X + normY * ISO_UP_X;
+      const isoZ = normX * ISO_RIGHT_Z + normY * ISO_UP_Z;
+      setAbilityDirOverride(isoX, isoZ);
+      setAimFromScreenDrag(normX, normY);
+    },
+    onRelease: (wasDrag: boolean) => {
+      triggerDash();
+      if (!wasDrag) clearAbilityDirOverride();
+    },
+    onCancel: () => { clearAbilityDirOverride(); },
+  });
+
+  // --- Jump: simple tap ---
+  mobileBtnJump!.addEventListener('touchstart', (e: TouchEvent) => {
+    e.preventDefault();
+    triggerJump();
+  }, { passive: false });
+
+  // --- Launch: context-sensitive (grounded vs float) ---
+  setupDragToAim(mobileBtnLaunch!, {
+    onDragStart: () => {
+      if (playerHasTag(TAG.AERIAL)) {
+        // In float → hold starts dunk (set attackHeld for float selector)
+        setAttackHeld(true);
+      }
+    },
+    onDragMove: (normX: number, normY: number) => {
+      if (playerHasTag(TAG.AERIAL)) {
+        // Drag to aim dunk landing spot
+        setAimFromScreenDrag(normX, normY);
+      }
+    },
+    onRelease: (wasDrag: boolean, heldMs: number) => {
+      if (playerHasTag(TAG.AERIAL)) {
+        if (heldMs < MOBILE_CONTROLS.holdThreshold && !wasDrag) {
+          // Tap during float → spike
+          triggerAttack();
+        }
+        // Release dunk aim
+        setAttackHeld(false);
+        clearAbilityDirOverride();
+      } else {
+        // Grounded → launch
+        triggerLaunch();
+      }
+    },
+    onCancel: () => {
+      setAttackHeld(false);
+      clearAbilityDirOverride();
+    },
+  });
+
+  // --- Cancel: simple tap ---
+  mobileBtnCancel!.addEventListener('touchstart', (e: TouchEvent) => {
+    e.preventDefault();
+    triggerCancel();
+  }, { passive: false });
 }
 
 /**
@@ -234,6 +327,7 @@ function setupDragToAim(btnEl: any, { onDragStart, onDragMove, onRelease, onCanc
   let touchId: number | null = null;
   let startX = 0, startY = 0;
   let isDragging = false;
+  let touchStartTime = 0;
 
   btnEl.addEventListener('touchstart', (e: any) => {
     e.preventDefault();
@@ -243,6 +337,7 @@ function setupDragToAim(btnEl: any, { onDragStart, onDragMove, onRelease, onCanc
     startX = touch.clientX;
     startY = touch.clientY;
     isDragging = false;
+    touchStartTime = performance.now();
     onDragStart();
   });
 
@@ -271,7 +366,8 @@ function setupDragToAim(btnEl: any, { onDragStart, onDragMove, onRelease, onCanc
     const touch = findTouch(e.changedTouches, touchId);
     if (!touch) return;
     touchId = null;
-    onRelease(isDragging);
+    const heldMs = performance.now() - touchStartTime;
+    onRelease(isDragging, heldMs);
   });
 
   window.addEventListener('touchcancel', (e: any) => {

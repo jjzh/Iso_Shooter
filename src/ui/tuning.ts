@@ -12,6 +12,8 @@ import { SPAWN_CONFIG } from '../config/spawn';
 import { DOOR_CONFIG } from '../config/door';
 import { BULLET_TIME } from '../engine/bulletTime';
 import { buildShareUrl } from '../engine/urlParams';
+import { MOBILE_CONTROLS } from '../config/mobileControls';
+import { positionMobileButtons } from './hud';
 
 // ─── Slider Section Definitions ───
 // Each section has a title and items. Sections are collapsible.
@@ -428,6 +430,23 @@ const SECTIONS: SliderSection[] = [
         unit: 'u/s', tip: 'XZ speed toward landing target.' },
     ]
   },
+
+  // ── Mobile Controls ──
+  {
+    section: 'Mobile Controls',
+    collapsed: true,
+    items: [
+      { label: 'Primary Size', config: () => MOBILE_CONTROLS, key: 'primarySize', min: 60, max: 120, step: 5, suffix: 'px' },
+      { label: 'Fan Size', config: () => MOBILE_CONTROLS, key: 'fanSize', min: 40, max: 90, step: 5, suffix: 'px' },
+      { label: 'Cancel Size', config: () => MOBILE_CONTROLS, key: 'cancelSize', min: 30, max: 70, step: 5, suffix: 'px' },
+      { label: 'Arc Radius', config: () => MOBILE_CONTROLS, key: 'arcRadius', min: 60, max: 160, step: 5, suffix: 'px' },
+      { label: 'Arc Start Angle', config: () => MOBILE_CONTROLS, key: 'arcStartAngle', min: 90, max: 270, step: 5, suffix: '\u00b0' },
+      { label: 'Arc Spread', config: () => MOBILE_CONTROLS, key: 'arcSpread', min: 30, max: 150, step: 5, suffix: '\u00b0' },
+      { label: 'Edge Margin', config: () => MOBILE_CONTROLS, key: 'edgeMargin', min: 10, max: 40, step: 2, suffix: 'px' },
+      { label: 'Hold Threshold', config: () => MOBILE_CONTROLS, key: 'holdThreshold', min: 100, max: 400, step: 10, suffix: 'ms' },
+      { label: 'Drag Threshold', config: () => MOBILE_CONTROLS, key: 'dragThreshold', min: 8, max: 30, step: 1, suffix: 'px' },
+    ],
+  },
 ];
 
 // ─── Enemy Speed Multiplier ───
@@ -560,6 +579,9 @@ export function initTuningPanel() {
           applyMasterVolume(val);
         } else {
           item.config()[item.key] = val;
+        }
+        if (item.config() === MOBILE_CONTROLS) {
+          positionMobileButtons();
         }
         valueDisplay.textContent = formatValue(val, item);
       });
