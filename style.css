@@ -340,33 +340,32 @@ canvas {
   opacity: 1;
 }
 
-/* ── Mobile Action Buttons (Wild Rift style) ── */
+/* ── Mobile Action Buttons (radial fan layout) ── */
 #mobile-actions {
   display: none; /* hidden on desktop */
   position: fixed;
-  right: 20px;
-  bottom: 20%;
   z-index: 20;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  pointer-events: auto;
+  pointer-events: none; /* container is non-interactive; buttons are */
 }
 
+/* Buttons hidden by default — profile JS shows the right ones */
 .mobile-btn {
-  width: 68px;
-  height: 68px;
+  display: none;
+  position: absolute;
   border-radius: 50%;
   background: rgba(15, 15, 30, 0.85);
   border: 2px solid rgba(100, 100, 160, 0.5);
-  position: relative;
-  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   touch-action: none;
   -webkit-touch-callout: none;
+  pointer-events: auto;
+}
+
+.mobile-btn.visible {
+  display: flex;
 }
 
 .mobile-btn.ready {
@@ -375,7 +374,7 @@ canvas {
 }
 
 .mobile-btn:active {
-  transform: scale(0.9);
+  transform: translate(50%, 50%) scale(0.9);
 }
 
 .mobile-btn-icon {
@@ -437,8 +436,8 @@ canvas {
   .joystick-zone { display: block; }
   /* Hide desktop ability bar on mobile */
   #ability-bar { display: none !important; }
-  /* Show mobile action buttons */
-  #mobile-actions { display: flex; }
+  /* Show mobile action buttons (container for absolutely-positioned children) */
+  #mobile-actions { display: block; }
   /* Hide crosshair cursor on touch */
   html, body { cursor: default; }
 }

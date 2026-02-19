@@ -1,4 +1,5 @@
 import { OBSTACLES, PITS, ARENA_HALF_X, ARENA_HALF_Z, WALL_THICKNESS, WALL_HEIGHT } from '../config/arena';
+import { HEIGHT_ZONES } from '../config/terrain';
 
 let scene: any, camera: any, renderer: any;
 const baseFrustum = 12;
@@ -9,6 +10,7 @@ const cameraOffset = new THREE.Vector3(20, 20, 20);
 let obstacleMeshes: any[] = [];
 let wallMeshes: any[] = [];
 let pitMeshes: any[] = [];
+let _platformMeshes: any[] = [];
 
 // Screen shake state
 let shakeRemaining = 0;
@@ -217,10 +219,34 @@ function createPits() {
   }
 }
 
-// Rebuild all arena visuals (obstacles + pits) — called by level editor
+function clearPlatformMeshes() {
+  for (const m of _platformMeshes) {
+    scene.remove(m);
+    if (m.geometry) m.geometry.dispose();
+  }
+  _platformMeshes = [];
+}
+
+function createPlatforms() {
+  clearPlatformMeshes();
+
+  const mat = new THREE.MeshStandardMaterial({ color: 0x666688, roughness: 0.7 });
+
+  for (const zone of HEIGHT_ZONES) {
+    const geo = new THREE.BoxGeometry(zone.w, zone.y, zone.d);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(zone.x, zone.y / 2, zone.z);
+    scene.add(mesh);
+    _platformMeshes.push(mesh);
+  }
+}
+
+// Rebuild all arena visuals (obstacles + pits + platforms) — called by level editor
 export function rebuildArenaVisuals() {
   createObstacles();
   createPits();
+  clearPlatformMeshes();
+  createPlatforms();
 }
 
 function getViewportSize() {
@@ -250,6 +276,10 @@ function applyFrustum(f: number) {
 
 export function setZoom(frustum: number) {
   applyFrustum(Math.max(8, Math.min(30, frustum)));
+}
+
+export function setFrustumSize(size: number) {
+  applyFrustum(size);
 }
 
 export function resetZoom() {

@@ -2,8 +2,10 @@ import { ABILITIES } from '../config/abilities';
 import { PLAYER } from '../config/player';
 import {
   triggerDash, triggerUltimate, setUltimateHeld,
+  triggerJump, triggerLaunch, triggerCancel,
   setAimFromScreenDrag, setAbilityDirOverride, clearAbilityDirOverride
 } from '../engine/input';
+import { MOBILE_CONTROLS } from '../config/mobileControls';
 import { isBulletTimeActive, getBulletTimeResource, getBulletTimeMax } from '../engine/bulletTime';
 import { getCurrentRoomIndex, getCurrentRoomName } from '../engine/roomManager';
 import { getActiveProfile } from '../engine/profileManager';
@@ -25,6 +27,8 @@ let btCeremonyTimeout: any = null;
 
 // Mobile action button refs
 let mobileBtnDash: any, mobileBtnUlt: any;
+let mobileBtnJump: any, mobileBtnLaunch: any, mobileBtnCancel: any;
+let lastMobileProfile: string = '';
 
 export function initHUD() {
   healthBar = document.getElementById('health-bar');
@@ -166,13 +170,16 @@ const ISO_UP_Z = -INV_SQRT2;
 function initMobileButtons() {
   mobileBtnDash = document.getElementById('mobile-btn-dash');
   mobileBtnUlt = document.getElementById('mobile-btn-ultimate');
-  if (!mobileBtnDash || !mobileBtnUlt) return;
+  mobileBtnJump = document.getElementById('mobile-btn-jump');
+  mobileBtnLaunch = document.getElementById('mobile-btn-launch');
+  mobileBtnCancel = document.getElementById('mobile-btn-cancel');
+
+  if (!mobileBtnDash) return;
 
   // --- Dash: drag-to-aim, release to fire ---
   setupDragToAim(mobileBtnDash, {
     onDragStart: () => { /* don't trigger yet — wait for release */ },
     onDragMove: (normX: number, normY: number) => {
-      // Compute isometric world direction from screen drag
       const isoX = normX * ISO_RIGHT_X + normY * ISO_UP_X;
       const isoZ = normX * ISO_RIGHT_Z + normY * ISO_UP_Z;
       setAbilityDirOverride(isoX, isoZ);
@@ -181,31 +188,133 @@ function initMobileButtons() {
     onRelease: (wasDrag: boolean) => {
       triggerDash();
       if (!wasDrag) clearAbilityDirOverride();
-      // If wasDrag, override is already set and startDash will consume it
     },
     onCancel: () => {
       clearAbilityDirOverride();
     },
   });
 
-  // --- Ultimate: drag-to-aim, charge while held ---
-  setupDragToAim(mobileBtnUlt, {
-    onDragStart: () => {
-      triggerUltimate();
-      setUltimateHeld(true);
-    },
-    onDragMove: (normX: number, normY: number) => {
-      setAimFromScreenDrag(normX, normY);
-    },
-    onRelease: () => {
-      setUltimateHeld(false);
-      clearAbilityDirOverride();
-    },
-    onCancel: () => {
-      setUltimateHeld(false);
-      clearAbilityDirOverride();
-    },
-  });
+  // --- Ultimate (Push): drag-to-aim, charge while held ---
+  if (mobileBtnUlt) {
+    setupDragToAim(mobileBtnUlt, {
+      onDragStart: () => {
+        triggerUltimate();
+        setUltimateHeld(true);
+      },
+      onDragMove: (normX: number, normY: number) => {
+        setAimFromScreenDrag(normX, normY);
+      },
+      onRelease: () => {
+        setUltimateHeld(false);
+        clearAbilityDirOverride();
+      },
+      onCancel: () => {
+        setUltimateHeld(false);
+        clearAbilityDirOverride();
+      },
+    });
+  }
+
+  // --- Jump: simple tap ---
+  if (mobileBtnJump) {
+    mobileBtnJump.addEventListener('touchstart', (e: any) => {
+      e.preventDefault();
+      triggerJump();
+    });
+  }
+
+  // --- Launch: simple tap ---
+  if (mobileBtnLaunch) {
+    mobileBtnLaunch.addEventListener('touchstart', (e: any) => {
+      e.preventDefault();
+      triggerLaunch();
+    });
+  }
+
+  // --- Cancel: simple tap ---
+  if (mobileBtnCancel) {
+    mobileBtnCancel.addEventListener('touchstart', (e: any) => {
+      e.preventDefault();
+      triggerCancel();
+    });
+  }
+
+  // Initial profile-based layout
+  updateMobileButtons();
+}
+
+/**
+ * Show/hide mobile buttons and position them in a radial fan based on profile.
+ * Called once on init and whenever the profile changes.
+ */
+export function updateMobileButtons() {
+  const profile = getActiveProfile();
+  if (profile === lastMobileProfile) return;
+  lastMobileProfile = profile;
+
+  const allBtns = [mobileBtnDash, mobileBtnUlt, mobileBtnJump, mobileBtnLaunch, mobileBtnCancel];
+
+  // Hide all first
+  for (const btn of allBtns) {
+    if (btn) btn.classList.remove('visible');
+  }
+
+  // Determine which buttons to show
+  let visibleBtns: { el: any; size: number }[] = [];
+
+  if (profile === 'vertical') {
+    visibleBtns = [
+      { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
+      { el: mobileBtnJump, size: MOBILE_CONTROLS.fanSize },
+      { el: mobileBtnLaunch, size: MOBILE_CONTROLS.fanSize },
+      { el: mobileBtnCancel, size: MOBILE_CONTROLS.cancelSize },
+    ];
+  } else if (profile === 'origin') {
+    // Origin has auto-fire, no combat buttons needed
+    visibleBtns = [];
+  } else {
+    // 'base', 'assassin', 'rule-bending' — default set
+    visibleBtns = [
+      { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
+      { el: mobileBtnUlt, size: MOBILE_CONTROLS.primarySize },
+    ];
+  }
+
+  // Position buttons in a radial fan from bottom-right anchor
+  const mc = MOBILE_CONTROLS;
+  const anchorRight = mc.edgeMargin;
+  const anchorBottom = window.innerHeight * 0.20; // 20% from bottom, matching old layout
+
+  const container = document.getElementById('mobile-actions');
+  if (container) {
+    container.style.right = '0px';
+    container.style.bottom = '0px';
+    container.style.width = '100%';
+    container.style.height = '100%';
+  }
+
+  const count = visibleBtns.length;
+  for (let i = 0; i < count; i++) {
+    const { el, size } = visibleBtns[i];
+    if (!el) continue;
+
+    el.classList.add('visible');
+    el.style.width = size + 'px';
+    el.style.height = size + 'px';
+
+    // Fan angle: distribute buttons along arc
+    const angleDeg = mc.arcStartAngle + (count > 1 ? (mc.arcSpread * i) / (count - 1) : 0);
+    const angleRad = (angleDeg * Math.PI) / 180;
+
+    // Compute position relative to anchor point (bottom-right)
+    const dx = -Math.cos(angleRad) * mc.arcRadius; // negative = leftward from right edge
+    const dy = -Math.sin(angleRad) * mc.arcRadius; // negative = upward from bottom
+
+    // Position from bottom-right corner
+    el.style.right = (anchorRight - dx) + 'px';
+    el.style.bottom = (anchorBottom - dy) + 'px';
+    el.style.transform = 'translate(50%, 50%)'; // center on computed position
+  }
 }
 
 /**
@@ -279,6 +388,9 @@ function findTouch(touchList: any, id: number) {
 }
 
 export function updateHUD(gameState: any) {
+  // Update mobile button visibility when profile changes (short-circuits if same)
+  updateMobileButtons();
+
   // Health bar
   const pct = Math.max(0, gameState.playerHealth / gameState.playerMaxHealth);
   healthBar.style.width = (pct * 100) + '%';

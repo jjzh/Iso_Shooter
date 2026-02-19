@@ -25,7 +25,7 @@ import { clearDamageNumbers } from '../ui/damageNumbers';
 import { clearEffectGhosts } from './physics';
 import { clearParticles } from './particles';
 import { invalidateCollisionBounds, getBounds, getPits } from './physics';
-import { rebuildArenaVisuals } from './renderer';
+import { rebuildArenaVisuals, setFrustumSize } from './renderer';
 import { emit, on } from './events';
 import { createTelegraph, updateTelegraph, removeTelegraph, initTelegraph } from './telegraph';
 import { triggerRoomHighlights, clearHighlights } from './roomHighlights';
@@ -117,6 +117,7 @@ export function loadRoom(index: number, gameState: any) {
   setHeightZones(room.heightZones ?? []);
   invalidateCollisionBounds();
   rebuildArenaVisuals();
+  setFrustumSize(room.frustumSize ?? 12);
   initGroundShadows();
 
   // Set player position

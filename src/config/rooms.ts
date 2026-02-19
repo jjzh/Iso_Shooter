@@ -144,4 +144,34 @@ export const ROOMS: RoomDefinition[] = [
     },
     playerStart: { x: 0, z: 18 },
   },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Room 4: "The Arena" — vertical combat: jump, launch, dunk, spike
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    name: 'The Arena',
+    profile: 'vertical' as PlayerProfile,
+    sandboxMode: true,
+    commentary: 'What if combat had a Y-axis? Jump, launch, dunk, spike — the current direction.',
+    arenaHalfX: 12,
+    arenaHalfZ: 12,
+    obstacles: [],
+    pits: [],
+    heightZones: [
+      { x: -6, z: -6, w: 4, d: 4, y: 1.5 },
+      { x: 6, z: 6, w: 4, d: 4, y: 1.5 },
+    ],
+    spawnBudget: {
+      maxConcurrent: 10,
+      telegraphDuration: 1500,
+      packs: [
+        pack(goblins(4), 'ahead'),
+        pack(goblins(3), 'sides'),
+      ],
+    },
+    playerStart: { x: 0, z: 5 },
+    enableWallSlamDamage: true,
+    enableEnemyCollisionDamage: true,
+    frustumSize: 9.6,
+  },
 ];
