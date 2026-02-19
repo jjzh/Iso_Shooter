@@ -2,7 +2,7 @@
 
 ## Context
 
-Jeff wants a playable portfolio piece that walks through his design exploration process as sequential rooms. Each room showcases a different prototype branch's mechanics, with hooks for future commentary explaining design reasoning. The demo serves as a portfolio piece (particularly for Supercell AI Lab application) — someone plays through it and experiences the evolution of Jeff's design thinking.
+Jeff wants a playable portfolio piece that walks through his design exploration process as sequential rooms. Each room showcases a different prototype branch's mechanics, with hooks for future commentary explaining design reasoning. The demo serves as a portfolio piece — someone plays through it and experiences the evolution of Jeff's design thinking.
 
 **Why playable over video:** Game companies hire people who make things you can play. A playable demo lets reviewers *feel* the design decisions, not just watch them.
 
