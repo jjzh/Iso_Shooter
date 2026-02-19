@@ -1,5 +1,5 @@
 import { initRenderer, updateCamera, getScene, getRendererInstance, getCamera } from './renderer';
-import { initInput, updateInput, consumeInput, getInputState, autoAimClosestEnemy } from './input';
+import { initInput, updateInput, consumeInput, getInputState, autoAimClosestEnemy, consumeCancel, setUltimateHeld } from './input';
 import { createPlayer, updatePlayer, getPlayerPos, resetPlayer } from '../entities/player';
 import { initProjectilePool, updateProjectiles } from '../entities/projectile';
 import { initEnemySystem, updateEnemies } from '../entities/enemy';
@@ -15,7 +15,7 @@ import { initSpawnEditor, checkEditorToggle, updateSpawnEditor, isEditorActive }
 import { initAudio, resumeAudio } from './audio';
 import { initParticles, updateParticles } from './particles';
 import { initBulletTime, toggleBulletTime, updateBulletTime, getBulletTimeScale, resetBulletTime } from './bulletTime';
-import { initAerialVerbs, updateAerialVerbs, resetAerialVerbs } from './aerialVerbs';
+import { initAerialVerbs, updateAerialVerbs, resetAerialVerbs, cancelActiveVerb } from './aerialVerbs';
 import { clearAllTags } from './tags';
 import { dunkVerb } from '../verbs/dunk';
 import { floatSelectorVerb } from '../verbs/floatSelector';
@@ -81,6 +81,13 @@ function gameLoop(timestamp: number): void {
 
   // 1. Input
   updateInput();
+
+  // 1a. Cancel — release aerial verb + force push charge
+  if (consumeCancel()) {
+    cancelActiveVerb();
+    setUltimateHeld(false);
+  }
+
   autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
 

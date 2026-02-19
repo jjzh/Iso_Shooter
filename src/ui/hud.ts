@@ -1,4 +1,5 @@
 import { ABILITIES } from '../config/abilities';
+import { MOBILE_CONTROLS } from '../config/mobileControls';
 import { PLAYER } from '../config/player';
 import {
   triggerDash, triggerUltimate, setUltimateHeld,
@@ -13,7 +14,11 @@ let btVignette: any, btCeremony: any;
 let btCeremonyTimeout: any = null;
 
 // Mobile action button refs
-let mobileBtnDash: any, mobileBtnUlt: any;
+let mobileBtnAttack: HTMLElement | null = null;
+let mobileBtnDash: HTMLElement | null = null;
+let mobileBtnJump: HTMLElement | null = null;
+let mobileBtnLaunch: HTMLElement | null = null;
+let mobileBtnCancel: HTMLElement | null = null;
 
 export function initHUD() {
   healthBar = document.getElementById('health-bar');
@@ -153,48 +158,66 @@ const ISO_UP_X = -INV_SQRT2;
 const ISO_UP_Z = -INV_SQRT2;
 
 function initMobileButtons() {
+  mobileBtnAttack = document.getElementById('mobile-btn-attack');
   mobileBtnDash = document.getElementById('mobile-btn-dash');
-  mobileBtnUlt = document.getElementById('mobile-btn-ultimate');
-  if (!mobileBtnDash || !mobileBtnUlt) return;
+  mobileBtnJump = document.getElementById('mobile-btn-jump');
+  mobileBtnLaunch = document.getElementById('mobile-btn-launch');
+  mobileBtnCancel = document.getElementById('mobile-btn-cancel');
+  if (!mobileBtnAttack) return;
 
-  // --- Dash: drag-to-aim, release to fire ---
-  setupDragToAim(mobileBtnDash, {
-    onDragStart: () => { /* don't trigger yet — wait for release */ },
-    onDragMove: (normX: number, normY: number) => {
-      // Compute isometric world direction from screen drag
-      const isoX = normX * ISO_RIGHT_X + normY * ISO_UP_X;
-      const isoZ = normX * ISO_RIGHT_Z + normY * ISO_UP_Z;
-      setAbilityDirOverride(isoX, isoZ);
-      setAimFromScreenDrag(normX, normY);
-    },
-    onRelease: (wasDrag: boolean) => {
-      triggerDash();
-      if (!wasDrag) clearAbilityDirOverride();
-      // If wasDrag, override is already set and startDash will consume it
-    },
-    onCancel: () => {
-      clearAbilityDirOverride();
-    },
-  });
+  positionMobileButtons();
+  // wireButtonHandlers() will be added in Task 7
+}
 
-  // --- Ultimate: drag-to-aim, charge while held ---
-  setupDragToAim(mobileBtnUlt, {
-    onDragStart: () => {
-      triggerUltimate();
-      setUltimateHeld(true);
-    },
-    onDragMove: (normX: number, normY: number) => {
-      setAimFromScreenDrag(normX, normY);
-    },
-    onRelease: () => {
-      setUltimateHeld(false);
-      clearAbilityDirOverride();
-    },
-    onCancel: () => {
-      setUltimateHeld(false);
-      clearAbilityDirOverride();
-    },
-  });
+/**
+ * Position all mobile buttons using the radial fan layout from MOBILE_CONTROLS config.
+ * Exported so the tuning panel can call it when sliders change.
+ *
+ * Coordinate system: all values are CSS `right` and `bottom` in px,
+ * relative to the 280x280 container anchored at bottom-right of the screen.
+ * Larger `right` = further left on screen, larger `bottom` = further up on screen.
+ *
+ * Angle convention (for the fan arc):
+ *   0° = right (decreasing CSS right), 90° = up (increasing CSS bottom).
+ *   Default arcStartAngle=210° with arcSpread=90° fans from lower-left to upper-left.
+ */
+export function positionMobileButtons(): void {
+  const C = MOBILE_CONTROLS;
+  if (!mobileBtnAttack) return;
+
+  // Primary button: bottom-right corner of container
+  placeButton(mobileBtnAttack, C.edgeMargin, C.edgeMargin, C.primarySize);
+
+  // Center of primary button (in CSS right/bottom space)
+  const pcR = C.edgeMargin + C.primarySize / 2;
+  const pcB = C.edgeMargin + C.primarySize / 2;
+
+  // Fan buttons arc outward from primary center
+  const fanButtons = [mobileBtnDash, mobileBtnJump, mobileBtnLaunch];
+  for (let i = 0; i < fanButtons.length; i++) {
+    const btn = fanButtons[i];
+    if (!btn) continue;
+    const t = fanButtons.length > 1 ? i / (fanButtons.length - 1) : 0.5;
+    const angleDeg = C.arcStartAngle + t * C.arcSpread;
+    const angleRad = angleDeg * (Math.PI / 180);
+    // cos/sin in standard math convention, then map to CSS right/bottom:
+    // CSS right increases leftward = negative cos direction
+    // CSS bottom increases upward = positive sin direction
+    const fanCenterR = pcR - Math.cos(angleRad) * C.arcRadius;
+    const fanCenterB = pcB + Math.sin(angleRad) * C.arcRadius;
+    placeButton(btn, fanCenterR - C.fanSize / 2, fanCenterB - C.fanSize / 2, C.fanSize);
+  }
+
+  // Cancel button: upper-right area of container
+  placeButton(mobileBtnCancel, C.edgeMargin, 280 - C.edgeMargin - C.cancelSize, C.cancelSize);
+}
+
+function placeButton(btn: HTMLElement | null, right: number, bottom: number, size: number): void {
+  if (!btn) return;
+  btn.style.width = size + 'px';
+  btn.style.height = size + 'px';
+  btn.style.right = right + 'px';
+  btn.style.bottom = bottom + 'px';
 }
 
 /**
@@ -343,41 +366,7 @@ export function updateHUD(gameState: any) {
       }
     }
 
-    // --- Mobile action button ---
-    const mBtn = key === 'dash' ? mobileBtnDash : key === 'ultimate' ? mobileBtnUlt : null;
-    if (mBtn) {
-      const mOverlay = mBtn.querySelector('.mobile-btn-cd-overlay');
-      const mCdText = mBtn.querySelector('.mobile-btn-cd-text');
-
-      if ((state as any).cooldownRemaining > 0) {
-        const pctRemaining = Math.max(0, (state as any).cooldownRemaining / cfg.cooldown);
-        mOverlay.style.height = (pctRemaining * 100) + '%';
-        mBtn.classList.remove('ready');
-        const secs = Math.ceil((state as any).cooldownRemaining / 1000);
-        mCdText.textContent = secs;
-        mCdText.style.display = 'flex';
-      } else {
-        mOverlay.style.height = '0%';
-        mBtn.classList.add('ready');
-        mCdText.style.display = 'none';
-      }
-
-      // Charging state for ultimate
-      if (key === 'ultimate' && (state as any).charging) {
-        const chargePct = Math.round((state as any).chargeT * 100);
-        mBtn.style.borderColor = 'rgba(68, 255, 170, 0.9)';
-        mBtn.style.boxShadow = '0 0 16px rgba(68, 255, 170, 0.5)';
-        mCdText.textContent = chargePct + '%';
-        mCdText.style.display = 'flex';
-        mCdText.style.color = '#44ffaa';
-        mOverlay.style.height = ((1 - (state as any).chargeT) * 100) + '%';
-        mOverlay.style.backgroundColor = 'rgba(68, 255, 170, 0.3)';
-      } else if (key === 'ultimate') {
-        if (mBtn.style.borderColor) mBtn.style.borderColor = '';
-        if (mBtn.style.boxShadow) mBtn.style.boxShadow = '';
-        mCdText.style.color = '';
-        mOverlay.style.backgroundColor = '';
-      }
-    }
+    // --- Mobile action button cooldowns ---
+    // TODO: Task 8 will rewrite mobile button cooldown display for all 5 buttons
   }
 }
