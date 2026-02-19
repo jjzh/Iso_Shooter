@@ -35,6 +35,7 @@ import { DOOR_CONFIG } from '../config/door';
 import { SpawnPack } from '../types/index';
 import { createPhysicsObject, createPhysicsObjectMesh, clearPhysicsObjects, resetPhysicsObjectIds } from '../entities/physicsObject';
 import { resetBendMode } from './bendMode';
+import { createPressurePlate, createPressurePlateMesh, clearPressurePlates } from './pressurePlate';
 
 // ─── State ───
 
@@ -116,6 +117,7 @@ export function loadRoom(index: number, gameState: any) {
   cleanupGroundShadows();
   clearVisionCones();
   clearPhysicsObjects(gameState, sceneRef);
+  clearPressurePlates(gameState, sceneRef);
   resetBendMode();
   resetPhysicsObjectIds();
 
@@ -133,6 +135,15 @@ export function loadRoom(index: number, gameState: any) {
       const obj = createPhysicsObject(placement);
       createPhysicsObjectMesh(obj, sceneRef);
       gameState.physicsObjects.push(obj);
+    }
+  }
+
+  // Spawn pressure plates (if room defines them)
+  if (room.pressurePlates) {
+    for (const placement of room.pressurePlates) {
+      const plate = createPressurePlate(placement);
+      createPressurePlateMesh(plate, sceneRef);
+      gameState.pressurePlates.push(plate);
     }
   }
 

@@ -426,6 +426,7 @@ export interface GameState {
   physicsObjects: PhysicsObject[];
   bendMode: boolean;
   bendsPerRoom: number;
+  pressurePlates: PressurePlate[];
   abilities: {
     dash: AbilityState;
     ultimate: AbilityState;
@@ -538,6 +539,26 @@ export interface PhysicsObjectPlacement {
   health: number;
   radius: number;
   scale?: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRESSURE PLATE
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface PressurePlate {
+  x: number;
+  z: number;
+  radius: number;
+  massThreshold: number;
+  activated: boolean;
+  mesh: any;
+}
+
+export interface PressurePlatePlacement {
+  x: number;
+  z: number;
+  radius: number;
+  massThreshold: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

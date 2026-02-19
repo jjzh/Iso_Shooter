@@ -3,7 +3,7 @@
 // Rooms are rectangular (longer on Z) — player enters from +Z (bottom-left in iso),
 // progresses toward -Z (top-right in iso), exits through a door at the far end
 
-import { Obstacle, Pit, SpawnPack, SpawnPackEnemy, RoomSpawnBudget, PlayerProfile, PhysicsObjectPlacement } from '../types/index';
+import { Obstacle, Pit, SpawnPack, SpawnPackEnemy, RoomSpawnBudget, PlayerProfile, PhysicsObjectPlacement, PressurePlatePlacement } from '../types/index';
 
 export type HighlightTarget = 'pits' | 'obstacles' | 'platforms';
 
@@ -33,6 +33,7 @@ export interface RoomDefinition {
   heightZones?: Array<{ x: number; z: number; w: number; d: number; y: number }>;
   frustumSize?: number;
   physicsObjects?: PhysicsObjectPlacement[];
+  pressurePlates?: PressurePlatePlacement[];
 }
 
 // ─── Helper: build packs of N enemies ───
@@ -214,19 +215,29 @@ export const ROOMS: RoomDefinition[] = [
     profile: 'rule-bending' as PlayerProfile,
     sandboxMode: true,
     commentary: 'What if you could bend the rules? Enlarge a rock, shrink a crate...',
-    arenaHalfX: 7,
-    arenaHalfZ: 7,
+    arenaHalfX: 10,
+    arenaHalfZ: 10,
     obstacles: [
-      { x: -4, z: 0, w: 1, h: 2, d: 6 },
-      { x: 4, z: -2, w: 1, h: 2, d: 4 },
+      // Left wall segment — creates wall slam opportunities
+      { x: -6, z: 0, w: 1, h: 2, d: 8 },
+      // Right wall segment — partially blocks path, crate sits nearby
+      { x: 5, z: -3, w: 1, h: 2, d: 5 },
+      // Small obstacle near pressure plate area
+      { x: -3, z: -6, w: 2, h: 2, d: 1 },
     ],
     pits: [
-      { x: 3, z: 4, w: 2.5, d: 2.5 },
-      { x: -3, z: -4, w: 2.5, d: 2.5 },
+      { x: 5, z: 5, w: 3, d: 3 },       // right-back pit
+      { x: -5, z: -5, w: 3, d: 3 },      // left-front pit
     ],
     physicsObjects: [
-      { meshType: 'rock' as const, material: 'stone' as const, x: 0, z: 1, mass: 2.0, health: 50, radius: 0.6 },
-      { meshType: 'crate' as const, material: 'wood' as const, x: 2, z: -1, mass: 5.0, health: 80, radius: 0.8 },
+      // Rock: enlarge to reach pressure plate mass threshold (2.0 → 4.0)
+      { meshType: 'rock' as const, material: 'stone' as const, x: -2, z: 2, mass: 2.0, health: 50, radius: 0.6 },
+      // Crate: too heavy to push normally (mass 5.0), shrink to make moveable (→ 1.5)
+      { meshType: 'crate' as const, material: 'wood' as const, x: 5, z: 1, mass: 5.0, health: 80, radius: 0.8 },
+    ],
+    pressurePlates: [
+      // Pressure plate: needs mass >= 3.5 to activate (enlarged rock = 4.0, normal rock = 2.0)
+      { x: -3, z: -7, radius: 1.2, massThreshold: 3.5 },
     ],
     spawnBudget: {
       maxConcurrent: 6,
@@ -235,7 +246,7 @@ export const ROOMS: RoomDefinition[] = [
         { enemies: [{ type: 'goblin' }, { type: 'goblin' }, { type: 'goblin' }], spawnZone: 'ahead' as const },
       ],
     },
-    playerStart: { x: 0, z: 5 },
+    playerStart: { x: 0, z: 7 },
     enableWallSlamDamage: true,
     enableEnemyCollisionDamage: true,
     highlights: [

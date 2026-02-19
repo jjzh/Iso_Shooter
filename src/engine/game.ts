@@ -29,6 +29,7 @@ import { initLaunchIndicator, clearLaunchIndicator } from '../effects/launchIndi
 import { raycastTerrainDist } from '../entities/enemy';
 import { PLAYER, MELEE, DUNK } from '../config/player';
 import { on } from './events';
+import { updatePressurePlates } from './pressurePlate';
 import { applyUrlParams, snapshotDefaults } from './urlParams';
 import { GameState } from '../types/index';
 
@@ -42,6 +43,7 @@ const gameState: GameState = {
   physicsObjects: [],
   bendMode: false,
   bendsPerRoom: 3,
+  pressurePlates: [],
   abilities: {
     dash:     { cooldownRemaining: 0 },
     ultimate: { cooldownRemaining: 0, active: false, activeRemaining: 0, charging: false, chargeT: 0 }
@@ -154,6 +156,9 @@ function gameLoop(timestamp: number): void {
 
   // 6a3b. Physics objects as solid bodies
   resolvePhysicsObjectBodyCollisions(gameState);
+
+  // 6a4. Pressure plates (check if heavy object resting on plate)
+  updatePressurePlates(gameState);
 
   // 6b. Pit falls
   checkPitFalls(gameState);

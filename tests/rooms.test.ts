@@ -230,6 +230,23 @@ describe('Room 5: The Workshop', () => {
   it('should have sandbox mode', () => {
     expect(room.sandboxMode).toBe(true);
   });
+
+  it('should have a larger arena (arenaHalfX >= 10)', () => {
+    expect(room.arenaHalfX).toBeGreaterThanOrEqual(10);
+  });
+
+  it('should have a pressure plate', () => {
+    expect(room.pressurePlates).toBeDefined();
+    expect(room.pressurePlates!.length).toBe(1);
+  });
+
+  it('should have pressure plate mass threshold between rock and enlarged rock', () => {
+    const plate = room.pressurePlates![0];
+    const rock = room.physicsObjects!.find(o => o.meshType === 'rock')!;
+    // Normal rock (2.0) should NOT trigger, enlarged rock (4.0) SHOULD trigger
+    expect(plate.massThreshold).toBeGreaterThan(rock.mass);
+    expect(plate.massThreshold).toBeLessThan(rock.mass * 2.5);
+  });
 });
 
 // ─── Room 6 specifics: The Arena (Vertical) ───
