@@ -369,7 +369,7 @@ canvas {
   /* Hide desktop ability bar on mobile */
   #ability-bar { display: none !important; }
   /* Show mobile action buttons */
-  #mobile-actions { display: flex; }
+  #mobile-actions { display: block; }
   /* Hide crosshair cursor on touch */
   html, body { cursor: default; }
 }

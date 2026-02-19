@@ -278,26 +278,25 @@ function wireButtonHandlers(): void {
  * Position all mobile buttons using the radial fan layout from MOBILE_CONTROLS config.
  * Exported so the tuning panel can call it when sliders change.
  *
- * Coordinate system: all values are CSS `right` and `bottom` in px,
- * relative to the 280x280 container anchored at bottom-right of the screen.
- * Larger `right` = further left on screen, larger `bottom` = further up on screen.
+ * Internal coordinate system: X increases leftward, Y increases upward.
+ * Origin is the bottom-right corner of the 280x280 container.
+ * These map directly to CSS `right` and `bottom` properties.
  *
  * Angle convention (for the fan arc):
- *   0° = right (decreasing CSS right), 90° = up (increasing CSS bottom).
- *   Default arcStartAngle=210° with arcSpread=90° fans from lower-left to upper-left.
+ *   0° = leftward (increasing X/right), 90° = upward (increasing Y/bottom).
+ *   Default arcStartAngle=0° with arcSpread=90° fans from left to above.
  */
 export function positionMobileButtons(): void {
   const C = MOBILE_CONTROLS;
   if (!mobileBtnAttack) return;
 
-  // Primary button: bottom-right corner of container
-  placeButton(mobileBtnAttack, C.edgeMargin, C.edgeMargin, C.primarySize);
-
-  // Center of primary button (in CSS right/bottom space)
-  const pcR = C.edgeMargin + C.primarySize / 2;
-  const pcB = C.edgeMargin + C.primarySize / 2;
+  // Primary button center: near bottom-right corner
+  const pCX = C.edgeMargin + C.primarySize / 2;
+  const pCY = C.edgeMargin + C.primarySize / 2;
+  placeButtonAtCenter(mobileBtnAttack, pCX, pCY, C.primarySize);
 
   // Fan buttons arc outward from primary center
+  // Angles: 0° = left, 90° = up (in our coordinate system where X=right=left, Y=bottom=up)
   const fanButtons = [mobileBtnDash, mobileBtnJump, mobileBtnLaunch];
   for (let i = 0; i < fanButtons.length; i++) {
     const btn = fanButtons[i];
@@ -305,24 +304,22 @@ export function positionMobileButtons(): void {
     const t = fanButtons.length > 1 ? i / (fanButtons.length - 1) : 0.5;
     const angleDeg = C.arcStartAngle + t * C.arcSpread;
     const angleRad = angleDeg * (Math.PI / 180);
-    // cos/sin in standard math convention, then map to CSS right/bottom:
-    // CSS right increases leftward = negative cos direction
-    // CSS bottom increases upward = positive sin direction
-    const fanCenterR = pcR - Math.cos(angleRad) * C.arcRadius;
-    const fanCenterB = pcB + Math.sin(angleRad) * C.arcRadius;
-    placeButton(btn, fanCenterR - C.fanSize / 2, fanCenterB - C.fanSize / 2, C.fanSize);
+    const cx = pCX + Math.cos(angleRad) * C.arcRadius;
+    const cy = pCY + Math.sin(angleRad) * C.arcRadius;
+    placeButtonAtCenter(btn, cx, cy, C.fanSize);
   }
 
-  // Cancel button: upper-right area of container
-  placeButton(mobileBtnCancel, C.edgeMargin, 280 - C.edgeMargin - C.cancelSize, C.cancelSize);
+  // Cancel button: upper-right area
+  placeButtonAtCenter(mobileBtnCancel, pCX, pCY + C.arcRadius + C.fanSize / 2 + 10, C.cancelSize);
 }
 
-function placeButton(btn: HTMLElement | null, right: number, bottom: number, size: number): void {
+function placeButtonAtCenter(btn: HTMLElement | null, cx: number, cy: number, size: number): void {
   if (!btn) return;
   btn.style.width = size + 'px';
   btn.style.height = size + 'px';
-  btn.style.right = right + 'px';
-  btn.style.bottom = bottom + 'px';
+  // Convert center coords to CSS right/bottom (distance from element edge to container edge)
+  btn.style.right = (cx - size / 2) + 'px';
+  btn.style.bottom = (cy - size / 2) + 'px';
 }
 
 /**

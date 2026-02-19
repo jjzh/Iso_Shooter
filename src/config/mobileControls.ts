@@ -8,8 +8,8 @@ export const MOBILE_CONTROLS = {
   fanSize: 60,           // px — Dash, Jump, Launch
   cancelSize: 45,        // px — Cancel button
   arcRadius: 100,        // px — distance from primary center to fan buttons
-  arcStartAngle: 210,    // degrees — 0=right, 90=up, 180=left; 210 = lower-left
-  arcSpread: 90,         // degrees — total angle spread across fan buttons
+  arcStartAngle: 10,     // degrees — 0=left, 90=up; 10 = slightly above left
+  arcSpread: 80,         // degrees — total angle spread across fan buttons
   edgeMargin: 20,        // px — offset from screen edge
 
   // Behavior
