@@ -4,12 +4,12 @@
 
 export const MOBILE_CONTROLS = {
   // Layout
-  primarySize: 85,       // px — Attack/Push button
-  fanSize: 60,           // px — Dash, Jump, Launch
+  primarySize: 95,       // px — Attack/Push button
+  fanSize: 66,           // px — Dash, Jump, Launch
   cancelSize: 45,        // px — Cancel button
   arcRadius: 100,        // px — distance from primary center to fan buttons
-  arcStartAngle: 10,     // degrees — 0=left, 90=up; 10 = slightly above left
-  arcSpread: 80,         // degrees — total angle spread across fan buttons
+  arcStartAngle: -5,     // degrees — 0=left, 90=up; -5 puts Dash near horizontal
+  arcSpread: 95,         // degrees — total angle spread: Dash=-5°, Jump=42.5°, Launch=90°
   edgeMargin: 20,        // px — offset from screen edge
 
   // Behavior

@@ -314,8 +314,8 @@ export function positionMobileButtons(): void {
     placeButtonAtCenter(btn, cx, cy, C.fanSize);
   }
 
-  // Cancel button: upper-right area
-  placeButtonAtCenter(mobileBtnCancel, pCX, pCY + C.arcRadius + C.fanSize / 2 + 10, C.cancelSize);
+  // Cancel button: above Launch with proper clearance
+  placeButtonAtCenter(mobileBtnCancel, pCX, pCY + C.arcRadius + C.fanSize / 2 + C.cancelSize / 2 + 15, C.cancelSize);
 }
 
 function placeButtonAtCenter(btn: HTMLElement | null, cx: number, cy: number, size: number): void {

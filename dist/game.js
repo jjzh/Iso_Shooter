@@ -7782,18 +7782,18 @@ function hideAnnounce() {
 // src/config/mobileControls.ts
 var MOBILE_CONTROLS = {
   // Layout
-  primarySize: 85,
+  primarySize: 95,
   // px — Attack/Push button
-  fanSize: 60,
+  fanSize: 66,
   // px — Dash, Jump, Launch
   cancelSize: 45,
   // px — Cancel button
   arcRadius: 100,
   // px — distance from primary center to fan buttons
-  arcStartAngle: 10,
-  // degrees — 0=left, 90=up; 10 = slightly above left
-  arcSpread: 80,
-  // degrees — total angle spread across fan buttons
+  arcStartAngle: -5,
+  // degrees — 0=left, 90=up; -5 puts Dash near horizontal
+  arcSpread: 95,
+  // degrees — total angle spread: Dash=-5°, Jump=42.5°, Launch=90°
   edgeMargin: 20,
   // px — offset from screen edge
   // Behavior
@@ -8123,7 +8123,7 @@ function positionMobileButtons() {
     const cy = pCY + Math.sin(angleRad) * C2.arcRadius;
     placeButtonAtCenter(btn, cx, cy, C2.fanSize);
   }
-  placeButtonAtCenter(mobileBtnCancel, pCX, pCY + C2.arcRadius + C2.fanSize / 2 + 10, C2.cancelSize);
+  placeButtonAtCenter(mobileBtnCancel, pCX, pCY + C2.arcRadius + C2.fanSize / 2 + C2.cancelSize / 2 + 15, C2.cancelSize);
 }
 function placeButtonAtCenter(btn, cx, cy, size) {
   if (!btn) return;
