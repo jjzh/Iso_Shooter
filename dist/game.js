@@ -1293,6 +1293,7 @@ function transitionToGrab(enemy, playerPos2) {
   spawnDamageNumber(playerPos2.x, playerPos2.z, "GRAB!", "#ff44ff");
 }
 function updateWind(dt, enemy, playerPos2, inputState2) {
+  if (!inputState2.attackHeld) deactivateBulletTimeAuto();
   updateTargeting(playerPos2, inputState2);
   updateDecal(landingX, landingZ, dt);
   playerVelYOverride -= JUMP.gravity * dt;
@@ -8153,6 +8154,7 @@ function wireButtonHandlers() {
           triggerAttack();
         }
         setAttackHeld(false);
+        deactivateBulletTimeAuto();
         clearAbilityDirOverride();
       } else {
         triggerLaunch();

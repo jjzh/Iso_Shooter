@@ -396,6 +396,9 @@ function transitionToGrab(enemy: any, playerPos: any): void {
 // --------------- Wind Phase Update (upward arc before slam) ---------------
 
 function updateWind(dt: number, enemy: any, playerPos: any, inputState: any): 'active' | 'complete' | 'cancel' {
+  // End auto bullet time when player releases the aim button
+  if (!inputState.attackHeld) deactivateBulletTimeAuto();
+
   // Update targeting (decal follows during wind too)
   updateTargeting(playerPos, inputState);
   updateDecal(landingX, landingZ, dt);

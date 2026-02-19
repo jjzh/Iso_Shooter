@@ -9,7 +9,7 @@ import {
 import { playerHasTag, TAG } from '../engine/tags';
 import { getLaunchCooldownTimer } from '../entities/player';
 import { LAUNCH } from '../config/player';
-import { isBulletTimeActive, getBulletTimeResource, getBulletTimeMax } from '../engine/bulletTime';
+import { isBulletTimeActive, getBulletTimeResource, getBulletTimeMax, deactivateBulletTimeAuto } from '../engine/bulletTime';
 import { on } from '../engine/events';
 
 let healthBar: any, healthText: any, waveIndicator: any, currencyCount: any, abilityBar: any;
@@ -256,8 +256,9 @@ function wireButtonHandlers(): void {
           // Tap during float → spike
           triggerAttack();
         }
-        // Release dunk aim
+        // Release dunk aim + end auto bullet time
         setAttackHeld(false);
+        deactivateBulletTimeAuto();
         clearAbilityDirOverride();
       } else {
         // Grounded → launch
