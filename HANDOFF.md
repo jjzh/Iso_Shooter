@@ -1,204 +1,37 @@
-# Hades Prototype Handoff
+# Portfolio Demo Handoff
 
-> Action roguelike scaffolding — the base game that twists and generative surfaces will be layered onto.
-
----
-
-## The Twist
-**Phase 1 has no twist yet.** We're building the minimum genre scaffolding first. The twist (strongest candidates: Bullet Time / Near-Miss, Absorb / Redirect) will be chosen after the base game feels right. See `docs/DESIGN_EXPLORATION.md` for the full candidate list and pairing matrix.
-
-## Design Hypothesis
-**Deferred until Phase 2.** Phase 1's question is simpler: "Does the base action roguelike loop feel good enough to evaluate twists on top of?"
-
-**Status:** ready for playtesting
-
-## Genre Scaffolding
-The minimum viable action roguelike shell:
-- Melee combat (click-to-attack) — because the twist candidates all assume a core combat verb that isn't auto-fire
-- Force push (keep from main) — utility verb, sandbox tool for pushing enemies into pits/walls. Potential basis for future generative twist (elemental variants: push via water, lightning, etc.)
-- Enclosed room arenas with pits — because pacing/encounter design requires bounded spaces, and pits make force push immediately interesting
-- Room clear → auto-transition → next room — the roguelike loop
-- Death → restart at room 1 — the genre's core contract
-- Dash (already exists) — primary defensive/mobility verb AND gap-closer for melee
-
-**Verb set:** Melee (left click) + Dash (space) + Force Push (E, hold to charge)
-
-## Vertical Slice Target
-- **Duration:** ~1 minute
-- **What you'd experience:** Spawn in room 1, fight goblins and an archer with melee + dash + force push, shove a goblin into a pit, clear the room, auto-transition to room 2, face a golem + mixed enemies, either die (restart) or clear it
-
-## Reference Games
-- Hades — melee feel (fast swings, VERY generous hit areas, cancel into dash), room pacing, environmental hazards
-- Dead Cells — melee weight and hit feedback, enemy telegraphs
-- Katana Zero — enemy telegraph → player punish loop, one-hit-kill tension
-
-## Generative Surface
-None identified yet for Phase 1. Phase 2/3 will add this. See `docs/DESIGN_EXPLORATION.md` → "Exogenous Context Twist Candidates" for candidates.
-
-## Cross-Pollination Notes
-- (none yet — first prototype)
+> Playable portfolio piece: walk through design exploration as sequential rooms, each showcasing a different prototype branch's mechanics.
 
 ---
 
 ## Branch Info
-- **Branch:** `explore/hades`
-- **Forked from:** `main`
-- **Last updated:** 2026-02-13
+- **Branch:** `demo/portfolio`
+- **Forked from:** `explore/hades`
+- **Last updated:** 2026-02-18
 
 ## Current State
-**Phase 1 COMPLETE + Room & Spawn Rework COMPLETE. Ready for playtesting.**
+**Branch created. Design plan written. No implementation yet.**
 
-The full action roguelike loop is functional with a physics-first combat system and a reworked room/spawn system:
-- Click-to-attack melee with generous arc, auto-targeting, hit pause
-- 4 enemy types with telegraph → attack → recovery state machines (all used)
-- **5 rectangular rooms** with escalating difficulty — player enters from one end, progresses forward
-- **Incremental pack spawning** — enemies spawn in groups of 2-3 with telegraphs, escalating pressure
-- **Door system** — physical door at far wall unlocks on room clear, player walks through to transition
-- **Rest room** (Room 4) — heals player, door auto-opens after brief pause
-- **Victory room** (Room 5) — empty celebration, boss designed separately
-- **Ice Mortar Imp** integrated into Room 3 for area denial variety
-- Physics-based knockback, wall slam, enemy collision, force push wave occlusion, pit falls
-- All 552 automated tests passing, clean typecheck, clean build
+Design plan: `docs/plans/2026-02-18-portfolio-demo-design.md`
 
-## Phase 1 Build Plan — COMPLETED
+## Vision
+5 rooms, each showcasing a different stage of Jeff's design exploration:
+1. **The Foundation** — base combat (auto-fire, melee, pit + force push)
+2. **Physics Playground** — wall slams, enemy collisions, force push as spatial tool
+3. **The Shadows** — assassin branch (vision cones, stealth, bullet time)
+4. **The Workshop** — rule-bending branch (physics objects, enlarge/shrink)
+5. **The Arena** — vertical branch (Y-axis, launch, dunk, spike)
 
-### 1. Melee Combat System ✅
-- Left click → melee swing in aim direction with 380ms cooldown
-- Generous hit arc (2.4rad ~137°) with auto-targeting snap (3.0 range, 2.8rad cone)
-- Multi-hit: hits ALL enemies in arc per swing (Hades style, Set-based tracking)
-- Hit feedback: HIT_SPARK particles, screen shake, damage numbers, hit pause (40ms freeze frame)
-- Swing animation: wind-up (0-30%) + follow-through (30-100%) with torso twist and arm sweep
-- Audio: procedural swing whoosh + punchy thump on hit
-- Tuning panel: full Melee section with 9 sliders
-
-### 2. Enemy Rework for Melee Combat ✅
-- **Goblin:** telegraph (300ms flash) → lunge attack (0.8u forward, 100ms) → recovery (400ms punish window)
-- **Stone Golem:** heavy melee swing (700ms telegraph, 2.0rad arc, 2.5 range, 30 damage) → 800ms recovery. Charge attack unchanged.
-- **Skeleton Archer:** hitscan AoE rect replaced with real dodgeable projectile. Telegraph (pulsing emissive 800ms) → fires visible arrow (speed 12, dodgeable).
-- **Ice Mortar Imp:** unchanged (already works well for melee game)
-- **MOB_GLOBAL** multiplier system: speedMult, damageMult, healthMult, telegraphMult, recoveryMult — all exposed in tuning panel
-- Contact damage gated for enemies with melee config (use state machine instead)
-
-### 3. Room System ✅
-- Room definitions (`src/config/rooms.ts`) — 2 rooms with obstacles, pits, spawns, player start
-- Room manager (`src/engine/roomManager.ts`) — loads rooms, swaps arena config, rebuilds visuals, spawns enemies
-- Arena config setter (`setArenaConfig`) + collision bounds invalidation
-- Replaces wave runner on this branch
-
-### 4. Room Clear → Auto-Transition ✅
-- All enemies dead → emit `roomCleared` event → audio celebration chime
-- 1.5s pause → auto-load next room
-- Last room clear → "VICTORY!" announce
-
-### 5. Death → Restart at Room 1 ✅
-- Existing game over screen → click restart → `loadRoom(0)` → full state reset
-
----
-
-## Systems Added
-- **Melee config** (`src/config/player.ts: MELEE`) — damage: 25, range: 2.2, arc: 2.4rad (~137°), cooldown: 380ms, knockback: 1.5, autoTargetRange: 3.0, autoTargetArc: 2.8rad (~160°), screenShake: 1.5, hitPause: 40ms
-- **Melee math** (`src/engine/meleemath.ts`) — pure math arc detection, no THREE dependency (testable)
-- **Melee hit detection** (`src/engine/physics.ts: checkMeleeHits`) — arc+range check, damage, knockback, feedback
-- **Enemy melee state machine** (`src/entities/enemy.ts`) — `startEnemyMelee`, `updateEnemyMelee` — telegraph/attack/recovery with visual feedback
-- **MOB_GLOBAL** (`src/config/enemies.ts`) — global multipliers for tuning all mobs at once
-- **Room definitions** (`src/config/rooms.ts`) — 2 rooms: "The Pit" (small, goblins+archer) and "The Gauntlet" (medium, mixed+golem)
-- **Room manager** (`src/engine/roomManager.ts`) — load/unload/transition/restart logic
-
-## Systems Modified (from main)
-- **Input** (`src/engine/input.ts`) — added `attack` boolean to inputState, left-click mousedown listener
-- **Player** (`src/entities/player.ts`) — removed auto-fire projectile, added melee state machine with multi-hit Set tracking, auto-targeting, swing animation pass-through, `setPlayerPosition` export
-- **Player animator** (`src/entities/playerAnimator.ts`) — added `'swing'` animation state with wind-up/follow-through phases
-- **Physics** (`src/engine/physics.ts`) — added `checkMeleeHits`, gated contact damage for melee enemies
-- **Audio** (`src/engine/audio.ts`) — added `playMeleeSwing`, `playMeleeHit`, wired `meleeSwing`/`meleeHit`/`roomCleared` events
-- **Particles** (`src/engine/particles.ts`) — added meleeSwing particle effect
-- **Tuning panel** (`src/ui/tuning.ts`) — added Melee section (9 sliders), Mob Global section (5 sliders), melee audio sliders
-- **Game loop** (`src/engine/game.ts`) — added hit pause system, replaced wave runner with room manager
-- **Events** (`src/engine/events.ts`) — added `meleeSwing`, `meleeHit`, `roomCleared` event types
-- **Enemy config** (`src/config/enemies.ts`) — added MOB_GLOBAL, melee configs for goblin and stoneGolem
-- **Enemy** (`src/entities/enemy.ts`) — added melee state machine, MOB_GLOBAL speed multipliers, archer fires real projectile, stun cancels melee attacks
-- **Arena** (`src/config/arena.ts`) — added `setArenaConfig` for room swaps, `ARENA_HALF` now mutable
-- **Types** (`src/types/index.ts`) — added `attack` to InputState, `melee` to EnemyConfig
-
-## Tests
-- `tests/melee.test.ts` — 24 tests: config validation, arc math, multi-hit, auto-targeting
-- `tests/enemy-rework.test.ts` — 59 tests: MOB_GLOBAL, goblin/golem/archer configs, state machine math, arc checks, all enemy type validation
-- `tests/rooms.test.ts` — 24 tests: room definitions, arena config swap, room progression
-- `tests/physics-velocity.test.ts` — 24 tests: velocity formula, friction stop distance, wall slam thresholds, knockback math
-- `tests/physics-collision.test.ts` — 22 tests: enemy collision config, mass-weighted separation, elastic collision, impact damage
-- `tests/push-wave.test.ts` — 15 tests: wave occlusion logic, lateral blocking, edge cases
-- **Total: 509 tests (all passing)**
-
-## What Feels Good
-- Force push bowling — pushing a goblin into another goblin is satisfying
-- Wall slam feedback — screen shake + damage number + particles + sound on impact
-- Wave occlusion — intuitive blocking behavior, front enemies shield back enemies
-
-## What Doesn't Work Yet
-- Melee knockback removed (was competing with force push for same design role) — melee is now pure damage
-- Need more playtesting to tune physics values (friction, wall slam damage, impact thresholds)
-
-## Key Config Values
-- `PHYSICS.friction: 25` — deceleration rate, higher = snappier stop
-- `PHYSICS.pushInstantRatio: 0` — pure velocity, no teleport
-- `PHYSICS.wallSlamDamage: 8` — damage per unit of speed above threshold
-- `PHYSICS.enemyBounce: 0.4` — enemy-enemy restitution
-- `PHYSICS.pushWaveBlockRadius: 0.8` — lateral blocking distance for wave occlusion
-- Enemy masses: goblin 1.0, archer 0.8, imp 0.9, golem 3.0
-
-## Open Questions
-- Melee swing animation: how elaborate does it need to be for the swing to read clearly?
-- Auto-targeting generosity: how much should melee snap to nearby enemies?
-- Room transition: should there be a brief screen effect (flash/fade) or is instant swap fine?
-- Physics tuning: are current friction/damage/stun values in the right ballpark?
-- Should the push instant ratio slider be removed entirely now that we've committed to pure velocity?
-
-## Merge Candidates
-- Room system (`roomManager.ts`, `rooms.ts` data format) — will be needed by heist and other prototypes
-- Melee combat system — could be reused in souls prototype
-- Enemy telegraph/recovery state machine — general-purpose for any action prototype
-- `MOB_GLOBAL` multiplier pattern — useful for any prototype with enemies
-- `meleemath.ts` pure arc detection — testable, no THREE dependency
-- **Physics system** (velocity, wall slam, enemy collision, wave occlusion) — general-purpose for any action prototype
+Architecture: profile-gated superset (`'base' | 'assassin' | 'rule-bending' | 'vertical'`). Each room declares its profile. Sandbox mode (no required combat). Room selector UI to jump anywhere.
 
 ## What To Do Next
-1. **Playtest the new room flow** — walk through all 5 rooms, check spawn pacing and escalation
-2. **Tune spawn pacing** — use "Spawn Pacing" tuning section (telegraph duration, cooldown, max concurrent multiplier, spawn distances)
-3. **Tune door feel** — use "Door" tuning section (unlock duration, interact radius, rest pause)
-4. **Camera check** — verify isometric camera handles the longer rectangular rooms well, adjust frustum if needed
-5. **Tune enemy feel** — adjust MOB_GLOBAL multipliers for each room's encounter pacing
-6. **Evaluate scaffolding** — does the 5-room loop feel good enough to layer a twist on top?
-7. **Design boss encounter** — Room 5 is currently empty; design the golem boss fight separately
-8. **If ready for twist:** choose from `docs/DESIGN_EXPLORATION.md`, start Phase 2
-
-## Systems Added (Room & Spawn Rework Session)
-- **Rectangular arena** (`src/config/arena.ts`) — `ARENA_HALF_X` + `ARENA_HALF_Z` for different width vs depth. `setArenaConfig` accepts both dimensions.
-- **Incremental spawn system** (`src/engine/roomManager.ts`) — pack dispatch algorithm. Enemies spawn in groups of 2-3 with telegraphs. Escalating pressure: `maxConcurrent` controls ceiling, kills open slots for new packs.
-- **Spawn position resolver** (`src/engine/roomManager.ts`) — dynamic position resolution based on `spawnZone` (ahead/sides/far/behind) relative to player position. Validates against obstacles and pits.
-- **Door system** (`src/engine/door.ts`) — physical door at far wall (+Z). States: locked → unlocking (animation) → open. Player walks within `interactRadius` to trigger transition.
-- **Door audio** (`src/engine/audio.ts: playDoorUnlock`) — 4-note ascending arpeggio on room clear
-- **Door particles** (`src/engine/particles.ts: DOOR_UNLOCK_BURST`) — upward blue-white burst on door unlock
-- **Heal audio** (`src/engine/audio.ts: playHeal`) — warm ascending tone on rest room entry
-- **Spawn config** (`src/config/spawn.ts`) — tunable: telegraphDuration, spawnCooldown, maxConcurrentMult, spawnAheadMin/Max
-- **Door config** (`src/config/door.ts`) — tunable: unlockDuration, interactRadius, restPause
-- **5 room definitions** (`src/config/rooms.ts`) — The Approach (goblins), The Crossfire (+ archers), The Crucible (+ imps), The Respite (rest), The Throne (victory)
-- **New types** (`src/types/index.ts`) — `SpawnPack`, `RoomSpawnBudget`, `SpawnZone`
-- **New events** (`src/engine/events.ts`) — `roomClearComplete`, `doorUnlocked`, `doorEntered`, `spawnPackTelegraph`, `spawnPackSpawned`, `restRoomEntered`, `playerHealed`
-- **Telegraph: imp type** (`src/engine/telegraph.ts`) — added `iceMortarImp` geometry (sphere) + label
-
-## Systems Added (Physics Session)
-- **Velocity knockback** (`src/engine/physics.ts: applyVelocities`) — enemies get velocity vectors, friction decelerates to zero, stepped substeps prevent wall tunneling
-- **Wall slam** (`src/engine/physics.ts`) — wall impact above speed threshold deals damage, stun, screen shake, particles, bounce reflection
-- **Enemy-enemy collision** (`src/engine/physics.ts: resolveEnemyCollisions`) — O(n²) pairwise circle-circle, mass-weighted separation, 2D elastic collision with restitution, impact damage above speed threshold
-- **Force push wave occlusion** (`src/engine/physics.ts`) — project enemies into push-local coords (forward + lateral), sort nearest-first, block farther enemies within lateral radius of nearer pushed enemies
-- **Pit fall from knockback** (`src/engine/physics.ts: applyVelocities`) — check pits during velocity substeps, enemies with active velocity skip pit collision in checkCollisions
-- **Physics config** (`src/config/physics.ts: PHYSICS`) — all physics parameters in one config object, all exposed in tuning panel
-- **Enemy mass** (`src/config/enemies.ts`) — mass values per enemy type (goblin 1.0, archer 0.8, imp 0.9, golem 3.0)
-- **Enemy impact audio** (`src/engine/audio.ts: playEnemyImpact`) — mid-pitched collision thud, wired to event bus
-- **Enemy impact particles** (`src/engine/particles.ts: ENEMY_IMPACT_SPARK`) — orange spark burst on collision
+Start Phase 1: Foundation
+1. Extend `RoomDefinition` with `profile`, `sandboxMode`, `commentary` fields
+2. Implement `profileManager.ts` (setProfile, cleanup, setup)
+3. Implement sandbox mode (doors always unlocked immediately)
+4. Build room selector UI
+5. Define Room 1 + Room 2 layouts (base profile only)
+6. Test: play through rooms 1-2, room selector works
 
 ## Session Log
-- **2025-02-12** — Created HANDOFF.md with Phase 1 build plan. Design exploration captured in docs/DESIGN_EXPLORATION.md.
-- **2026-02-12** — Started Phase 1. Added MELEE config, left-click input wiring, and melee swing trigger with event bus emission. Removed auto-fire projectile from player.
-- **2026-02-12** — Completed Phase 1 (all 5 steps). Melee combat with hit detection, auto-targeting, animation, audio. Enemy rework with telegraph/attack/recovery state machines, MOB_GLOBAL multipliers, archer real projectile. Room system with 2 rooms, auto-transition, death restart. 395 tests passing, clean build.
-- **2026-02-12** — Physics session. Built velocity knockback, wall slam, enemy-enemy collision, force push wave occlusion, pit falls from knockback. Removed melee knockback (competing with force push). Committed to pure velocity (pushInstantRatio=0, no teleport). 509 tests passing, clean build. Session context captured in `docs/SESSION_CONTEXT_PHYSICS.md`.
-- **2026-02-13** — Room & spawn rework. Rectangular arena (ARENA_HALF_X/Z), 5 rooms with escalating difficulty, incremental pack spawn system with telegraphs, door system with unlock animation + audio + particles, rest room (heal to full), victory room. Added ice mortar imp to Room 3. New tuning sections: "Spawn Pacing" and "Door". New configs: `spawn.ts`, `door.ts`. New file: `door.ts`. Rewrote `roomManager.ts` with pack dispatch algorithm. 552 tests passing, clean build.
+- **2026-02-18 (session 1)** — Feasibility analysis and design planning. Explored all 4 branch codebases, mapped file conflicts (player.ts, physics.ts, enemy.ts, game.ts are the 4 conflict surfaces). Evaluated 3 approaches: kitchen sink merge (too risky), system modules (over-engineered), profile-gated superset (right-sized). Resolved edge cases: linear progression, room selector UI, standardized inputs, comprehensive cleanup, vertical as final room. Estimated ~5-7 sessions total. Created branch and design doc.
