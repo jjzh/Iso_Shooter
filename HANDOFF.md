@@ -7,7 +7,7 @@
 ## Branch Info
 - **Branch:** `explore/vertical`
 - **Forked from:** `explore/hades` (which forked from `main`)
-- **Last updated:** 2026-02-17
+- **Last updated:** 2026-02-18
 
 ## Current State
 **Spike + Dunk both working. Gameplay tag system live. Float selector resolves tap (spike) vs hold (dunk). Stun integration prevents grabbed enemies from attacking.**
@@ -101,23 +101,31 @@ Design doc: `docs/plans/2026-02-17-aerial-verb-framework-design.md`
 - `tests/aerial-verbs.test.ts` — 25 tests: registry CRUD, verb dispatch, gravity override
 - `tests/dunk-verb.test.ts` — 22 tests: config, state, interface, drift fix math
 - `tests/launch.test.ts` — 7 tests: launch config, physics math
-- **Total: 782 tests (all passing)**
+- `tests/float-selector.test.ts` — float selector phases, input resolution, BT activation
+- `tests/spike-verb.test.ts` — spike verb phases, carrier creation
+- **Total: 798 tests (all passing)**
 
 ## What Feels Good
 - **Spike tap → enemy projectile** — fast and responsive, good complement to dunk's deliberateness
 - **Float selector choice** — tap vs hold during float creates a meaningful split-second decision
 - **Dunk slam** — launching, catching, and slamming feels like a combo
 - **Grabbed enemies don't attack** — State.Stunned on grab makes the aerial sequence feel safe and intentional
+- **BT exit ramp** — smooth 250ms ease-in transition from bullet time back to normal speed
+- **Seamless decal handoff** — orange selector decal recolors to magenta dunk decal without pop
 - Force push bowling, wall slam feedback (from Hades base)
 
 ## What Doesn't Work Yet
-- **Spike aiming** — carrier goes toward aimed direction but landing precision could be better
 - **Carrier visual feedback** — enemy-as-projectile needs more juice (trail, spin, impact VFX)
 - **No chaining** — can't re-launch enemies that survive aerial verbs
 - **Camera** — doesn't adapt during aerial sequences (could track the action better)
+- **Mobile movement speed** — may change based on aim direction (unconfirmed, possibly isometric visual illusion)
 
 ## Key Config Values
+- `BULLET_TIME.exitRampDuration: 250` — ms to ease from BT scale → 1.0 on deactivation
 - `FLOAT_SELECTOR.holdThreshold: 180` — ms to distinguish tap (spike) vs hold (dunk)
+- `FLOAT_SELECTOR.floatDriftRate: 6` — exponential decay rate for XZ drift during float
+- `DUNK.arcRiseVelocity: 8` — upward velocity at grab start (wind-up arc)
+- `DUNK.arcXzFraction: 0.3` — fraction of XZ distance covered during rise phase
 - `DUNK.floatDuration: 600` — ms of zero-gravity float (aim window)
 - `DUNK.floatConvergeDist: 3.5` — Y distance to trigger float
 - `DUNK.slamVelocity: -25` — downward speed during slam
@@ -153,6 +161,8 @@ Design doc: `docs/plans/2026-02-17-aerial-verb-framework-design.md`
 - Room system, melee, physics (from hades branch, already on explore/vertical)
 
 ## Session Log
+- **2026-02-18 (session 3)** — Mobile controls polish + dunk targeting fixes. Fixed spike auto-aim (exclude grabbed enemy via `getActiveEnemy()`, not all stunned). BT now slows aerial verbs (changed `dt` → `gameDt`). Added smooth BT exit ramp (250ms ease-in quadratic). BT auto-engages only on confirmed dunk hold (not spike tap). Seamless decal handoff: floatSelector exports `handoffDecal()`, dunk steals Three.js objects during `onClaim`, recolors orange→magenta, skips expand animation. Locked slam targeting at apex — `updateTargeting()` removed from `updateSlam()` so auto-aim no longer drifts landing mid-flight. Removed CATCH! text. Key insight: dunk had no auto-aim of its own but inherited it by reading shared `aimWorldPos` which `autoAimClosestEnemy()` updates every frame on mobile. Next: test feel of locked slam, investigate mobile movement speed issue.
+- **2026-02-18 (session 2)** — Mobile 5-button radial fan layout, mobile input wiring, spike/dunk mobile bugs. See commits e45e0e2 through 424c5b6.
 - **2026-02-17 (session 3)** — Gameplay tag system + bug fixes + stun integration. Built `src/engine/tags.ts` — hierarchical dot-separated labels (inspired by Unreal GAS). Wired tags into aerial verb framework: verbs declare their tag, framework manages lifecycle. Fixed 4 bugs: stuck floating (gravity vs velocity override ordering), force push in air (unified tag guard replaces scattered per-verb checks), dunk unreachable (float selector now checks `attackHeld` for pre-held LMB), force push on landing (300ms action lockout). Fixed transfer flow bug where framework called wrong verb's onComplete after transferClaim. Added State.Stunned to grabbed enemies so they don't attack during aerial verbs. 782 tests passing. Key decisions: tags are single source of truth for aerial state; multiple systems can add the same tag; enemy AI checks one thing (`hasTag(enemy, TAG.STUNNED)`).
 - **2026-02-17 (session 2)** — Built spike verb, float selector, entity carrier system. Float selector owns rising+float, resolves tap (spike) vs hold (dunk) via transferClaim. Spike creates carrier projectile with through-hits and AoE. Fixed spike integration bugs (event bus, two-phase carrier creation). Key decision: selector pattern lets new verbs plug in without touching input code.
 - **2026-02-17 (session 1)** — Built aerial verb framework (9-task plan). Extracted dunk from player.ts (~460 lines removed) into extensible system: launch registry + verb modules. Fixed drift bug (exponential lerp). Added rising phase after finding dunk was auto-grabbing before entities gained height. 666 tests, clean build. Design: `docs/plans/2026-02-17-aerial-verb-framework-design.md`. Key decision: Launch is shared infrastructure, everything after launch is verb-specific. Framework is thin (registry + utilities), verbs own their state machines.
