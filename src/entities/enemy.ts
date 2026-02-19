@@ -10,6 +10,13 @@ import { fireProjectile } from './projectile';
 import { buildEnemyModel, createHitReaction, triggerHitReaction, updateHitReaction } from './enemyRig';
 import { emit } from '../engine/events';
 import { hasTag, TAG } from '../engine/tags';
+import { getActiveProfile } from '../engine/profileManager';
+import {
+  initVisionCones, addVisionCone, updateVisionCones,
+  updateIdleFacing, removeVisionCone, clearVisionCones,
+  isInsideVisionCone, VISION_CONE_CONFIG
+} from '../engine/visionCone';
+import { ARENA_HALF_X, ARENA_HALF_Z } from '../config/arena';
 
 let sceneRef: any;
 
@@ -21,6 +28,86 @@ let _mortarFillGeoShared: any = null;
 
 // Shared death telegraph fill geometry
 let _deathFillGeoShared: any = null;
+
+// ─── Aggro Indicator ("!" pop above enemy on detection) ───
+
+const AGGRO_IND = {
+  heightAbove: 2.2,
+  popDuration: 120,
+  holdDuration: 600,
+  fadeDuration: 400,
+  bobSpeed: 6,
+  bobAmp: 0.08,
+};
+
+interface AggroIndicator {
+  mesh: any;
+  phase: 'pop' | 'hold' | 'fade';
+  timer: number;
+  enemy: any;
+}
+
+const aggroIndicators: AggroIndicator[] = [];
+
+function showAggroIndicator(enemy: any) {
+  if (!sceneRef) return;
+
+  const group = new THREE.Group();
+  const coneGeo = new THREE.ConeGeometry(0.12, 0.5, 6);
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xff4444, emissive: 0xff2222, emissiveIntensity: 0.8,
+    transparent: true, opacity: 1,
+  });
+  const cone = new THREE.Mesh(coneGeo, mat);
+  cone.position.y = 0.15;
+  group.add(cone);
+
+  const dotGeo = new THREE.SphereGeometry(0.08, 6, 6);
+  const dot = new THREE.Mesh(dotGeo, mat.clone());
+  dot.position.y = -0.2;
+  group.add(dot);
+
+  group.position.set(enemy.pos.x, enemy.config.size.height + AGGRO_IND.heightAbove, enemy.pos.z);
+  group.scale.set(0, 0, 0);
+  sceneRef.add(group);
+
+  aggroIndicators.push({ mesh: group, phase: 'pop', timer: AGGRO_IND.popDuration, enemy });
+}
+
+function updateAggroIndicators(dt: number) {
+  for (let i = aggroIndicators.length - 1; i >= 0; i--) {
+    const ind = aggroIndicators[i];
+    ind.timer -= dt * 1000;
+    ind.mesh.position.x = ind.enemy.pos.x;
+    ind.mesh.position.z = ind.enemy.pos.z;
+
+    if (ind.phase === 'pop') {
+      const t = 1 - ind.timer / AGGRO_IND.popDuration;
+      const s = t < 0.7 ? (t / 0.7) * 1.4 : 1.4 - (t - 0.7) / 0.3 * 0.4;
+      ind.mesh.scale.set(s, s, s);
+      if (ind.timer <= 0) { ind.phase = 'hold'; ind.timer = AGGRO_IND.holdDuration; ind.mesh.scale.set(1, 1, 1); }
+    } else if (ind.phase === 'hold') {
+      const bob = Math.sin(Date.now() * 0.001 * AGGRO_IND.bobSpeed) * AGGRO_IND.bobAmp;
+      ind.mesh.position.y = ind.enemy.config.size.height + AGGRO_IND.heightAbove + bob;
+      if (ind.timer <= 0) { ind.phase = 'fade'; ind.timer = AGGRO_IND.fadeDuration; }
+    } else {
+      const fadeT = Math.max(0, ind.timer / AGGRO_IND.fadeDuration);
+      ind.mesh.scale.set(fadeT, fadeT, fadeT);
+      ind.mesh.children.forEach((c: any) => { if (c.material) c.material.opacity = fadeT; });
+      if (ind.timer <= 0) {
+        sceneRef.remove(ind.mesh);
+        aggroIndicators.splice(i, 1);
+      }
+    }
+  }
+}
+
+function clearAggroIndicators() {
+  for (const ind of aggroIndicators) {
+    if (sceneRef) sceneRef.remove(ind.mesh);
+  }
+  aggroIndicators.length = 0;
+}
 
 export function initEnemySystem(scene: any) {
   sceneRef = scene;
@@ -116,6 +203,14 @@ export function spawnEnemy(typeName: string, position: any, gameState: any) {
     // Hit reaction (squash/bounce)
     hitReaction: createHitReaction(),
     allMaterials: model.allMaterials,
+    // Assassin profile state
+    aggroed: true,  // default true — non-assassin rooms skip detection
+    detectionTimer: 0,
+    patrolOriginX: position.x,
+    patrolOriginZ: position.z,
+    patrolDir: 1,
+    patrolPauseTimer: 0,
+    patrolTargetAngle: null as number | null,
   };
 
   // Initialize shield if config has one
@@ -128,6 +223,17 @@ export function spawnEnemy(typeName: string, position: any, gameState: any) {
   }
 
   gameState.enemies.push(enemy);
+
+  // Assassin profile: initialize facing + vision cone
+  if (getActiveProfile() === 'assassin' && cfg.aggroRadius) {
+    enemy.aggroed = false;  // override — assassin enemies start unaware
+    enemy.mesh.rotation.y = (Math.random() - 0.5) * Math.PI * 2;
+    enemy.idleBaseRotY = enemy.mesh.rotation.y;
+    enemy.idleScanPhase = Math.random() * Math.PI * 2;
+    enemy._facingInitialized = true;
+    addVisionCone(enemy);
+  }
+
   return enemy;
 }
 
@@ -230,7 +336,7 @@ function pitAwareDir(x: number, z: number, dx: number, dz: number, lookahead: nu
  * Returns the distance, or maxDist if nothing is hit.
  * Uses slab method for ray-AABB intersection on the XZ plane.
  */
-function raycastTerrainDist(ox: number, oz: number, dx: number, dz: number, maxDist: number) {
+export function raycastTerrainDist(ox: number, oz: number, dx: number, dz: number, maxDist: number) {
   if (!_collisionBounds) _collisionBounds = getCollisionBounds();
 
   let closest = maxDist;
@@ -276,12 +382,127 @@ function raycastTerrainDist(ox: number, oz: number, dx: number, dz: number, maxD
   return closest;
 }
 
+// ─── Facing Helpers (assassin profile — smooth turning) ───
+
+function getForward(rotY: number): { x: number; z: number } {
+  return { x: -Math.sin(rotY), z: -Math.cos(rotY) };
+}
+
+function rotationToFace(dx: number, dz: number): number {
+  return Math.atan2(-dx, -dz);
+}
+
+function turnToward(enemy: any, targetRotY: number, dt: number): void {
+  let diff = targetRotY - enemy.mesh.rotation.y;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+
+  const maxStep = VISION_CONE_CONFIG.turnSpeed * dt;
+  if (Math.abs(diff) <= maxStep) {
+    enemy.mesh.rotation.y = targetRotY;
+  } else {
+    enemy.mesh.rotation.y += Math.sign(diff) * maxStep;
+  }
+}
+
+// ─── Patrol Behavior (assassin profile) ───
+
+function updatePatrol(enemy: any, dt: number) {
+  const cfg = enemy.config.patrol;
+  if (!cfg) return;
+
+  if (enemy.patrolPauseTimer > 0) {
+    enemy.patrolPauseTimer -= dt * 1000;
+    if (enemy.patrolTargetAngle != null) {
+      turnToward(enemy, enemy.patrolTargetAngle, dt);
+    }
+    return;
+  }
+
+  const fwd = getForward(enemy.mesh.rotation.y);
+  const speed = cfg.speed * (enemy.slowMult || 1);
+
+  const hitDist = raycastTerrainDist(enemy.pos.x, enemy.pos.z, fwd.x, fwd.z, 1.5);
+  const hitWall = hitDist < 1.0;
+
+  const dFromOriginX = enemy.pos.x - enemy.patrolOriginX;
+  const dFromOriginZ = enemy.pos.z - enemy.patrolOriginZ;
+  const distFromOrigin = Math.sqrt(dFromOriginX * dFromOriginX + dFromOriginZ * dFromOriginZ);
+  const reachedEnd = distFromOrigin >= cfg.distance;
+
+  if (hitWall || reachedEnd) {
+    enemy.patrolDir *= -1;
+    enemy.patrolTargetAngle = enemy.mesh.rotation.y + Math.PI;
+    while (enemy.patrolTargetAngle > Math.PI) enemy.patrolTargetAngle -= Math.PI * 2;
+    while (enemy.patrolTargetAngle < -Math.PI) enemy.patrolTargetAngle += Math.PI * 2;
+    enemy.patrolPauseTimer = cfg.pauseMin + Math.random() * (cfg.pauseMax - cfg.pauseMin);
+    return;
+  }
+
+  enemy.pos.x += fwd.x * speed * dt;
+  enemy.pos.z += fwd.z * speed * dt;
+  enemy.pos.x = Math.max(-ARENA_HALF_X + 1, Math.min(ARENA_HALF_X - 1, enemy.pos.x));
+  enemy.pos.z = Math.max(-ARENA_HALF_Z + 1, Math.min(ARENA_HALF_Z - 1, enemy.pos.z));
+}
+
 export function updateEnemies(dt: number, playerPos: any, gameState: any) {
+  const isAssassin = getActiveProfile() === 'assassin';
+  if (isAssassin) {
+    updateIdleFacing(gameState.enemies, dt);
+  }
+
   for (let i = gameState.enemies.length - 1; i >= 0; i--) {
     const enemy = gameState.enemies[i];
 
     // Skip enemies that are carrier payloads (being spiked as projectiles)
     if ((enemy as any).isCarrierPayload) continue;
+
+    // ─── Assassin Profile: Detection + Patrol ───
+    if (isAssassin && !enemy.aggroed && enemy.config.aggroRadius) {
+      if (enemy.config.patrol && !enemy.isLeaping) {
+        updatePatrol(enemy, dt);
+      }
+
+      if (playerPos) {
+        const inCone = isInsideVisionCone(
+          enemy.pos.x, enemy.pos.z,
+          enemy.mesh.rotation.y,
+          playerPos.x, playerPos.z,
+          enemy.config.aggroRadius
+        );
+
+        let inLOS = true;
+        if (inCone) {
+          const ddx = playerPos.x - enemy.pos.x;
+          const ddz = playerPos.z - enemy.pos.z;
+          const dist = Math.sqrt(ddx * ddx + ddz * ddz);
+          if (dist > 0.1) {
+            const hitDist = raycastTerrainDist(enemy.pos.x, enemy.pos.z, ddx / dist, ddz / dist, dist);
+            inLOS = hitDist >= dist - 0.5;
+          }
+        }
+
+        if (inCone && inLOS) {
+          enemy.detectionTimer += dt * 1000;
+          if (enemy.detectionTimer >= VISION_CONE_CONFIG.detectionThreshold) {
+            enemy.aggroed = true;
+            emit({ type: 'enemyAggroed', enemy, position: { x: enemy.pos.x, z: enemy.pos.z } });
+            showAggroIndicator(enemy);
+            const toDx = playerPos.x - enemy.pos.x;
+            const toDz = playerPos.z - enemy.pos.z;
+            enemy.mesh.rotation.y = rotationToFace(toDx, toDz);
+          }
+        } else {
+          enemy.detectionTimer = Math.max(0, enemy.detectionTimer - dt * 1500);
+        }
+      }
+
+      // Non-aggroed: sync mesh position but skip normal behavior
+      enemy.pos.x = Math.max(-ARENA_HALF_X, Math.min(ARENA_HALF_X, enemy.pos.x));
+      enemy.pos.z = Math.max(-ARENA_HALF_Z, Math.min(ARENA_HALF_Z, enemy.pos.z));
+      enemy.mesh.position.copy(enemy.pos);
+      continue;
+    }
 
     // Pit leap update — runs independently of stun (can't stun mid-air)
     if (enemy.isLeaping) {
@@ -412,6 +633,7 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
         }
         removeMortarArcLine(enemy);
         removeMortarGroundCircle(enemy);
+        removeVisionCone(enemy);
         sceneRef.remove(enemy.mesh);
         gameState.enemies.splice(i, 1);
         const drops = enemy.config.drops;
@@ -435,6 +657,7 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
         }
         removeMortarArcLine(enemy);
         removeMortarGroundCircle(enemy);
+        removeVisionCone(enemy);
         sceneRef.remove(enemy.mesh);
         gameState.enemies.splice(i, 1);
         const drops = enemy.config.drops;
@@ -472,6 +695,7 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
       // Clean up mortar visuals
       removeMortarArcLine(enemy);
       removeMortarGroundCircle(enemy);
+      removeVisionCone(enemy);
       sceneRef.remove(enemy.mesh);
       gameState.enemies.splice(i, 1);
       // Currency drop
@@ -480,6 +704,11 @@ export function updateEnemies(dt: number, playerPos: any, gameState: any) {
         drops.currency.min + Math.random() * (drops.currency.max - drops.currency.min + 1)
       );
     }
+  }
+
+  if (isAssassin) {
+    updateVisionCones(gameState.enemies, dt);
+    updateAggroIndicators(dt);
   }
 }
 
@@ -1351,6 +1580,8 @@ export function stunEnemiesInRadius(centerPos: any, radius: number, durationMs: 
 }
 
 export function clearEnemies(gameState: any) {
+  clearVisionCones();
+  clearAggroIndicators();
   for (const enemy of gameState.enemies) {
     // Clean up shield mesh if present
     if (enemy.shieldMesh) {
