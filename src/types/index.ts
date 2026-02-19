@@ -173,7 +173,7 @@ export interface Enemy extends Entity {
   mortarTarget: { x: number; z: number };
   mortarArcLine: any;
   mortarGroundCircle: any;
-  vel: { x: number; z: number };  // knockback velocity (physics system)
+  vel: { x: number; y?: number; z: number };  // knockback velocity (physics system)
   wasDeflected: boolean;
   fellInPit: boolean;
   isLeaping: boolean;
@@ -487,6 +487,7 @@ export interface AABB {
   maxX: number;
   minZ: number;
   maxZ: number;
+  maxY?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -502,6 +503,12 @@ export interface InputState {
   attack: boolean;
   ultimate: boolean;
   ultimateHeld: boolean;
+  interact: boolean;
+  bulletTime: boolean;
+  jump: boolean;
+  launch: boolean;
+  attackHeld: boolean;
+  chargeStarted: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

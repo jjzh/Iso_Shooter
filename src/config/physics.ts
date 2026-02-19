@@ -22,4 +22,12 @@ export const PHYSICS = {
   impactMinSpeed: 2,         // minimum relative speed for collision damage
   impactDamage: 5,           // damage per unit of relative speed above threshold
   impactStun: 300,           // ms stun when hit by another enemy
+
+  // Y-axis / vertical physics
+  gravity: 25,               // units/s² downward acceleration
+  terminalVelocity: 20,      // max downward Y velocity
+  airControlMult: 1.0,       // XZ movement multiplier while airborne (1.0 = full control)
+  landingLagBase: 50,        // ms of landing lag (minimum)
+  landingLagPerSpeed: 10,    // ms of landing lag per unit of fall speed
+  groundEpsilon: 0.05,       // height threshold for "grounded" detection
 };
