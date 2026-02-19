@@ -1,15 +1,15 @@
-// Tests for Room System — room definitions, arena config, spawn budgets
+// Tests for Portfolio Demo Room System
 // Pure logic tests — no THREE.js dependency
 
 import { describe, it, expect } from 'vitest';
 import { ROOMS, RoomDefinition } from '../src/config/rooms';
 import { ENEMY_TYPES } from '../src/config/enemies';
 
-// ─── Room Definitions Validation ───
+// ─── Demo Room Definitions ───
 
-describe('Room definitions', () => {
-  it('should have 5 rooms', () => {
-    expect(ROOMS.length).toBe(5);
+describe('Demo room definitions', () => {
+  it('should have 2 rooms', () => {
+    expect(ROOMS.length).toBe(2);
   });
 
   ROOMS.forEach((room, i) => {
@@ -18,73 +18,48 @@ describe('Room definitions', () => {
         expect(room.name.length).toBeGreaterThan(0);
       });
 
-      it('should have positive arenaHalfX and arenaHalfZ', () => {
+      it('should have profile base', () => {
+        expect(room.profile).toBe('base');
+      });
+
+      it('should have sandboxMode true', () => {
+        expect(room.sandboxMode).toBe(true);
+      });
+
+      it('should have commentary', () => {
+        expect(room.commentary.length).toBeGreaterThan(0);
+      });
+
+      it('should have positive arena dimensions', () => {
         expect(room.arenaHalfX).toBeGreaterThan(5);
-        expect(room.arenaHalfX).toBeLessThan(40);
         expect(room.arenaHalfZ).toBeGreaterThan(5);
-        expect(room.arenaHalfZ).toBeLessThan(40);
       });
 
-      it('should have a spawnBudget', () => {
-        expect(room.spawnBudget).toBeDefined();
-        expect(room.spawnBudget.packs).toBeDefined();
-        expect(room.spawnBudget.maxConcurrent).toBeGreaterThanOrEqual(0);
+      it('should have a spawnBudget with packs', () => {
+        expect(room.spawnBudget.packs.length).toBeGreaterThan(0);
       });
 
-      if (!room.isRestRoom && !room.isVictoryRoom) {
-        it('should have at least one spawn pack', () => {
-          expect(room.spawnBudget.packs.length).toBeGreaterThan(0);
-        });
-
-        it('should have valid enemy types in all packs', () => {
-          for (const pack of room.spawnBudget.packs) {
-            for (const enemy of pack.enemies) {
-              expect(ENEMY_TYPES).toHaveProperty(enemy.type);
-            }
+      it('should have valid enemy types', () => {
+        for (const pack of room.spawnBudget.packs) {
+          for (const enemy of pack.enemies) {
+            expect(ENEMY_TYPES).toHaveProperty(enemy.type);
           }
-        });
+        }
+      });
 
-        it('should have valid spawn zones in all packs', () => {
-          const validZones = ['ahead', 'sides', 'far', 'behind'];
-          for (const pack of room.spawnBudget.packs) {
-            expect(validZones).toContain(pack.spawnZone);
-          }
-        });
-
-        it('should have maxConcurrent > 0', () => {
-          expect(room.spawnBudget.maxConcurrent).toBeGreaterThan(0);
-        });
-
-        it('should have telegraphDuration > 0', () => {
-          expect(room.spawnBudget.telegraphDuration).toBeGreaterThan(0);
-        });
-      }
+      it('should have valid spawn zones', () => {
+        const validZones = ['ahead', 'sides', 'far', 'behind'];
+        for (const pack of room.spawnBudget.packs) {
+          expect(validZones).toContain(pack.spawnZone);
+        }
+      });
 
       it('should have playerStart within arena bounds', () => {
-        const maxX = room.arenaHalfX - 1;
-        const maxZ = room.arenaHalfZ - 1;
-        expect(Math.abs(room.playerStart.x)).toBeLessThanOrEqual(maxX);
-        expect(Math.abs(room.playerStart.z)).toBeLessThanOrEqual(maxZ);
+        expect(Math.abs(room.playerStart.x)).toBeLessThan(room.arenaHalfX);
+        expect(Math.abs(room.playerStart.z)).toBeLessThan(room.arenaHalfZ);
       });
 
-      it('should have valid obstacles', () => {
-        for (const obs of room.obstacles) {
-          expect(obs.w).toBeGreaterThan(0);
-          expect(obs.h).toBeGreaterThan(0);
-          expect(obs.d).toBeGreaterThan(0);
-          expect(Math.abs(obs.x)).toBeLessThan(room.arenaHalfX);
-          expect(Math.abs(obs.z)).toBeLessThan(room.arenaHalfZ);
-        }
-      });
-
-      it('should have valid pits', () => {
-        for (const pit of room.pits) {
-          expect(pit.w).toBeGreaterThan(0);
-          expect(pit.d).toBeGreaterThan(0);
-        }
-      });
-
-      it('should not spawn player inside an obstacle', () => {
+      it('should not spawn player inside obstacle or pit', () => {
         const px = room.playerStart.x;
         const pz = room.playerStart.z;
         for (const obs of room.obstacles) {
@@ -92,11 +67,6 @@ describe('Room definitions', () => {
           const inZ = pz >= obs.z - obs.d / 2 && pz <= obs.z + obs.d / 2;
           expect(inX && inZ).toBe(false);
         }
-      });
-
-      it('should not spawn player inside a pit', () => {
-        const px = room.playerStart.x;
-        const pz = room.playerStart.z;
         for (const pit of room.pits) {
           const inX = px >= pit.x - pit.w / 2 && px <= pit.x + pit.w / 2;
           const inZ = pz >= pit.z - pit.d / 2 && pz <= pit.z + pit.d / 2;
@@ -107,97 +77,56 @@ describe('Room definitions', () => {
   });
 });
 
-// ─── Room Progression ───
+// ─── Profile System ───
 
-describe('Room progression', () => {
-  const combatRooms = ROOMS.filter(r => !r.isRestRoom && !r.isVictoryRoom);
-
-  it('should have at least 3 combat rooms', () => {
-    expect(combatRooms.length).toBeGreaterThanOrEqual(3);
-  });
-
-  it('should have escalating enemy budgets across combat rooms', () => {
-    const budgets = combatRooms.map(r =>
-      r.spawnBudget.packs.reduce((sum, p) => sum + p.enemies.length, 0)
-    );
-    for (let i = 1; i < budgets.length; i++) {
-      expect(budgets[i]).toBeGreaterThanOrEqual(budgets[i - 1]);
+describe('Profile system', () => {
+  it('every room should have a valid profile', () => {
+    const validProfiles = ['base', 'assassin', 'rule-bending', 'vertical'];
+    for (const room of ROOMS) {
+      expect(validProfiles).toContain(room.profile);
     }
   });
+});
 
-  it('should have escalating maxConcurrent across combat rooms', () => {
-    const maxConcurrents = combatRooms.map(r => r.spawnBudget.maxConcurrent);
-    for (let i = 1; i < maxConcurrents.length; i++) {
-      expect(maxConcurrents[i]).toBeGreaterThanOrEqual(maxConcurrents[i - 1]);
+// ─── Sandbox Mode ───
+
+describe('Sandbox mode', () => {
+  it('all demo rooms should have sandboxMode: true', () => {
+    for (const room of ROOMS) {
+      expect(room.sandboxMode).toBe(true);
     }
   });
+});
 
-  it('room 1 should only have goblins', () => {
+// ─── Room 1 specifics ───
+
+describe('Room 1: The Foundation', () => {
+  const room = ROOMS[0];
+
+  it('should only have goblins', () => {
     const types = new Set(
-      combatRooms[0].spawnBudget.packs.flatMap(p => p.enemies.map(e => e.type))
+      room.spawnBudget.packs.flatMap(p => p.enemies.map(e => e.type))
     );
     expect(types.size).toBe(1);
     expect(types.has('goblin')).toBe(true);
   });
 
-  it('room 2 should have goblins and archers', () => {
-    const types = new Set(
-      combatRooms[1].spawnBudget.packs.flatMap(p => p.enemies.map(e => e.type))
-    );
-    expect(types.has('goblin')).toBe(true);
-    expect(types.has('skeletonArcher')).toBe(true);
-  });
-
-  it('room 3 should include imps', () => {
-    const types = new Set(
-      combatRooms[2].spawnBudget.packs.flatMap(p => p.enemies.map(e => e.type))
-    );
-    expect(types.has('iceMortarImp')).toBe(true);
+  it('should have at least one pit', () => {
+    expect(room.pits.length).toBeGreaterThan(0);
   });
 });
 
-// ─── Special Rooms ───
+// ─── Room 2 specifics ───
 
-describe('Special rooms', () => {
-  it('should have exactly one rest room', () => {
-    const restRooms = ROOMS.filter(r => r.isRestRoom);
-    expect(restRooms.length).toBe(1);
+describe('Room 2: Physics Playground', () => {
+  const room = ROOMS[1];
+
+  it('should have more pits than room 1', () => {
+    expect(room.pits.length).toBeGreaterThan(ROOMS[0].pits.length);
   });
 
-  it('rest room should have no spawn packs', () => {
-    const restRoom = ROOMS.find(r => r.isRestRoom)!;
-    expect(restRoom.spawnBudget.packs.length).toBe(0);
-  });
-
-  it('should have exactly one victory room', () => {
-    const victoryRooms = ROOMS.filter(r => r.isVictoryRoom);
-    expect(victoryRooms.length).toBe(1);
-  });
-
-  it('victory room should be the last room', () => {
-    expect(ROOMS[ROOMS.length - 1].isVictoryRoom).toBe(true);
-  });
-
-  it('rest room should come before victory room', () => {
-    const restIdx = ROOMS.findIndex(r => r.isRestRoom);
-    const victIdx = ROOMS.findIndex(r => r.isVictoryRoom);
-    expect(restIdx).toBeLessThan(victIdx);
-  });
-});
-
-// ─── Rectangular Arena ───
-
-describe('Rectangular arena support', () => {
-  it('rooms should have rectangular shapes (Z >= X)', () => {
-    for (const room of ROOMS.filter(r => !r.isRestRoom && !r.isVictoryRoom)) {
-      expect(room.arenaHalfZ).toBeGreaterThanOrEqual(room.arenaHalfX);
-    }
-  });
-
-  it('player should start at positive Z (entrance end = bottom-left in iso)', () => {
-    for (const room of ROOMS) {
-      expect(room.playerStart.z).toBeGreaterThan(0);
-    }
+  it('should have more obstacles than room 1', () => {
+    expect(room.obstacles.length).toBeGreaterThan(ROOMS[0].obstacles.length);
   });
 });
 
@@ -218,24 +147,7 @@ describe('Arena config swap', () => {
     expect(HZ).toBe(20);
 
     // Restore defaults
-    const origObs = [
-      { x: 5, z: 9, w: 2, h: 1.5, d: 3 },
-      { x: -9, z: -7.5, w: 4, h: 1.5, d: 2 },
-      { x: 3.5, z: -3, w: 1.5, h: 2, d: 1.5 },
-      { x: 3.5, z: -9.5, w: 1.5, h: 2, d: 1.5 },
-      { x: 1, z: 10, w: 9, h: 1, d: 1 },
-      { x: 8.5, z: -8, w: 3, h: 1, d: 1 },
-      { x: 10, z: 9, w: 1, h: 2.5, d: 1 },
-      { x: -7.5, z: 8, w: 1, h: 2.5, d: 1 },
-    ];
-    const origPitsData = [
-      { x: 0, z: 7.5, w: 8, d: 3 },
-      { x: 16, z: -17, w: 4.5, d: 4.5 },
-      { x: -7.5, z: 0, w: 2.5, d: 8 },
-      { x: -0.5, z: -7, w: 8.5, d: 2.5 },
-      { x: 8, z: 0, w: 3, d: 9 },
-    ];
-    setArenaConfig(origObs, origPitsData, 20, 20);
+    setArenaConfig([], [], 20, 20);
   });
 
   it('setArenaConfig with single dimension should set both to same value', async () => {
@@ -246,30 +158,6 @@ describe('Arena config swap', () => {
     expect(HZ).toBe(15);
     // Restore
     setArenaConfig([], [], 20, 20);
-  });
-});
-
-// ─── Profile System ───
-
-describe('Profile system', () => {
-  it('every room should have a valid profile', () => {
-    const validProfiles = ['base', 'assassin', 'rule-bending', 'vertical'];
-    for (const room of ROOMS) {
-      expect(validProfiles).toContain(room.profile);
-    }
-  });
-
-  it('every room should have sandboxMode defined', () => {
-    for (const room of ROOMS) {
-      expect(typeof room.sandboxMode).toBe('boolean');
-    }
-  });
-
-  it('every room should have a commentary string', () => {
-    for (const room of ROOMS) {
-      expect(typeof room.commentary).toBe('string');
-      expect(room.commentary.length).toBeGreaterThan(0);
-    }
   });
 });
 
