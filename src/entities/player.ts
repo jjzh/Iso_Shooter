@@ -1,4 +1,4 @@
-import { PLAYER, MELEE } from '../config/player';
+import { PLAYER, MELEE, JUMP, LAUNCH, AERIAL_STRIKE, SELF_SLAM, SPIKE } from '../config/player';
 import { ABILITIES } from '../config/abilities';
 import { ARENA_HALF_X, ARENA_HALF_Z } from '../config/arena';
 import { screenShake, getScene } from '../engine/renderer';
@@ -11,6 +11,16 @@ import { createAnimatorState, updateAnimation, resetAnimatorState } from './play
 import type { AnimatorState } from './playerAnimator';
 import { getActiveProfile } from '../engine/profileManager';
 import { fireProjectile } from './projectile';
+import { registerLaunch, claimLaunched, activateVerb } from '../engine/aerialVerbs';
+import { playerHasTag, clearPlayerTags, TAG } from '../engine/tags';
+import { getDunkPhase, getDunkPlayerVelY, getDunkLandingLag, updateDunkVisuals, resetDunk } from '../verbs/dunk';
+import { getFloatSelectorPlayerVelY, resetFloatSelector } from '../verbs/floatSelector';
+import { getSpikePlayerVelYOverride, getSpikeFastFallActive, resetSpike } from '../verbs/spike';
+import { getGroundHeight } from '../config/terrain';
+import { PHYSICS } from '../config/physics';
+import { spawnLaunchPillar } from '../effects/launchPillar';
+import { findLaunchTarget, updateLaunchIndicator, clearLaunchIndicator } from '../effects/launchIndicator';
+import { spawnDamageNumber } from '../ui/damageNumbers';
 
 let playerGroup: any, aimIndicator: any;
 let rig: PlayerRig;
@@ -49,6 +59,21 @@ let chargeTelegraphGroup: any = null;
 let chargeFillMesh: any = null;
 let chargeBorderMesh: any = null;
 let chargeBorderGeo: any = null;
+
+// Jump / vertical state (active only in vertical profile)
+let playerVelY = 0;
+let isPlayerAirborne = false;
+let landingLagTimer = 0;
+let actionLockoutTimer = 0;
+const ACTION_LOCKOUT_MS = 300;
+
+// Launch verb state
+let launchCooldownTimer = 0;
+let launchWindupTimer = 0;
+let launchWindupTarget: any = null;
+
+// Self-slam state
+let isSlamming = false;
 
 // Origin model (cylinder+sphere — Feb 7 prototype visual)
 let originGroup: any = null;
@@ -177,8 +202,104 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   }
 
   // Trigger charge (start) — not available in origin profile
-  if (getActiveProfile() !== 'origin' && inputState.ultimate && gameState.abilities.ultimate.cooldownRemaining <= 0 && !isCharging) {
+  if (getActiveProfile() !== 'origin' && (inputState.chargeStarted || inputState.ultimate) && gameState.abilities.ultimate.cooldownRemaining <= 0 && !isCharging && !isPlayerAirborne && !playerHasTag(TAG.AERIAL) && actionLockoutTimer <= 0) {
     startCharge(inputState, gameState);
+  }
+
+  // === VERTICAL MECHANICS (vertical profile only) ===
+  if (getActiveProfile() === 'vertical') {
+    // Jump (Space)
+    if (inputState.jump && !isPlayerAirborne && !isDashing && landingLagTimer <= 0) {
+      playerVelY = JUMP.initialVelocity;
+      isPlayerAirborne = true;
+      emit({ type: 'playerJump', position: { x: playerPos.x, z: playerPos.z } });
+    }
+
+    // Launch cooldown
+    if (launchCooldownTimer > 0) {
+      launchCooldownTimer -= dt * 1000;
+    }
+
+    // Cancel windup if player starts dashing or target dies
+    if (launchWindupTimer > 0) {
+      if (isDashing || !launchWindupTarget || launchWindupTarget.health <= 0 || launchWindupTarget.fellInPit) {
+        updateLaunchIndicator(null, -1);
+        launchWindupTimer = 0;
+        launchWindupTarget = null;
+      }
+    }
+
+    if (launchWindupTimer > 0) {
+      // Winding up: tick timer, intensify visuals, fire when done
+      launchWindupTimer -= dt * 1000;
+      const progress = 1 - Math.max(0, launchWindupTimer) / LAUNCH.windupDuration;
+      updateLaunchIndicator(launchWindupTarget, progress);
+
+      if (launchWindupTimer <= 0) {
+        // Fire the launch
+        const closestEnemy = launchWindupTarget;
+        launchWindupTarget = null;
+        updateLaunchIndicator(null, -1);
+
+        const vel = (closestEnemy as any).vel;
+        const launchVelY = JUMP.initialVelocity * LAUNCH.enemyVelMult;
+        if (vel) {
+          vel.y = launchVelY;
+          const arcDx = playerPos.x - closestEnemy.pos.x;
+          const arcDz = playerPos.z - closestEnemy.pos.z;
+          const arcDist = Math.sqrt(arcDx * arcDx + arcDz * arcDz);
+          if (arcDist > 0.1) {
+            const convergenceTime = launchVelY / PHYSICS.gravity;
+            const arcSpeed = (arcDist * LAUNCH.arcFraction) / convergenceTime;
+            vel.x = (arcDx / arcDist) * arcSpeed;
+            vel.z = (arcDz / arcDist) * arcSpeed;
+          }
+        }
+
+        spawnLaunchPillar(closestEnemy.pos.x, closestEnemy.pos.z);
+        closestEnemy.health -= LAUNCH.damage;
+
+        playerVelY = JUMP.initialVelocity * LAUNCH.playerVelMult;
+        isPlayerAirborne = true;
+        launchCooldownTimer = LAUNCH.cooldown;
+
+        registerLaunch(closestEnemy);
+        claimLaunched(closestEnemy, 'floatSelector');
+        activateVerb('floatSelector', closestEnemy);
+
+        emit({
+          type: 'enemyLaunched',
+          enemy: closestEnemy,
+          position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z },
+          velocity: JUMP.initialVelocity * LAUNCH.enemyVelMult,
+        });
+        spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, `LAUNCH! ${LAUNCH.damage}`, '#ffaa00');
+        inputState.launch = false;
+      }
+    } else if (inputState.launch && !isPlayerAirborne && !isDashing && launchCooldownTimer <= 0) {
+      // Start windup if target found
+      const closestEnemy = findLaunchTarget(gameState.enemies || [], playerPos);
+      if (closestEnemy) {
+        launchWindupTarget = closestEnemy;
+        launchWindupTimer = LAUNCH.windupDuration;
+        const dx = closestEnemy.pos.x - playerPos.x;
+        const dz = closestEnemy.pos.z - playerPos.z;
+        playerGroup.rotation.y = Math.atan2(-dx, -dz);
+        inputState.launch = false;
+      }
+    } else if (!isPlayerAirborne && !isDashing && launchCooldownTimer <= 0 && launchWindupTimer <= 0) {
+      // Passive: show indicator on closest enemy in range
+      const candidate = findLaunchTarget(gameState.enemies || [], playerPos);
+      updateLaunchIndicator(candidate, -1);
+    } else if (launchWindupTimer <= 0) {
+      updateLaunchIndicator(null, -1);
+    }
+
+    // Self-slam (E while airborne, no active verb)
+    if (inputState.launch && isPlayerAirborne && !isSlamming && !playerHasTag(TAG.AERIAL)) {
+      isSlamming = true;
+      playerVelY = SELF_SLAM.slamVelocity;
+    }
   }
 
   // === MOVEMENT ===
@@ -197,6 +318,83 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   const clampZ = ARENA_HALF_Z - 0.5;
   playerPos.x = Math.max(-clampX, Math.min(clampX, playerPos.x));
   playerPos.z = Math.max(-clampZ, Math.min(clampZ, playerPos.z));
+
+  // === LEDGE FALL + Y-AXIS PHYSICS (vertical profile only) ===
+  if (getActiveProfile() === 'vertical') {
+    if (!isPlayerAirborne) {
+      const groundBelow = getGroundHeight(playerPos.x, playerPos.z);
+      if (playerPos.y > groundBelow + PHYSICS.groundEpsilon) {
+        isPlayerAirborne = true;
+        playerVelY = 0;
+      }
+    }
+
+    if (isPlayerAirborne) {
+      const dunkVelY = getDunkPlayerVelY();
+      const selectorVelY = getFloatSelectorPlayerVelY();
+      const spikeVelY = getSpikePlayerVelYOverride();
+      const hasVerbOverride = dunkVelY !== null || selectorVelY !== null || spikeVelY !== null;
+
+      if (hasVerbOverride) {
+        if (dunkVelY !== null) playerVelY = dunkVelY;
+        else if (selectorVelY !== null) playerVelY = selectorVelY;
+        else if (spikeVelY !== null) playerVelY = spikeVelY;
+      } else {
+        playerVelY -= JUMP.gravity * dt;
+        if (getSpikeFastFallActive()) {
+          playerVelY -= JUMP.gravity * (SPIKE.fastFallGravityMult - 1) * dt;
+        }
+      }
+
+      playerPos.y += playerVelY * dt;
+
+      const groundHeight = getGroundHeight(playerPos.x, playerPos.z);
+      if (playerPos.y <= groundHeight) {
+        const fallSpeed = Math.abs(playerVelY);
+        playerPos.y = groundHeight;
+        playerVelY = 0;
+        isPlayerAirborne = false;
+
+        if (isSlamming) {
+          isSlamming = false;
+          landingLagTimer = SELF_SLAM.landingLag;
+          screenShake(SELF_SLAM.landingShake);
+          const enemies = gameState.enemies;
+          if (enemies) {
+            for (let i = 0; i < enemies.length; i++) {
+              const e = enemies[i];
+              if (e.health <= 0 || (e as any).fellInPit) continue;
+              const dx = e.pos.x - playerPos.x;
+              const dz = e.pos.z - playerPos.z;
+              const distSq = dx * dx + dz * dz;
+              if (distSq < SELF_SLAM.damageRadius * SELF_SLAM.damageRadius) {
+                e.health -= SELF_SLAM.damage;
+                e.flashTimer = 100;
+                const dist = Math.sqrt(distSq) || 0.1;
+                const vel = (e as any).vel;
+                if (vel) {
+                  vel.x += (dx / dist) * SELF_SLAM.knockback;
+                  vel.z += (dz / dist) * SELF_SLAM.knockback;
+                }
+              }
+            }
+          }
+          emit({ type: 'playerSlam', position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+          spawnDamageNumber(playerPos.x, playerPos.z, 'SLAM!', '#ff8800');
+        } else if (getDunkPhase() === 'slam') {
+          const lag = getDunkLandingLag();
+          if (lag > 0) landingLagTimer = lag;
+          actionLockoutTimer = ACTION_LOCKOUT_MS;
+        } else {
+          landingLagTimer = JUMP.landingLag;
+          emit({ type: 'playerLand', position: { x: playerPos.x, z: playerPos.z }, fallSpeed });
+        }
+      }
+    }
+    if (landingLagTimer > 0) landingLagTimer -= dt * 1000;
+    if (actionLockoutTimer > 0) actionLockoutTimer -= dt * 1000;
+    updateDunkVisuals(dt);
+  }
 
   playerGroup.position.copy(playerPos);
 
@@ -217,7 +415,12 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
       endLagTimer > 0,
       isDashing ? Math.min(dashTimer / dashDuration, 1) : 0,
       meleeSwinging,
-      meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0
+      meleeSwinging ? meleeSwingTimer / MELEE_SWING_DURATION : 0,
+      getActiveProfile() === 'vertical' ? isPlayerAirborne : false,
+      getActiveProfile() === 'vertical' ? playerVelY : 0,
+      getActiveProfile() === 'vertical' ? (isSlamming || getDunkPhase() === 'slam') : false,
+      isCharging,
+      isCharging ? Math.min(chargeTimer / ABILITIES.ultimate.chargeTimeMs, 1) : 0
     );
   }
 
@@ -247,48 +450,98 @@ export function updatePlayer(inputState: any, dt: number, gameState: any) {
   }
 
   // === MELEE ATTACK (left click) — not available in origin profile ===
-  if (getActiveProfile() !== 'origin' && inputState.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging) {
-    // Auto-targeting: snap aim to nearest enemy within cone before swinging
-    const enemies = gameState.enemies;
-    if (enemies) {
-      let bestDist = MELEE.autoTargetRange * MELEE.autoTargetRange;
-      let bestEnemy: any = null;
-      const aimAngle = playerGroup.rotation.y;
-      for (let i = 0; i < enemies.length; i++) {
-        const e = enemies[i];
-        if (e.health <= 0 || e.fellInPit) continue;
-        const dx = e.pos.x - playerPos.x;
-        const dz = e.pos.z - playerPos.z;
-        const distSq = dx * dx + dz * dz;
-        if (distSq > bestDist) continue;
-        // Check if within auto-target arc
-        const angleToEnemy = Math.atan2(-dx, -dz);
-        let angleDiff = angleToEnemy - aimAngle;
-        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-        if (Math.abs(angleDiff) <= MELEE.autoTargetArc / 2) {
-          bestDist = distSq;
-          bestEnemy = e;
+  if (getActiveProfile() !== 'origin' && inputState.attack && meleeCooldownTimer <= 0 && !isDashing && !isCharging && !playerHasTag(TAG.AERIAL) && actionLockoutTimer <= 0) {
+    if (getActiveProfile() === 'vertical' && isPlayerAirborne) {
+      // ─── AERIAL STRIKE — downward spike on nearby enemy ───
+      const enemies = gameState.enemies;
+      let closestEnemy: any = null;
+      let closestDistSq = AERIAL_STRIKE.range * AERIAL_STRIKE.range;
+      if (enemies) {
+        for (let i = 0; i < enemies.length; i++) {
+          const e = enemies[i];
+          if (e.health <= 0 || (e as any).fellInPit) continue;
+          const dx = e.pos.x - playerPos.x;
+          const dz = e.pos.z - playerPos.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq < closestDistSq) {
+            closestDistSq = distSq;
+            closestEnemy = e;
+          }
         }
       }
-      if (bestEnemy) {
-        const dx = bestEnemy.pos.x - playerPos.x;
-        const dz = bestEnemy.pos.z - playerPos.z;
+
+      if (closestEnemy) {
+        closestEnemy.health -= AERIAL_STRIKE.damage;
+        closestEnemy.flashTimer = 120;
+        const vel = (closestEnemy as any).vel;
+        if (vel) vel.y = AERIAL_STRIKE.slamVelocity;
+        const dx = closestEnemy.pos.x - playerPos.x;
+        const dz = closestEnemy.pos.z - playerPos.z;
         playerGroup.rotation.y = Math.atan2(-dx, -dz);
+        screenShake(AERIAL_STRIKE.screenShake);
+        meleeCooldownTimer = AERIAL_STRIKE.cooldown;
+        emit({
+          type: 'aerialStrike',
+          enemy: closestEnemy,
+          damage: AERIAL_STRIKE.damage,
+          position: { x: closestEnemy.pos.x, z: closestEnemy.pos.z },
+        });
+        spawnDamageNumber(closestEnemy.pos.x, closestEnemy.pos.z, 'SPIKE!', '#44ddff');
+      } else {
+        meleeSwinging = true;
+        meleeSwingTimer = 0;
+        meleeCooldownTimer = MELEE.cooldown;
+        meleeHitEnemies.clear();
+        meleeSwingDir = playerGroup.rotation.y;
+        emit({
+          type: 'meleeSwing',
+          position: { x: playerPos.x, z: playerPos.z },
+          direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) },
+        });
       }
+    } else {
+      // Auto-targeting: snap aim to nearest enemy within cone before swinging
+      const enemies = gameState.enemies;
+      if (enemies) {
+        let bestDist = MELEE.autoTargetRange * MELEE.autoTargetRange;
+        let bestEnemy: any = null;
+        const aimAngle = playerGroup.rotation.y;
+        for (let i = 0; i < enemies.length; i++) {
+          const e = enemies[i];
+          if (e.health <= 0 || e.fellInPit) continue;
+          const dx = e.pos.x - playerPos.x;
+          const dz = e.pos.z - playerPos.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq > bestDist) continue;
+          // Check if within auto-target arc
+          const angleToEnemy = Math.atan2(-dx, -dz);
+          let angleDiff = angleToEnemy - aimAngle;
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+          if (Math.abs(angleDiff) <= MELEE.autoTargetArc / 2) {
+            bestDist = distSq;
+            bestEnemy = e;
+          }
+        }
+        if (bestEnemy) {
+          const dx = bestEnemy.pos.x - playerPos.x;
+          const dz = bestEnemy.pos.z - playerPos.z;
+          playerGroup.rotation.y = Math.atan2(-dx, -dz);
+        }
+      }
+
+      meleeSwinging = true;
+      meleeSwingTimer = 0;
+      meleeCooldownTimer = MELEE.cooldown;
+      meleeHitEnemies.clear();
+      meleeSwingDir = playerGroup.rotation.y;
+
+      emit({
+        type: 'meleeSwing',
+        position: { x: playerPos.x, z: playerPos.z },
+        direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) },
+      });
     }
-
-    meleeSwinging = true;
-    meleeSwingTimer = 0;
-    meleeCooldownTimer = MELEE.cooldown;
-    meleeHitEnemies.clear();
-    meleeSwingDir = playerGroup.rotation.y;
-
-    emit({
-      type: 'meleeSwing',
-      position: { x: playerPos.x, z: playerPos.z },
-      direction: { x: -Math.sin(meleeSwingDir), z: -Math.cos(meleeSwingDir) },
-    });
   }
 
   updateAfterimages(dt);
@@ -642,6 +895,9 @@ export function getPlayerPos() { return playerPos; }
 export function getPlayerGroup() { return playerGroup; }
 export function isPlayerInvincible() { return isInvincible; }
 export function isPlayerDashing() { return isDashing; }
+export function getIsPlayerAirborne() { return isPlayerAirborne; }
+export function getPlayerVelY() { return playerVelY; }
+export function getLaunchCooldownTimer() { return launchCooldownTimer; }
 export function consumePushEvent() {
   const evt = pushEvent;
   pushEvent = null;
@@ -662,6 +918,19 @@ export function resetPlayer() {
   isCharging = false;
   chargeTimer = 0;
   pushEvent = null;
+  playerVelY = 0;
+  isPlayerAirborne = false;
+  landingLagTimer = 0;
+  actionLockoutTimer = 0;
+  launchCooldownTimer = 0;
+  launchWindupTimer = 0;
+  launchWindupTarget = null;
+  isSlamming = false;
+  clearLaunchIndicator();
+  resetDunk();
+  resetFloatSelector();
+  resetSpike();
+  clearPlayerTags();
   lastFireTime = 0;
   removeChargeTelegraph();
   restoreDefaultEmissive();
