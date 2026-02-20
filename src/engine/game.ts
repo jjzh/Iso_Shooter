@@ -270,6 +270,18 @@ function init(): void {
     on('dunkGrab', () => {
       hitPauseTimer = DUNK.grabPause;
     });
+    // Boulder drop — deal crush damage to enemies underneath
+    on('objectDropped', (evt: any) => {
+      const { position, radius, mass } = evt;
+      const crushDamage = mass * 25;
+      for (const enemy of gameState.enemies) {
+        const dx = enemy.pos.x - position.x;
+        const dz = enemy.pos.z - position.z;
+        if (dx * dx + dz * dz <= radius * radius) {
+          enemy.health -= crushDamage;
+        }
+      }
+    });
     initHUD();
     initDamageNumbers();
     initScreens(restart, () => {

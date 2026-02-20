@@ -3,7 +3,7 @@ import { HEIGHT_ZONES } from '../config/terrain';
 
 let scene: any, camera: any, renderer: any;
 const baseFrustum = 12;
-const mobileFrustum = 4.5;
+const mobileFrustum = 5.6;
 let currentFrustum = 12;
 let isMobile = false;
 const cameraOffset = new THREE.Vector3(20, 20, 20);

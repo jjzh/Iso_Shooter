@@ -367,7 +367,7 @@ export function tryApplyBendToTarget(target: any, targetType: 'physicsObject' | 
             mesh.position.y = 0;
             // Impact feedback
             screenShake(5, 300);
-            emit({ type: 'objectDropped', position: { x: target.pos.x, z: target.pos.z } });
+            emit({ type: 'objectDropped', position: { x: target.pos.x, z: target.pos.z }, radius: target.radius, mass: target.mass });
           }
         };
         requestAnimationFrame(dropAnim);

@@ -2,6 +2,24 @@
 const THREE = window.THREE;
 const nipplejs = window.nipplejs;
 
+// src/config/terrain.ts
+var HEIGHT_ZONES = [];
+function setHeightZones(zones) {
+  HEIGHT_ZONES.length = 0;
+  zones.forEach((z) => HEIGHT_ZONES.push(z));
+}
+function getGroundHeight(x, z) {
+  let maxY = 0;
+  for (const zone of HEIGHT_ZONES) {
+    const halfW = zone.w / 2;
+    const halfD = zone.d / 2;
+    if (x >= zone.x - halfW && x <= zone.x + halfW && z >= zone.z - halfD && z <= zone.z + halfD) {
+      if (zone.y > maxY) maxY = zone.y;
+    }
+  }
+  return maxY;
+}
+
 // src/config/arena.ts
 var ARENA_HALF_X = 20;
 var ARENA_HALF_Z = 20;
@@ -52,6 +70,15 @@ function getCollisionBounds() {
       maxZ: o.z + o.d / 2
     });
   }
+  for (const zone of HEIGHT_ZONES) {
+    bounds.push({
+      minX: zone.x - zone.w / 2,
+      maxX: zone.x + zone.w / 2,
+      minZ: zone.z - zone.d / 2,
+      maxZ: zone.z + zone.d / 2,
+      maxY: zone.y
+    });
+  }
   const hx = ARENA_HALF_X;
   const hz = ARENA_HALF_Z;
   const t = WALL_THICKNESS;
@@ -62,30 +89,12 @@ function getCollisionBounds() {
   return bounds;
 }
 
-// src/config/terrain.ts
-var HEIGHT_ZONES = [];
-function setHeightZones(zones) {
-  HEIGHT_ZONES.length = 0;
-  zones.forEach((z) => HEIGHT_ZONES.push(z));
-}
-function getGroundHeight(x, z) {
-  let maxY = 0;
-  for (const zone of HEIGHT_ZONES) {
-    const halfW = zone.w / 2;
-    const halfD = zone.d / 2;
-    if (x >= zone.x - halfW && x <= zone.x + halfW && z >= zone.z - halfD && z <= zone.z + halfD) {
-      if (zone.y > maxY) maxY = zone.y;
-    }
-  }
-  return maxY;
-}
-
 // src/engine/renderer.ts
 var scene;
 var camera;
 var renderer;
 var baseFrustum = 12;
-var mobileFrustum = 4.5;
+var mobileFrustum = 5.6;
 var currentFrustum = 12;
 var isMobile = false;
 var cameraOffset = new THREE.Vector3(20, 20, 20);
@@ -9662,7 +9671,7 @@ function tryApplyBendToTarget(target4, targetType) {
           } else {
             mesh.position.y = 0;
             screenShake(5, 300);
-            emit({ type: "objectDropped", position: { x: target4.pos.x, z: target4.pos.z } });
+            emit({ type: "objectDropped", position: { x: target4.pos.x, z: target4.pos.z }, radius: target4.radius, mass: target4.mass });
           }
         };
         requestAnimationFrame(dropAnim);
@@ -11611,6 +11620,17 @@ function init() {
     });
     on("dunkGrab", () => {
       hitPauseTimer = DUNK.grabPause;
+    });
+    on("objectDropped", (evt) => {
+      const { position, radius, mass } = evt;
+      const crushDamage = mass * 25;
+      for (const enemy of gameState.enemies) {
+        const dx = enemy.pos.x - position.x;
+        const dz = enemy.pos.z - position.z;
+        if (dx * dx + dz * dz <= radius * radius) {
+          enemy.health -= crushDamage;
+        }
+      }
     });
     initHUD();
     initDamageNumbers();
