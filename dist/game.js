@@ -6754,6 +6754,8 @@ var ROOMS = [
       maxConcurrent: 6,
       telegraphDuration: 1500,
       packs: [
+        // Goblin loitering under the suspended boulder — enlarge the rock to crush it
+        { enemies: [{ type: "goblin", fixedPos: { x: 0, z: 0 }, patrolWaypoints: [{ x: 0.5, z: 0.5 }, { x: -0.5, z: 0.5 }, { x: -0.5, z: -0.5 }, { x: 0.5, z: -0.5 }] }], spawnZone: "ahead" },
         { enemies: [{ type: "goblin" }, { type: "goblin" }, { type: "goblin" }], spawnZone: "ahead" }
       ]
     },
