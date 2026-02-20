@@ -7,16 +7,16 @@
 ## Branch Info
 - **Branch:** `demo/portfolio`
 - **Forked from:** `explore/hades`
-- **Last updated:** 2026-02-19
+- **Last updated:** 2026-02-20
 
 ## Current State
-**Phase 4 complete. 6 playable demo rooms — all prototype branches integrated. 851 tests pass across 27 test files.**
+**Phase 4 complete + mobile polish pass. 6 playable demo rooms — all prototype branches integrated. Demo mode (can't die). Deployed to remote.**
 
 - Room 1 ("The Origin") — cylinder+sphere player, auto-fire projectiles, no melee/force push, goblins, no pits
 - Room 2 ("The Foundation") — fist rig, melee + dash + force push, goblins, 3 pits, pit highlights on entry, no wall slam/collision damage
 - Room 3 ("Physics Playground") — fist rig, 3 pits, 4 obstacles, wall slams + enemy collision damage + spatial force push
 - Room 4 ("The Shadows") — assassin profile: vision cones, waypoint patrol circuits around pits, detection-based bullet time (cone overlap triggers BT before aggro), push aggro with 250ms delay, 3 pits for force push kills, LOS occlusion
-- Room 5 ("The Workshop") — rule-bending profile: Q-toggle bend mode, radial menu (enlarge/shrink), physics objects (rock + crate), pressure plate puzzle, 20×20 arena, wall slams + collision damage
+- Room 5 ("The Workshop") — rule-bending profile: Q-toggle bend mode, radial menu (enlarge/shrink), suspended rock with tether drop puzzle, pressure plate, 20×20 arena, wall slams + collision damage
 - Room 6 ("The Arena") — vertical combat: jump (Space), launch (E), dunk (hold LMB), spike (tap LMB), aerial strike, 2 raised platforms, tighter camera (9.6 frustum), blue platform highlights on entry
 - All rooms are sandbox mode (door starts unlocked, enemies still spawn)
 - Room selector on start screen lets you jump to any room
@@ -142,24 +142,22 @@ Key architecture decisions:
 - 13 new test files (tags, terrain, aerial-verbs, dunk-verb, float-selector, spike-verb, entity-carrier, ground-shadows, player-jump, launch, ledge, vertical-physics, input-remap)
 
 ## What To Do Next
-All 6 rooms complete. Choose next step:
-- **Option A: Polish pass** — playtest all 6 rooms end-to-end, tune feel, add commentary UI, room transitions
-- **Option B: Deploy** — get the 6-room demo hosted and shareable
-- **Option C: Playtest The Workshop** — tune pressure plate position, physics object placement, arena layout, bend feel
-- **Option D: Commentary/narrative UI** — add the design exploration narration that makes this a portfolio piece
-
-**Recommendation:** Quick playtest of The Workshop (Option C) to validate the pressure plate puzzle flow, then deploy (Option B).
+Mobile polish done. Demo mode active (player can't die). Next priority:
+- **Room context/callouts** — brainstorm and design how to present design narrative per room (commentary UI, contextual hints, etc.). No plan exists yet — needs a brainstorming session. Each room has a `commentary` field on the start screen, but nothing in-game guides the player or explains what the room is exploring.
+- **Content pass** — once callout system is designed, write the actual copy for each room
+- **Further polish** — playtest all 6 rooms end-to-end on mobile, tune feel
 
 ## Open Questions
 - [ ] Whether to include archers in any rooms (adds ranged pressure but more complexity)
 - [ ] Room highlight timing/color tuning — current defaults feel good but may want to adjust per room
-- [ ] Commentary UI — how to present the design narrative text per room
+- [ ] Commentary/callout UI — how to present design narrative per room (needs brainstorming session — options include entry overlay, persistent subtitle, contextual callouts, or combination)
 - [x] ~~Room 5 detection tuning~~ — playtested, iterated: waypoint patrols, detection-based BT, push aggro delay, fixed spawns near pits
 - [x] ~~Whether Room 6 adds enough value~~ — resolved: Workshop added as Room 5, all 6 rooms complete
 - [x] ~~Vertical integration approach~~ — resolved: profile-gated superset, 15-task plan executed successfully
 - [x] ~~Assassin integration approach~~ — resolved: profile-gated, bullet time already wired, 8-task plan executed
 
 ## Session Log
+- **2026-02-20 (session 8)** — Mobile polish pass: moved bend button from left-side "Q" label into right-side radial fan with other mobile controls; redesigned Workshop rock as suspended object floating above pressure plate with glowing tether (Enlarge snaps tether, rock drops with animated fall onto plate); tightened mobile camera 22% (frustum 8→6.2); made room selector scrollable on mobile with fade gradient; made rock indestructible; added demo mode (health clamped at 1, can't die). Key decisions: floating rock with tether is simpler/clearer than ground-level push puzzle; demo mode removes game-over entirely rather than just raising health. All pushed to remote. Next: brainstorm room context/callout system (no plan exists yet).
 - **2026-02-19 (session 7)** — Completed Phase 4: The Workshop (rule-bending room). Designed enlarge/shrink puzzle room with physics objects and pressure plate. Executed 17-task implementation plan via subagent-driven development: copied 5 files from explore/rule-bending, added physics object velocity/collision/force push integration to physics.ts, wired bend mode (profile-gated Q toggle), added Room 5 definition, pressure plate system, HUD bend counter, mobile button. User playtested, requested larger arena (7→10 half-extents) and pressure plate addition. Key decisions: enlarge rock to exceed pressure plate mass threshold (2.0→4.0 > 3.5), shrink crate to make pushable (5.0→1.5); bend mode reuses bullet time visual but gates differently per profile. All 6 rooms now complete. 851 tests across 27 files. Next: playtest Workshop puzzle flow, then deploy.
 - **2026-02-19 (session 6)** — Playtested Room 4 "The Shadows" and iterated. Fixed 3 bugs from Phase 3 (force push E-key binding, enemy death in detection block, room 4/5 ordering). Added waypoint patrol system (slow rectangular circuits around pits instead of quick snap-turns). Fixed-position spawning (goblins near each pit). Refactored bullet time to trigger on vision cone overlap (detectionStarted/detectionCleared events with reference counting) instead of aggro — gives slow-mo reaction window before aggro fires. Added push aggro with 250ms delay (doesn't trigger BT). Fixed dash label. Key decisions: BT should feel like a reaction window to cone detection, not a consequence of aggro; push should aggro enemies but not trigger BT. Next: more playtesting, polish pass, or Room 6.
 - **2026-02-19 (session 5)** — Completed assassin detection room integration (Phase 3). Designed patrol maze with vision cones as portfolio's detection puzzle room. Executed 8-task plan: copied visionCone.ts, extended types/events/config, added patrol+detection+aggro to enemy.ts (profile-gated), wired systems, added Room 5 "The Shadows" (14×14 maze, 3 walls, 2 pillars, 3 pits, 5 goblins). Key discovery: bullet time was already fully integrated from Phase 2 — just needed to emit `enemyAggroed` event. 817 tests across 25 files all pass. Next: playtest Room 5 to tune detection feel.
