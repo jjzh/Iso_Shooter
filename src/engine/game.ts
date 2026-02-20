@@ -183,9 +183,10 @@ function gameLoop(timestamp: number): void {
   // 8b. Ice patches (slowed)
   updateIcePatches(gameDt);
 
-  // 9. Check for game over (phase may have changed during collision checks)
-  if ((gameState.phase as string) === 'gameOver') {
-    showGameOver(gameState);
+  // 9. Clamp health — demo mode, player can't die
+  if (gameState.playerHealth < 1) {
+    gameState.playerHealth = 1;
+    gameState.phase = 'playing';
   }
 
   // 10. Camera (real dt — smooth camera)

@@ -10648,10 +10648,6 @@ function initScreens(onRestart, onStart, onStartAtRoom) {
 function hideStartScreen() {
   startScreen.classList.add("hidden");
 }
-function showGameOver(gameState2) {
-  gameOverStats.textContent = `Enemies defeated: ${gameState2.currency} gold earned`;
-  gameOverScreen.classList.remove("hidden");
-}
 function hideScreens() {
   gameOverScreen.classList.add("hidden");
 }
@@ -11439,8 +11435,9 @@ function gameLoop(timestamp) {
   updatePendingEffects(gameDt);
   updateMortarProjectiles(gameDt);
   updateIcePatches(gameDt);
-  if (gameState.phase === "gameOver") {
-    showGameOver(gameState);
+  if (gameState.playerHealth < 1) {
+    gameState.playerHealth = 1;
+    gameState.phase = "playing";
   }
   updateCamera(getPlayerPos(), dt);
   updateGroundShadows(gameState);
