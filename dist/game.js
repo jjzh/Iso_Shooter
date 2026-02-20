@@ -6792,7 +6792,7 @@ var ROOMS = [
     profile: "vertical",
     sandboxMode: true,
     commentary: "What if combat had a real Z-axis? Jump, launch, spike, and dunk. What if terrain had more levels of height?",
-    intro: "What if we also leaned into the Z-axis of the game? Use the launch button to send enemies into the air! Tap to spike them volleyball. Press and hold to bullet-time dunk. What if terrain had more levels of height?",
+    intro: "What if we also leaned into the Z-axis of the game? Use the launch button to send enemies into the air! Tap to spike them volleyball. Press and hold to bullet-time dunk. What if terrain had more levels of height?\n\nOn mobile: after launching an enemy, tap Push / Atk to spike. Press and hold to dunk.",
     arenaHalfX: 12,
     arenaHalfZ: 12,
     obstacles: [],
