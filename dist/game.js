@@ -6588,7 +6588,7 @@ var ROOMS = [
     profile: "origin",
     sandboxMode: true,
     commentary: "Where I started: auto-fire, simple shapes, simple movement.",
-    intro: "This was the first hackathon build \u2014 Auto-fire projectiles, a cylinder-and-sphere player model, WASD movement. It's simplified to one enemy type here but there are more.",
+    intro: "This was the first hackathon build: Auto-fire projectiles, WASD movement and a simple dash.",
     arenaHalfX: 9,
     arenaHalfZ: 16,
     obstacles: [
