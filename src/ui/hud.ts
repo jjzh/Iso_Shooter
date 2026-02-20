@@ -2,6 +2,7 @@ import { ABILITIES } from '../config/abilities';
 import { PLAYER } from '../config/player';
 import {
   triggerDash, triggerUltimate, setUltimateHeld,
+  triggerAttack, setAttackHeld,
   triggerJump, triggerLaunch, triggerCancel,
   setAimFromScreenDrag, setAbilityDirOverride, clearAbilityDirOverride,
   getInputState
@@ -218,23 +219,41 @@ function initMobileButtons() {
     },
   });
 
-  // --- Ultimate (Push): drag-to-aim, charge while held ---
+  // --- Push button: tap = melee attack, hold > 200ms = force push charge ---
   if (mobileBtnUlt) {
+    let pushHoldTimer: any = null;
+    let pushIsCharging = false;
+    const PUSH_HOLD_THRESHOLD = 200; // ms — matches desktop LMB hold threshold
+
     setupDragToAim(mobileBtnUlt, {
       onDragStart: () => {
-        triggerUltimate();
-        setUltimateHeld(true);
+        pushIsCharging = false;
+        triggerAttack();
+        setAttackHeld(true);
+        pushHoldTimer = setTimeout(() => {
+          pushIsCharging = true;
+          triggerUltimate();
+          setUltimateHeld(true);
+        }, PUSH_HOLD_THRESHOLD);
       },
       onDragMove: (normX: number, normY: number) => {
         setAimFromScreenDrag(normX, normY);
       },
       onRelease: () => {
-        setUltimateHeld(false);
+        clearTimeout(pushHoldTimer);
+        setAttackHeld(false);
+        if (pushIsCharging) {
+          setUltimateHeld(false);
+        }
         clearAbilityDirOverride();
+        pushIsCharging = false;
       },
       onCancel: () => {
+        clearTimeout(pushHoldTimer);
+        setAttackHeld(false);
         setUltimateHeld(false);
         clearAbilityDirOverride();
+        pushIsCharging = false;
       },
     });
   }
@@ -339,14 +358,13 @@ export function updateMobileButtons() {
     // Origin: just dash
     placeBtn(mobileBtnDash, mc.fanSize, primaryRight, primaryBottom);
   } else if (profile === 'vertical') {
-    // Vertical: Push (primary) + Dash, Jump, Launch (fan) + Cancel (above)
+    // Vertical: Push (primary) + Dash, Jump, Launch (fan)
     placeBtn(mobileBtnUlt, mc.primarySize, primaryRight, primaryBottom);
     placeFan([
       { el: mobileBtnDash, size: mc.fanSize },
       { el: mobileBtnJump, size: mc.fanSize },
       { el: mobileBtnLaunch, size: mc.fanSize },
     ]);
-    placeCancel();
   } else if (profile === 'rule-bending') {
     // Rule-bending: Push (primary) + Dash, Bend (fan)
     placeBtn(mobileBtnUlt, mc.primarySize, primaryRight, primaryBottom);

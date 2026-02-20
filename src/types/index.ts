@@ -467,6 +467,7 @@ export interface SpawnPackEnemy {
   type: string;
   fixedPos?: { x: number; z: number };            // override zone-based position
   patrolWaypoints?: { x: number; z: number }[];   // waypoint circuit for assassin patrol
+  frozen?: boolean;                                // spawn permanently stunned (won't move or attack)
 }
 
 export interface SpawnPack {

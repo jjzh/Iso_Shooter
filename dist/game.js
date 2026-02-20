@@ -113,7 +113,7 @@ function initRenderer() {
   camera.position.copy(cameraOffset);
   camera.lookAt(0, 0, 0);
   const hasTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
-  if (hasTouch) applyFrustum(6.2);
+  if (hasTouch) applyFrustum(4.5);
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(w, h);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -6478,11 +6478,17 @@ function triggerUltimate() {
 function setUltimateHeld(held) {
   _touchUltHeld = held;
 }
+function triggerAttack() {
+  inputState.attack = true;
+}
 function triggerJump() {
   inputState.jump = true;
 }
 function triggerLaunch() {
   inputState.launch = true;
+}
+function setAttackHeld(held) {
+  inputState.attackHeld = held;
 }
 var _cancelRequested = false;
 function triggerCancel() {
@@ -6605,12 +6611,11 @@ var ROOMS = [
       { x: 3, z: 6, w: 3, d: 2.5 }
     ],
     spawnBudget: {
-      maxConcurrent: 4,
+      maxConcurrent: 3,
       telegraphDuration: 1500,
       packs: [
         pack(goblins(2), "ahead"),
-        pack(goblins(2), "ahead"),
-        pack(goblins(3), "sides")
+        pack(goblins(2), "sides")
       ]
     },
     playerStart: { x: 0, z: 16 }
@@ -6641,13 +6646,12 @@ var ROOMS = [
       { x: 0, z: -16, w: 4, d: 3 }
     ],
     spawnBudget: {
-      maxConcurrent: 5,
+      maxConcurrent: 4,
       telegraphDuration: 1500,
       packs: [
         pack(goblins(2), "ahead"),
         pack(goblins(2), "far"),
-        pack(goblins(3), "ahead"),
-        pack(goblins(3), "sides")
+        pack(goblins(2), "sides")
       ]
     },
     playerStart: { x: 0, z: 18 }
@@ -6688,22 +6692,20 @@ var ROOMS = [
       // lower-right, between center and lower walls
     ],
     spawnBudget: {
-      maxConcurrent: 5,
+      maxConcurrent: 3,
       telegraphDuration: 1500,
       packs: [
-        // Pit 1 (x:8, z:5) — right side, 2 goblins on opposite corners
+        // Pit 1 (x:8, z:5) — right side, 1 goblin patrolling
         {
           enemies: [
-            { type: "goblin", fixedPos: { x: 11, z: 3 }, patrolWaypoints: [{ x: 11, z: 3 }, { x: 11, z: 7 }, { x: 5, z: 7 }, { x: 5, z: 3 }] },
-            { type: "goblin", fixedPos: { x: 5, z: 7 }, patrolWaypoints: [{ x: 5, z: 7 }, { x: 5, z: 3 }, { x: 11, z: 3 }, { x: 11, z: 7 }] }
+            { type: "goblin", fixedPos: { x: 11, z: 3 }, patrolWaypoints: [{ x: 11, z: 3 }, { x: 11, z: 7 }, { x: 5, z: 7 }, { x: 5, z: 3 }] }
           ],
           spawnZone: "ahead"
         },
-        // Pit 2 (x:-8, z:-1) — left side, 2 goblins on opposite corners
+        // Pit 2 (x:-8, z:-1) — left side, 1 goblin patrolling
         {
           enemies: [
-            { type: "goblin", fixedPos: { x: -5, z: -3 }, patrolWaypoints: [{ x: -5, z: -3 }, { x: -5, z: 1 }, { x: -11, z: 1 }, { x: -11, z: -3 }] },
-            { type: "goblin", fixedPos: { x: -11, z: 1 }, patrolWaypoints: [{ x: -11, z: 1 }, { x: -11, z: -3 }, { x: -5, z: -3 }, { x: -5, z: 1 }] }
+            { type: "goblin", fixedPos: { x: -5, z: -3 }, patrolWaypoints: [{ x: -5, z: -3 }, { x: -5, z: 1 }, { x: -11, z: 1 }, { x: -11, z: -3 }] }
           ],
           spawnZone: "ahead"
         },
@@ -6759,8 +6761,8 @@ var ROOMS = [
       maxConcurrent: 6,
       telegraphDuration: 1500,
       packs: [
-        // Goblin loitering under the suspended boulder — enlarge the rock to crush it
-        { enemies: [{ type: "goblin", fixedPos: { x: 0, z: 0 }, patrolWaypoints: [{ x: 0.5, z: 0.5 }, { x: -0.5, z: 0.5 }, { x: -0.5, z: -0.5 }, { x: 0.5, z: -0.5 }] }], spawnZone: "ahead" },
+        // Goblin frozen under the suspended boulder — enlarge the rock to crush it
+        { enemies: [{ type: "goblin", fixedPos: { x: 0, z: 0 }, frozen: true }], spawnZone: "ahead" },
         { enemies: [{ type: "goblin" }, { type: "goblin" }, { type: "goblin" }], spawnZone: "ahead" }
       ]
     },
@@ -10012,10 +10014,13 @@ function updateRoomManager(dt, gameState2) {
         removeTelegraph2(tel);
       }
       for (let j = 0; j < tg.pack.enemies.length; j++) {
-        const enemy = tg.pack.enemies[j];
+        const enemyDef = tg.pack.enemies[j];
         const pos = tg.positions[j];
         const spawnPos = new THREE.Vector3(pos.x, 0, pos.z);
-        spawnEnemy(enemy.type, spawnPos, gameState2, enemy.patrolWaypoints);
+        const spawned = spawnEnemy(enemyDef.type, spawnPos, gameState2, enemyDef.patrolWaypoints);
+        if (enemyDef.frozen && spawned) {
+          spawned.stunTimer = Infinity;
+        }
       }
       emit({ type: "spawnPackSpawned", packIndex: tg.packIdx, roomIndex: currentRoomIndex });
       activeTelegraphs2.splice(i, 1);
@@ -10378,21 +10383,38 @@ function initMobileButtons() {
     }
   });
   if (mobileBtnUlt) {
+    let pushHoldTimer = null;
+    let pushIsCharging = false;
+    const PUSH_HOLD_THRESHOLD = 200;
     setupDragToAim(mobileBtnUlt, {
       onDragStart: () => {
-        triggerUltimate();
-        setUltimateHeld(true);
+        pushIsCharging = false;
+        triggerAttack();
+        setAttackHeld(true);
+        pushHoldTimer = setTimeout(() => {
+          pushIsCharging = true;
+          triggerUltimate();
+          setUltimateHeld(true);
+        }, PUSH_HOLD_THRESHOLD);
       },
       onDragMove: (normX, normY) => {
         setAimFromScreenDrag(normX, normY);
       },
       onRelease: () => {
-        setUltimateHeld(false);
+        clearTimeout(pushHoldTimer);
+        setAttackHeld(false);
+        if (pushIsCharging) {
+          setUltimateHeld(false);
+        }
         clearAbilityDirOverride();
+        pushIsCharging = false;
       },
       onCancel: () => {
+        clearTimeout(pushHoldTimer);
+        setAttackHeld(false);
         setUltimateHeld(false);
         clearAbilityDirOverride();
+        pushIsCharging = false;
       }
     });
   }
@@ -10474,7 +10496,6 @@ function updateMobileButtons() {
       { el: mobileBtnJump, size: mc.fanSize },
       { el: mobileBtnLaunch, size: mc.fanSize }
     ]);
-    placeCancel();
   } else if (profile === "rule-bending") {
     placeBtn(mobileBtnUlt, mc.primarySize, primaryRight, primaryBottom);
     placeFan([

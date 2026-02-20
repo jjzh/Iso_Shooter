@@ -251,10 +251,13 @@ export function updateRoomManager(dt: number, gameState: any) {
       }
       // Spawn enemies at resolved positions
       for (let j = 0; j < tg.pack.enemies.length; j++) {
-        const enemy = tg.pack.enemies[j];
+        const enemyDef = tg.pack.enemies[j];
         const pos = tg.positions[j];
         const spawnPos = new THREE.Vector3(pos.x, 0, pos.z);
-        spawnEnemy(enemy.type, spawnPos, gameState, enemy.patrolWaypoints);
+        const spawned = spawnEnemy(enemyDef.type, spawnPos, gameState, enemyDef.patrolWaypoints);
+        if (enemyDef.frozen && spawned) {
+          spawned.stunTimer = Infinity;
+        }
       }
       emit({ type: 'spawnPackSpawned', packIndex: tg.packIdx, roomIndex: currentRoomIndex });
       activeTelegraphs.splice(i, 1);

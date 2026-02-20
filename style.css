@@ -445,7 +445,7 @@ canvas {
 }
 
 .mobile-btn:active {
-  transform: translate(50%, 50%) scale(0.9);
+  transform: scale(0.9) !important;
 }
 
 .mobile-btn-icon {
@@ -516,14 +516,17 @@ canvas {
     max-height: 35vh;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
     -webkit-mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
     padding-bottom: 16px;
+    padding-right: 12px;
   }
 
   .room-selector-btn {
-    padding: 8px 14px;
+    padding: 12px 14px;
     font-size: 11px;
+    min-height: 54px;
   }
 
   .room-selector-btn .room-desc {

@@ -107,12 +107,11 @@ export const ROOMS: RoomDefinition[] = [
       { x: 3, z: 6, w: 3, d: 2.5 },
     ],
     spawnBudget: {
-      maxConcurrent: 4,
+      maxConcurrent: 3,
       telegraphDuration: 1500,
       packs: [
         pack(goblins(2), 'ahead'),
-        pack(goblins(2), 'ahead'),
-        pack(goblins(3), 'sides'),
+        pack(goblins(2), 'sides'),
       ],
     },
     playerStart: { x: 0, z: 16 },
@@ -144,13 +143,12 @@ export const ROOMS: RoomDefinition[] = [
       { x: 0, z: -16, w: 4, d: 3 },
     ],
     spawnBudget: {
-      maxConcurrent: 5,
+      maxConcurrent: 4,
       telegraphDuration: 1500,
       packs: [
         pack(goblins(2), 'ahead'),
         pack(goblins(2), 'far'),
-        pack(goblins(3), 'ahead'),
-        pack(goblins(3), 'sides'),
+        pack(goblins(2), 'sides'),
       ],
     },
     playerStart: { x: 0, z: 18 },
@@ -184,22 +182,20 @@ export const ROOMS: RoomDefinition[] = [
       { x: 4, z: -5, w: 3, d: 2.5 },   // lower-right, between center and lower walls
     ],
     spawnBudget: {
-      maxConcurrent: 5,
+      maxConcurrent: 3,
       telegraphDuration: 1500,
       packs: [
-        // Pit 1 (x:8, z:5) — right side, 2 goblins on opposite corners
+        // Pit 1 (x:8, z:5) — right side, 1 goblin patrolling
         {
           enemies: [
             { type: 'goblin', fixedPos: { x: 11, z: 3 }, patrolWaypoints: [{ x: 11, z: 3 }, { x: 11, z: 7 }, { x: 5, z: 7 }, { x: 5, z: 3 }] },
-            { type: 'goblin', fixedPos: { x: 5, z: 7 }, patrolWaypoints: [{ x: 5, z: 7 }, { x: 5, z: 3 }, { x: 11, z: 3 }, { x: 11, z: 7 }] },
           ],
           spawnZone: 'ahead' as const,
         },
-        // Pit 2 (x:-8, z:-1) — left side, 2 goblins on opposite corners
+        // Pit 2 (x:-8, z:-1) — left side, 1 goblin patrolling
         {
           enemies: [
             { type: 'goblin', fixedPos: { x: -5, z: -3 }, patrolWaypoints: [{ x: -5, z: -3 }, { x: -5, z: 1 }, { x: -11, z: 1 }, { x: -11, z: -3 }] },
-            { type: 'goblin', fixedPos: { x: -11, z: 1 }, patrolWaypoints: [{ x: -11, z: 1 }, { x: -11, z: -3 }, { x: -5, z: -3 }, { x: -5, z: 1 }] },
           ],
           spawnZone: 'ahead' as const,
         },
@@ -254,8 +250,8 @@ export const ROOMS: RoomDefinition[] = [
       maxConcurrent: 6,
       telegraphDuration: 1500,
       packs: [
-        // Goblin loitering under the suspended boulder — enlarge the rock to crush it
-        { enemies: [{ type: 'goblin', fixedPos: { x: 0, z: 0 }, patrolWaypoints: [{ x: 0.5, z: 0.5 }, { x: -0.5, z: 0.5 }, { x: -0.5, z: -0.5 }, { x: 0.5, z: -0.5 }] }], spawnZone: 'ahead' as const },
+        // Goblin frozen under the suspended boulder — enlarge the rock to crush it
+        { enemies: [{ type: 'goblin', fixedPos: { x: 0, z: 0 }, frozen: true }], spawnZone: 'ahead' as const },
         { enemies: [{ type: 'goblin' }, { type: 'goblin' }, { type: 'goblin' }], spawnZone: 'ahead' as const },
       ],
     },
