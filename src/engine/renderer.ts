@@ -3,7 +3,9 @@ import { HEIGHT_ZONES } from '../config/terrain';
 
 let scene: any, camera: any, renderer: any;
 const baseFrustum = 12;
+const mobileFrustum = 4.5;
 let currentFrustum = 12;
+let isMobile = false;
 const cameraOffset = new THREE.Vector3(20, 20, 20);
 
 // Tracked arena meshes for dynamic rebuild
@@ -37,7 +39,10 @@ export function initRenderer() {
 
   // Zoom camera in on mobile for tighter view
   const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-  if (hasTouch) applyFrustum(4.5);
+  if (hasTouch) {
+    isMobile = true;
+    applyFrustum(mobileFrustum);
+  }
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(w, h);
@@ -275,11 +280,16 @@ function applyFrustum(f: number) {
 }
 
 export function setZoom(frustum: number) {
-  applyFrustum(Math.max(6, Math.min(30, frustum)));
+  applyFrustum(Math.max(3, Math.min(30, frustum)));
 }
 
 export function setFrustumSize(size: number) {
-  applyFrustum(size);
+  // On mobile, scale the requested frustum relative to mobile base
+  if (isMobile) {
+    applyFrustum(mobileFrustum * (size / baseFrustum));
+  } else {
+    applyFrustum(size);
+  }
 }
 
 export function resetZoom() {

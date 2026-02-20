@@ -355,8 +355,10 @@ export function updateMobileButtons() {
   }
 
   if (profile === 'origin') {
-    // Origin: just dash
-    placeBtn(mobileBtnDash, mc.fanSize, primaryRight, primaryBottom);
+    // Origin: just dash — positioned in fan slot (same spot as other profiles)
+    placeFan([
+      { el: mobileBtnDash, size: mc.fanSize },
+    ]);
   } else if (profile === 'vertical') {
     // Vertical: Push (primary) + Dash, Jump, Launch (fan)
     placeBtn(mobileBtnUlt, mc.primarySize, primaryRight, primaryBottom);

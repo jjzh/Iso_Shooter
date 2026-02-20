@@ -85,7 +85,9 @@ var scene;
 var camera;
 var renderer;
 var baseFrustum = 12;
+var mobileFrustum = 4.5;
 var currentFrustum = 12;
+var isMobile = false;
 var cameraOffset = new THREE.Vector3(20, 20, 20);
 var obstacleMeshes = [];
 var wallMeshes = [];
@@ -113,7 +115,10 @@ function initRenderer() {
   camera.position.copy(cameraOffset);
   camera.lookAt(0, 0, 0);
   const hasTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
-  if (hasTouch) applyFrustum(4.5);
+  if (hasTouch) {
+    isMobile = true;
+    applyFrustum(mobileFrustum);
+  }
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(w, h);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -300,7 +305,11 @@ function applyFrustum(f) {
   currentFrustum = f;
 }
 function setFrustumSize(size) {
-  applyFrustum(size);
+  if (isMobile) {
+    applyFrustum(mobileFrustum * (size / baseFrustum));
+  } else {
+    applyFrustum(size);
+  }
 }
 function updateCamera(playerPos2, dt) {
   camera.position.copy(playerPos2).add(cameraOffset);
@@ -6595,7 +6604,7 @@ var ROOMS = [
     profile: "base",
     sandboxMode: true,
     commentary: "How does adding displacement affect combat? What about hazards?",
-    intro: "Activate force-push with E or press-and-hold LMB. Dash past goblins and push them into pits.",
+    intro: "Activate force-push with E or press-and-hold LMB. Dash past goblins and push them into pits.\n\nOn mobile: tap the Push button to attack, press and hold to charge force-push.",
     arenaHalfX: 10,
     arenaHalfZ: 20,
     enableWallSlamDamage: false,
@@ -6632,18 +6641,18 @@ var ROOMS = [
     intro: "Can we extend physics more and lean into the isometric camera. Knocking enemies into each other and terrain is satisfying. Players have more options in second-to-second gameplay.",
     enableWallSlamDamage: true,
     enableEnemyCollisionDamage: true,
-    arenaHalfX: 11,
-    arenaHalfZ: 22,
+    arenaHalfX: 9,
+    arenaHalfZ: 16,
     obstacles: [
-      { x: -6, z: 0, w: 2, h: 2, d: 2 },
-      { x: 6, z: 0, w: 2, h: 2, d: 2 },
-      { x: 0, z: -10, w: 4, h: 1.5, d: 1 },
-      { x: -3, z: 10, w: 1.5, h: 2, d: 1.5 }
+      { x: -5, z: 0, w: 2, h: 2, d: 2 },
+      { x: 5, z: 0, w: 2, h: 2, d: 2 },
+      { x: 0, z: -8, w: 4, h: 1.5, d: 1 },
+      { x: -3, z: 8, w: 1.5, h: 2, d: 1.5 }
     ],
     pits: [
-      { x: -8, z: -8, w: 3, d: 4 },
-      { x: 8, z: 5, w: 3, d: 3 },
-      { x: 0, z: -16, w: 4, d: 3 }
+      { x: -6, z: -6, w: 3, d: 3 },
+      { x: 6, z: 4, w: 3, d: 3 },
+      { x: 0, z: -12, w: 4, d: 3 }
     ],
     spawnBudget: {
       maxConcurrent: 4,
@@ -6654,7 +6663,7 @@ var ROOMS = [
         pack(goblins(2), "sides")
       ]
     },
-    playerStart: { x: 0, z: 18 }
+    playerStart: { x: 0, z: 12 }
   },
   // ══════════════════════════════════════════════════════════════════════
   // Room 4: "The Shadows" — patrol maze, vision cones, detection puzzle
@@ -10488,7 +10497,9 @@ function updateMobileButtons() {
     placeBtn(mobileBtnCancel, mc.cancelSize, primaryRight, primaryBottom + mc.arcRadius + 10);
   }
   if (profile === "origin") {
-    placeBtn(mobileBtnDash, mc.fanSize, primaryRight, primaryBottom);
+    placeFan([
+      { el: mobileBtnDash, size: mc.fanSize }
+    ]);
   } else if (profile === "vertical") {
     placeBtn(mobileBtnUlt, mc.primarySize, primaryRight, primaryBottom);
     placeFan([
