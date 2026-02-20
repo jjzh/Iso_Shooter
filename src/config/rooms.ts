@@ -56,11 +56,11 @@ export const ROOMS: RoomDefinition[] = [
   // Room 1: "The Origin" — Feb 7 prototype, auto-fire projectiles, cylinder+sphere model
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'The Origin',
+    name: 'Origin — Feb 7th',
     profile: 'origin',
     sandboxMode: true,
-    commentary: "Where it all started: auto-fire, simple shapes, pure movement.",
-    intro: "The very first prototype — February 7th. Auto-fire projectiles, a cylinder-and-sphere player model, and the question: does moving and shooting in isometric feel good? This is where it all started.",
+    commentary: "Where I started: auto-fire, simple shapes, simple movement.",
+    intro: "This was the first hackathon build — Auto-fire projectiles, a cylinder-and-sphere player model, WASD movement. It's simplified to one enemy type here but there are more.",
     arenaHalfX: 9,
     arenaHalfZ: 16,
     obstacles: [
@@ -84,11 +84,11 @@ export const ROOMS: RoomDefinition[] = [
   // Room 2: "The Foundation" — goblins only, teach melee + dash + pit kills
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'The Foundation',
+    name: 'Foundations — Feb 18',
     profile: 'base',
     sandboxMode: true,
-    commentary: "Starting point: what's the simplest satisfying combat loop?",
-    intro: "What's the simplest satisfying combat loop? Goblins rush you, you have melee and dash. Pits in the arena let you knock enemies off the edge. The design question: can force push + environmental hazards carry the combat?",
+    commentary: "How does adding displacement affect combat? What about hazards?",
+    intro: "Activate force-push with E or press-and-hold LMB. Dash past goblins and push them into pits.",
     arenaHalfX: 10,
     arenaHalfZ: 20,
     enableWallSlamDamage: false,
@@ -119,11 +119,11 @@ export const ROOMS: RoomDefinition[] = [
   // Room 2: "Physics Playground" — walls + pits, force push as spatial tool
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'Physics Playground',
+    name: 'Add More Physics — Feb 18',
     profile: 'base',
     sandboxMode: true,
-    commentary: "What if the arena is the weapon? Physics-first combat.",
-    intro: "What if the arena itself is the weapon? Wall slam damage, enemy collision damage, and pits everywhere. The force push becomes a spatial tool — not just knockback, but a way to use the environment against enemies.",
+    commentary: "Can we extend physics-first combat further?",
+    intro: "Can we extend physics more and lean into the isometric camera. Knocking enemies into each other and terrain is satisfying. Players have more options in second-to-second gameplay.",
     enableWallSlamDamage: true,
     enableEnemyCollisionDamage: true,
     arenaHalfX: 11,
@@ -156,11 +156,11 @@ export const ROOMS: RoomDefinition[] = [
   // Room 4: "The Shadows" — patrol maze, vision cones, detection puzzle
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'The Shadows',
+    name: 'Tension & Sneak — Feb 19',
     profile: 'assassin' as PlayerProfile,
     sandboxMode: true,
-    commentary: "What if the design question shifts from damage to detection?",
-    intro: "What if the design question shifts from 'how do I deal damage' to 'how do I avoid detection'? Enemies patrol with vision cones. Cover matters. You can still fight — but getting spotted changes the encounter.",
+    commentary: "How do we add tension? How can we slow the game down?",
+    intro: "What does an assassination or heist variation of the sandbox look like? How can we make the experience accessible? Bullet-time automatically activates when you get spotted or use Q to trigger it manually.",
     arenaHalfX: 14,
     arenaHalfZ: 14,
     obstacles: [
@@ -217,11 +217,11 @@ export const ROOMS: RoomDefinition[] = [
   // Room 5: "The Workshop" — rule-bending (enlarge/shrink physics objects)
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'The Workshop',
+    name: 'Puzzles & Magic — Feb 19',
     profile: 'rule-bending' as PlayerProfile,
     sandboxMode: true,
-    commentary: 'What if you could bend the rules? Enlarge a rock, shrink a crate...',
-    intro: "What if you could bend the rules of the world? Enlarge a rock to trigger a pressure plate. Shrink a crate blocking your path. This room explores object manipulation as a core verb alongside combat.",
+    commentary: "What does magic look like? Enlarge a rock, shrink a crate...",
+    intro: "What if you could bend the rules of the world? How can we incorporate magic in a way that supports the sandbox?\n\nBuilding off of Bullet-time, use Q to enlarge the floating rock. This room explores layering puzzle gameplay in the sandbox.",
     arenaHalfX: 14,
     arenaHalfZ: 14,
     obstacles: [
@@ -266,11 +266,11 @@ export const ROOMS: RoomDefinition[] = [
   // Room 6: "The Arena" — vertical combat: jump, launch, dunk, spike
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'The Arena',
+    name: 'Physics Playground — Feb 19',
     profile: 'vertical' as PlayerProfile,
     sandboxMode: true,
-    commentary: 'What if combat had a Y-axis? Jump, launch, dunk, spike — the current direction.',
-    intro: "What if combat had a Y-axis? Jump, launch enemies into the air, dunk them back down, spike them across the arena. This is the current direction — vertical combat with physics-driven aerial verbs.",
+    commentary: "What if combat had a real Z-axis? Jump, launch, spike, and dunk. What if terrain had more levels of height?",
+    intro: "What if we also leaned into the Z-axis of the game? Use the launch button to send enemies into the air! Tap to spike them volleyball. Press and hold to bullet-time dunk. What if terrain had more levels of height?",
     arenaHalfX: 12,
     arenaHalfZ: 12,
     obstacles: [],
