@@ -6252,6 +6252,7 @@ var prevGamepadButtons = {};
 var usingGamepad = false;
 var touchMoveX = 0;
 var touchMoveY = 0;
+var touchMoveActive = false;
 var touchAimX = 0;
 var touchAimY = 0;
 var touchAimActive = false;
@@ -6347,11 +6348,13 @@ function initTouchJoysticks() {
     const angle = data.angle.radian;
     touchMoveX = Math.cos(angle) * force;
     touchMoveY = Math.sin(angle) * force;
+    touchMoveActive = true;
     touchActive = true;
   });
   leftJoystick.on("end", () => {
     touchMoveX = 0;
     touchMoveY = 0;
+    touchMoveActive = false;
   });
   const rightJoystick = nipplejs.create({
     zone: zoneRight,
@@ -6377,7 +6380,7 @@ function initTouchJoysticks() {
 }
 function pollTouchJoysticks() {
   if (!touchActive) return;
-  if (Math.abs(touchMoveX) > 0.01 || Math.abs(touchMoveY) > 0.01) {
+  if (touchMoveActive && (Math.abs(touchMoveX) > 0.01 || Math.abs(touchMoveY) > 0.01)) {
     const tMoveX = touchMoveX * ISO_RIGHT_X + touchMoveY * ISO_UP_X;
     const tMoveZ = touchMoveX * ISO_RIGHT_Z + touchMoveY * ISO_UP_Z;
     const kbActive = Math.abs(inputState.moveX) > 0.01 || Math.abs(inputState.moveZ) > 0.01;
@@ -11513,6 +11516,8 @@ function gameLoop(timestamp) {
   if (dt <= 0) return;
   if (hitPauseTimer > 0) {
     hitPauseTimer -= dt * 1e3;
+    updateInput();
+    consumeInput();
     getRendererInstance().render(getScene(), getCamera());
     return;
   }

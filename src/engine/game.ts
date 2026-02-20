@@ -81,6 +81,8 @@ function gameLoop(timestamp: number): void {
   // Hit pause (freeze frame on melee hit)
   if (hitPauseTimer > 0) {
     hitPauseTimer -= dt * 1000;
+    updateInput();   // keep input state fresh so joystick releases aren't missed
+    consumeInput();
     getRendererInstance().render(getScene(), getCamera());
     return;
   }

@@ -43,9 +43,10 @@ let usingGamepad = false;
 
 // Touch joystick state (nipplejs)
 let touchMoveX = 0, touchMoveY = 0;  // screen-space from left stick
+let touchMoveActive = false;         // true only while left stick is held
 let touchAimX = 0, touchAimY = 0;    // screen-space from right stick
 let touchAimActive = false;
-let touchActive = false;             // true when any touch joystick is in use
+let touchActive = false;             // true when any touch joystick has been used
 
 let _checkMouseHold: () => void = () => {};
 
@@ -153,11 +154,13 @@ function initTouchJoysticks() {
     const angle = data.angle.radian;
     touchMoveX = Math.cos(angle) * force;   // screen-right
     touchMoveY = Math.sin(angle) * force;   // screen-up
+    touchMoveActive = true;
     touchActive = true;
   });
   leftJoystick.on('end', () => {
     touchMoveX = 0;
     touchMoveY = 0;
+    touchMoveActive = false;
   });
 
   // Right joystick — aim + auto-fire
@@ -188,8 +191,8 @@ function initTouchJoysticks() {
 function pollTouchJoysticks() {
   if (!touchActive) return;
 
-  // --- Left stick: movement ---
-  if (Math.abs(touchMoveX) > 0.01 || Math.abs(touchMoveY) > 0.01) {
+  // --- Left stick: movement (only while stick is actively held) ---
+  if (touchMoveActive && (Math.abs(touchMoveX) > 0.01 || Math.abs(touchMoveY) > 0.01)) {
     // Map screen-space joystick to isometric world-space (same as WASD/gamepad)
     // touchMoveX = screen right, touchMoveY = screen up
     const tMoveX = touchMoveX * ISO_RIGHT_X + touchMoveY * ISO_UP_X;
