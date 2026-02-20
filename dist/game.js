@@ -6686,7 +6686,7 @@ var ROOMS = [
     profile: "assassin",
     sandboxMode: true,
     commentary: "How do we add tension? How can we slow the game down?",
-    intro: "What does an assassination or heist variation of the sandbox look like? How can we make the experience accessible? Bullet-time automatically activates when you get spotted or use Q to trigger it manually.",
+    intro: "I want to increase tension and experiment with slowing the game down. Try using Q to activate bullet time and avoid being spotted.",
     arenaHalfX: 14,
     arenaHalfZ: 14,
     obstacles: [
