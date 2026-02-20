@@ -417,7 +417,7 @@ export interface AbilityState {
 }
 
 export interface GameState {
-  phase: 'waiting' | 'playing' | 'gameOver';
+  phase: 'waiting' | 'playing' | 'gameOver' | 'intro';
   playerHealth: number;
   playerMaxHealth: number;
   currency: number;

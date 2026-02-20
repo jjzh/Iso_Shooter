@@ -19,6 +19,7 @@ export interface RoomDefinition {
   profile: PlayerProfile;
   sandboxMode: boolean;
   commentary: string;
+  intro?: string;
   arenaHalfX: number;
   arenaHalfZ: number;
   obstacles: Obstacle[];
@@ -59,6 +60,7 @@ export const ROOMS: RoomDefinition[] = [
     profile: 'origin',
     sandboxMode: true,
     commentary: "Where it all started: auto-fire, simple shapes, pure movement.",
+    intro: "The very first prototype — February 7th. Auto-fire projectiles, a cylinder-and-sphere player model, and the question: does moving and shooting in isometric feel good? This is where it all started.",
     arenaHalfX: 9,
     arenaHalfZ: 16,
     obstacles: [
@@ -86,6 +88,7 @@ export const ROOMS: RoomDefinition[] = [
     profile: 'base',
     sandboxMode: true,
     commentary: "Starting point: what's the simplest satisfying combat loop?",
+    intro: "What's the simplest satisfying combat loop? Goblins rush you, you have melee and dash. Pits in the arena let you knock enemies off the edge. The design question: can force push + environmental hazards carry the combat?",
     arenaHalfX: 10,
     arenaHalfZ: 20,
     enableWallSlamDamage: false,
@@ -120,6 +123,7 @@ export const ROOMS: RoomDefinition[] = [
     profile: 'base',
     sandboxMode: true,
     commentary: "What if the arena is the weapon? Physics-first combat.",
+    intro: "What if the arena itself is the weapon? Wall slam damage, enemy collision damage, and pits everywhere. The force push becomes a spatial tool — not just knockback, but a way to use the environment against enemies.",
     enableWallSlamDamage: true,
     enableEnemyCollisionDamage: true,
     arenaHalfX: 11,
@@ -156,6 +160,7 @@ export const ROOMS: RoomDefinition[] = [
     profile: 'assassin' as PlayerProfile,
     sandboxMode: true,
     commentary: "What if the design question shifts from damage to detection?",
+    intro: "What if the design question shifts from 'how do I deal damage' to 'how do I avoid detection'? Enemies patrol with vision cones. Cover matters. You can still fight — but getting spotted changes the encounter.",
     arenaHalfX: 14,
     arenaHalfZ: 14,
     obstacles: [
@@ -216,6 +221,7 @@ export const ROOMS: RoomDefinition[] = [
     profile: 'rule-bending' as PlayerProfile,
     sandboxMode: true,
     commentary: 'What if you could bend the rules? Enlarge a rock, shrink a crate...',
+    intro: "What if you could bend the rules of the world? Enlarge a rock to trigger a pressure plate. Shrink a crate blocking your path. This room explores object manipulation as a core verb alongside combat.",
     arenaHalfX: 14,
     arenaHalfZ: 14,
     obstacles: [
@@ -262,6 +268,7 @@ export const ROOMS: RoomDefinition[] = [
     profile: 'vertical' as PlayerProfile,
     sandboxMode: true,
     commentary: 'What if combat had a Y-axis? Jump, launch, dunk, spike — the current direction.',
+    intro: "What if combat had a Y-axis? Jump, launch enemies into the air, dunk them back down, spike them across the arena. This is the current direction — vertical combat with physics-driven aerial verbs.",
     arenaHalfX: 12,
     arenaHalfZ: 12,
     obstacles: [],

@@ -28,9 +28,11 @@
 
   <!-- Overlay screens -->
   <div id="start-screen" class="screen">
-    <h1>ISO BATTLER</h1>
-    <p>Design exploration — a playable portfolio</p>
-    <button id="start-btn">Start</button>
+    <div class="start-screen-main">
+      <h1>GAMEPLAY SANDBOX</h1>
+      <p>Design exploration — a playable portfolio</p>
+      <button id="start-btn">Start</button>
+    </div>
     <div id="room-selector">
       <p class="room-selector-label">Or jump to a room:</p>
       <div id="room-selector-list"></div>
@@ -41,6 +43,14 @@
     <h1>DEFEATED</h1>
     <p id="game-over-stats"></p>
     <button id="restart-btn">Restart</button>
+  </div>
+
+  <div id="room-intro" class="hidden">
+    <div class="room-intro-content">
+      <h2 id="room-intro-name"></h2>
+      <p id="room-intro-text"></p>
+      <button id="room-intro-continue">Continue</button>
+    </div>
   </div>
 
   <!-- Mobile action buttons (hidden on desktop via CSS) -->

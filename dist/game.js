@@ -6560,6 +6560,7 @@ var ROOMS = [
     profile: "origin",
     sandboxMode: true,
     commentary: "Where it all started: auto-fire, simple shapes, pure movement.",
+    intro: "The very first prototype \u2014 February 7th. Auto-fire projectiles, a cylinder-and-sphere player model, and the question: does moving and shooting in isometric feel good? This is where it all started.",
     arenaHalfX: 9,
     arenaHalfZ: 16,
     obstacles: [
@@ -6586,6 +6587,7 @@ var ROOMS = [
     profile: "base",
     sandboxMode: true,
     commentary: "Starting point: what's the simplest satisfying combat loop?",
+    intro: "What's the simplest satisfying combat loop? Goblins rush you, you have melee and dash. Pits in the arena let you knock enemies off the edge. The design question: can force push + environmental hazards carry the combat?",
     arenaHalfX: 10,
     arenaHalfZ: 20,
     enableWallSlamDamage: false,
@@ -6619,6 +6621,7 @@ var ROOMS = [
     profile: "base",
     sandboxMode: true,
     commentary: "What if the arena is the weapon? Physics-first combat.",
+    intro: "What if the arena itself is the weapon? Wall slam damage, enemy collision damage, and pits everywhere. The force push becomes a spatial tool \u2014 not just knockback, but a way to use the environment against enemies.",
     enableWallSlamDamage: true,
     enableEnemyCollisionDamage: true,
     arenaHalfX: 11,
@@ -6654,6 +6657,7 @@ var ROOMS = [
     profile: "assassin",
     sandboxMode: true,
     commentary: "What if the design question shifts from damage to detection?",
+    intro: "What if the design question shifts from 'how do I deal damage' to 'how do I avoid detection'? Enemies patrol with vision cones. Cover matters. You can still fight \u2014 but getting spotted changes the encounter.",
     arenaHalfX: 14,
     arenaHalfZ: 14,
     obstacles: [
@@ -6721,6 +6725,7 @@ var ROOMS = [
     profile: "rule-bending",
     sandboxMode: true,
     commentary: "What if you could bend the rules? Enlarge a rock, shrink a crate...",
+    intro: "What if you could bend the rules of the world? Enlarge a rock to trigger a pressure plate. Shrink a crate blocking your path. This room explores object manipulation as a core verb alongside combat.",
     arenaHalfX: 14,
     arenaHalfZ: 14,
     obstacles: [
@@ -6768,6 +6773,7 @@ var ROOMS = [
     profile: "vertical",
     sandboxMode: true,
     commentary: "What if combat had a Y-axis? Jump, launch, dunk, spike \u2014 the current direction.",
+    intro: "What if combat had a Y-axis? Jump, launch enemies into the air, dunk them back down, spike them across the arena. This is the current direction \u2014 vertical combat with physics-driven aerial verbs.",
     arenaHalfX: 12,
     arenaHalfZ: 12,
     obstacles: [],
@@ -9245,8 +9251,8 @@ function createOptionElement(bend, offsetX, offsetY) {
   `;
   iconEl.textContent = bend.icon;
   el.appendChild(iconEl);
-  const nameEl = document.createElement("div");
-  nameEl.style.cssText = `
+  const nameEl2 = document.createElement("div");
+  nameEl2.style.cssText = `
     font-family: 'Courier New', monospace;
     font-size: 9px;
     color: ${colorHex};
@@ -9255,8 +9261,8 @@ function createOptionElement(bend, offsetX, offsetY) {
     margin-top: 4px;
     pointer-events: none;
   `;
-  nameEl.textContent = bend.name;
-  el.appendChild(nameEl);
+  nameEl2.textContent = bend.name;
+  el.appendChild(nameEl2);
   el.addEventListener("mouseenter", () => {
     if (selectedBendId === bend.id) return;
     el.style.borderColor = colorHex + "aa";
@@ -9800,6 +9806,56 @@ function clearPressurePlates(gameState2, scene2) {
   gameState2.pressurePlates = [];
 }
 
+// src/ui/roomIntro.ts
+var overlayEl = null;
+var nameEl = null;
+var textEl = null;
+var continueBtn = null;
+var currentCleanup = null;
+function initRoomIntro() {
+  overlayEl = document.getElementById("room-intro");
+  nameEl = document.getElementById("room-intro-name");
+  textEl = document.getElementById("room-intro-text");
+  continueBtn = document.getElementById("room-intro-continue");
+}
+function showRoomIntro(room, onContinue) {
+  if (!overlayEl || !nameEl || !textEl || !continueBtn) return;
+  if (currentCleanup) {
+    currentCleanup();
+    currentCleanup = null;
+  }
+  nameEl.textContent = room.name;
+  textEl.textContent = room.intro ?? room.commentary;
+  overlayEl.classList.remove("hidden");
+  void overlayEl.offsetWidth;
+  overlayEl.classList.add("visible");
+  const handleContinue = () => {
+    cleanup();
+    hideRoomIntro();
+    onContinue();
+  };
+  const handleClick = () => handleContinue();
+  const handleTouch = (e) => {
+    e.preventDefault();
+    handleContinue();
+  };
+  continueBtn.addEventListener("click", handleClick);
+  continueBtn.addEventListener("touchend", handleTouch);
+  const cleanup = () => {
+    continueBtn.removeEventListener("click", handleClick);
+    continueBtn.removeEventListener("touchend", handleTouch);
+    currentCleanup = null;
+  };
+  currentCleanup = cleanup;
+}
+function hideRoomIntro() {
+  if (!overlayEl) return;
+  overlayEl.classList.remove("visible");
+  setTimeout(() => {
+    if (overlayEl) overlayEl.classList.add("hidden");
+  }, 300);
+}
+
 // src/engine/roomManager.ts
 var currentRoomIndex = 0;
 var packIndex = 0;
@@ -9812,11 +9868,14 @@ var restRoomTimer = 0;
 var activeTelegraphs2 = [];
 var announceEl = null;
 var sceneRef11 = null;
-function initRoomManager(scene2) {
+var onContinueCallback = null;
+function initRoomManager(scene2, onIntroComplete) {
   sceneRef11 = scene2;
+  onContinueCallback = onIntroComplete ?? null;
   announceEl = document.getElementById("wave-announce");
   initTelegraph(scene2);
   initDoor(scene2);
+  initRoomIntro();
   on("enemyDied", () => {
     totalKills++;
   });
@@ -9885,10 +9944,13 @@ function loadRoom(index, gameState2) {
   }
   setPlayerPosition(room.playerStart.x, room.playerStart.z);
   gameState2.currentWave = index + 1;
-  showAnnounce(room.name);
-  setTimeout(hideAnnounce, 2e3);
   setProfile(room.profile);
   setPlayerVisual(room.profile);
+  gameState2.phase = "intro";
+  showRoomIntro(room, () => {
+    gameState2.phase = "playing";
+    if (onContinueCallback) onContinueCallback();
+  });
   if (room.isRestRoom) {
     gameState2.playerHealth = gameState2.playerMaxHealth;
     emit({ type: "playerHealed", amount: gameState2.playerMaxHealth, position: { x: room.playerStart.x, z: room.playerStart.z } });
@@ -10496,9 +10558,9 @@ function updateHUD(gameState2) {
       } else {
         slot.classList.add("disabled");
       }
-      const nameEl = slot.querySelector(".ability-name");
-      if (nameEl) {
-        nameEl.textContent = labelOverrides[key] ?? ABILITIES[key].name;
+      const nameEl2 = slot.querySelector(".ability-name");
+      if (nameEl2) {
+        nameEl2.textContent = labelOverrides[key] ?? ABILITIES[key].name;
       }
     }
   }
@@ -11373,6 +11435,10 @@ function gameLoop(timestamp) {
     getRendererInstance().render(getScene(), getCamera());
     return;
   }
+  if (gameState.phase === "intro") {
+    getRendererInstance().render(getScene(), getCamera());
+    return;
+  }
   if (gameState.phase === "gameOver") {
     getRendererInstance().render(getScene(), getCamera());
     return;
@@ -11503,13 +11569,11 @@ function init() {
     initDamageNumbers();
     initScreens(restart, () => {
       resumeAudio();
-      gameState.phase = "playing";
       document.getElementById("hud").style.visibility = "visible";
       loadRoom(0, gameState);
       lastTime = performance.now();
     }, (roomIndex) => {
       resumeAudio();
-      gameState.phase = "playing";
       document.getElementById("hud").style.visibility = "visible";
       loadRoom(roomIndex, gameState);
       lastTime = performance.now();

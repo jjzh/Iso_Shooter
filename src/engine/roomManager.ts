@@ -36,6 +36,7 @@ import { SpawnPack } from '../types/index';
 import { createPhysicsObject, createPhysicsObjectMesh, clearPhysicsObjects, resetPhysicsObjectIds } from '../entities/physicsObject';
 import { resetBendMode, setLockedBends } from './bendMode';
 import { createPressurePlate, createPressurePlateMesh, clearPressurePlates } from './pressurePlate';
+import { initRoomIntro, showRoomIntro } from '../ui/roomIntro';
 
 // ─── State ───
 
@@ -61,14 +62,17 @@ let activeTelegraphs: ActiveTelegraphGroup[] = [];
 
 let announceEl: HTMLElement | null = null;
 let sceneRef: any = null;
+let onContinueCallback: (() => void) | null = null;
 
 // ─── Public API ───
 
-export function initRoomManager(scene: any) {
+export function initRoomManager(scene: any, onIntroComplete?: () => void) {
   sceneRef = scene;
+  onContinueCallback = onIntroComplete ?? null;
   announceEl = document.getElementById('wave-announce');
   initTelegraph(scene);
   initDoor(scene);
+  initRoomIntro();
 
   // Track enemy deaths for spawn dispatch
   on('enemyDied', () => {
@@ -156,13 +160,16 @@ export function loadRoom(index: number, gameState: any) {
   // Update game state
   gameState.currentWave = index + 1;
 
-  // Show room announce
-  showAnnounce(room.name);
-  setTimeout(hideAnnounce, 2000);
-
   // Profile switch (before special room handling so it applies to all rooms)
   setProfile(room.profile);
   setPlayerVisual(room.profile);
+
+  // Show room intro modal — gameplay paused until Continue
+  gameState.phase = 'intro';
+  showRoomIntro(room, () => {
+    gameState.phase = 'playing';
+    if (onContinueCallback) onContinueCallback();
+  });
 
   // Handle special rooms
   if (room.isRestRoom) {

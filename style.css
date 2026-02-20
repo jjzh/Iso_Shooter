@@ -266,6 +266,10 @@ canvas {
   box-shadow: 0 0 15px rgba(68, 255, 136, 0.3);
 }
 
+.start-screen-main {
+  display: contents;
+}
+
 /* ── Room Selector ── */
 #room-selector {
   margin-top: 24px;
@@ -318,6 +322,71 @@ canvas {
   color: rgba(255, 255, 255, 0.3);
   margin-top: 2px;
   font-style: italic;
+}
+
+/* ── Room Intro Modal ── */
+#room-intro {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 5, 15, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 90;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+#room-intro.visible {
+  opacity: 1;
+  pointer-events: all;
+}
+
+#room-intro.hidden {
+  display: none;
+}
+
+.room-intro-content {
+  max-width: 500px;
+  text-align: center;
+  padding: 40px 32px;
+}
+
+#room-intro-name {
+  font-size: 32px;
+  color: #ff4466;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+  text-shadow: 0 0 20px rgba(255, 68, 102, 0.5);
+}
+
+#room-intro-text {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.6;
+  margin-bottom: 30px;
+}
+
+#room-intro-continue {
+  padding: 12px 40px;
+  font-family: inherit;
+  font-size: 14px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #44ff88;
+  background: rgba(20, 20, 40, 0.8);
+  border: 1px solid rgba(68, 255, 136, 0.4);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+#room-intro-continue:hover {
+  background: rgba(68, 255, 136, 0.15);
+  border-color: rgba(68, 255, 136, 0.8);
+  box-shadow: 0 0 15px rgba(68, 255, 136, 0.3);
 }
 
 /* Wave announcement overlay */
@@ -474,6 +543,68 @@ canvas {
   .screen button {
     padding: 10px 30px;
     font-size: 12px;
+  }
+
+  /* ── Room Intro Modal: mobile portrait ── */
+  #room-intro-name {
+    font-size: 24px;
+    letter-spacing: 4px;
+  }
+
+  #room-intro-text {
+    font-size: 12px;
+  }
+
+  #room-intro-continue {
+    padding: 10px 30px;
+    font-size: 12px;
+  }
+
+  .room-intro-content {
+    padding: 24px 20px;
+    max-width: 90vw;
+  }
+
+  /* ── Mobile Landscape: two-column start screen ── */
+  @media (orientation: landscape) {
+    #start-screen {
+      flex-direction: row;
+      align-items: stretch;
+      padding: 16px 24px;
+      gap: 24px;
+    }
+
+    .start-screen-main {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #room-selector {
+      flex: 1;
+      max-height: 100%;
+      align-self: center;
+    }
+
+    .screen h1 {
+      font-size: 24px;
+      letter-spacing: 3px;
+    }
+
+    #room-intro-name {
+      font-size: 24px;
+      letter-spacing: 3px;
+    }
+
+    #room-intro-text {
+      font-size: 12px;
+    }
+
+    .room-intro-content {
+      padding: 20px 24px;
+    }
   }
 }
 

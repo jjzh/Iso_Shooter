@@ -62,6 +62,11 @@ function gameLoop(timestamp: number): void {
     return;
   }
 
+  if (gameState.phase === 'intro') {
+    getRendererInstance().render(getScene(), getCamera());
+    return;
+  }
+
   if (gameState.phase === 'gameOver') {
     getRendererInstance().render(getScene(), getCamera());
     return;
@@ -269,13 +274,11 @@ function init(): void {
     initDamageNumbers();
     initScreens(restart, () => {
       resumeAudio(); // AudioContext requires user gesture to start
-      gameState.phase = 'playing';
       document.getElementById('hud')!.style.visibility = 'visible';
       loadRoom(0, gameState);
       lastTime = performance.now();
     }, (roomIndex: number) => {
       resumeAudio();
-      gameState.phase = 'playing';
       document.getElementById('hud')!.style.visibility = 'visible';
       loadRoom(roomIndex, gameState);
       lastTime = performance.now();
