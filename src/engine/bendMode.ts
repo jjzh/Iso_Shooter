@@ -383,15 +383,10 @@ export function tryApplyBendToTarget(target: any, targetType: 'physicsObject' | 
       position: { x: target.pos.x, z: target.pos.z },
     });
 
-    // Exit targeting — go back to radial menu if bends remaining
+    // Exit bend mode after successful bend
     targeting = false;
     clearSelectedBend();
-
-    if (bendSystem.bendsRemaining() > 0) {
-      showRadialMenu();
-    } else {
-      deactivateBendMode();
-    }
+    deactivateBendMode();
   } else {
     emit({
       type: 'bendFailed',

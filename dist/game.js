@@ -6556,7 +6556,8 @@ var ROOMS = [
   // Room 1: "The Origin" — Feb 7 prototype, auto-fire projectiles, cylinder+sphere model
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: "Origin \u2014 Feb 7th",
+    name: "Origin",
+    date: "Feb 7",
     profile: "origin",
     sandboxMode: true,
     commentary: "Where I started: auto-fire, simple shapes, simple movement.",
@@ -6583,7 +6584,8 @@ var ROOMS = [
   // Room 2: "The Foundation" — goblins only, teach melee + dash + pit kills
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: "Foundations \u2014 Feb 8",
+    name: "Foundations",
+    date: "Feb 8",
     profile: "base",
     sandboxMode: true,
     commentary: "How does adding displacement affect combat? What about hazards?",
@@ -6617,7 +6619,8 @@ var ROOMS = [
   // Room 2: "Physics Playground" — walls + pits, force push as spatial tool
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: "Add More Physics \u2014 Feb 12",
+    name: "Add More Physics",
+    date: "Feb 12",
     profile: "base",
     sandboxMode: true,
     commentary: "Can we extend physics-first combat further?",
@@ -6653,7 +6656,8 @@ var ROOMS = [
   // Room 4: "The Shadows" — patrol maze, vision cones, detection puzzle
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: "Tension & Sneak \u2014 Feb 14",
+    name: "Tension & Sneak",
+    date: "Feb 14",
     profile: "assassin",
     sandboxMode: true,
     commentary: "How do we add tension? How can we slow the game down?",
@@ -6721,7 +6725,8 @@ var ROOMS = [
   // Room 5: "The Workshop" — rule-bending (enlarge/shrink physics objects)
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: "Puzzles & Magic \u2014 Feb 15",
+    name: "Puzzles & Magic",
+    date: "Feb 15",
     profile: "rule-bending",
     sandboxMode: true,
     commentary: "What does magic look like? Enlarge a rock, shrink a crate...",
@@ -6771,7 +6776,8 @@ var ROOMS = [
   // Room 6: "The Arena" — vertical combat: jump, launch, dunk, spike
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: "Physics Playground \u2014 Feb 16",
+    name: "Physics Playground",
+    date: "Feb 16",
     profile: "vertical",
     sandboxMode: true,
     commentary: "What if combat had a real Z-axis? Jump, launch, spike, and dunk. What if terrain had more levels of height?",
@@ -9660,11 +9666,7 @@ function tryApplyBendToTarget(target4, targetType) {
     });
     targeting = false;
     clearSelectedBend();
-    if (bendSystem.bendsRemaining() > 0) {
-      showRadialMenu();
-    } else {
-      deactivateBendMode();
-    }
+    deactivateBendMode();
   } else {
     emit({
       type: "bendFailed",
@@ -9826,7 +9828,8 @@ function showRoomIntro(room, onContinue) {
     currentCleanup();
     currentCleanup = null;
   }
-  nameEl.textContent = room.name;
+  const dateSuffix = room.date ? ` \u2014 ${room.date}` : "";
+  nameEl.textContent = `${room.name}${dateSuffix}`;
   textEl.textContent = room.intro ?? room.commentary;
   overlayEl.classList.remove("hidden");
   void overlayEl.offsetWidth;
@@ -10428,31 +10431,6 @@ function updateMobileButtons() {
   for (const btn of allBtns) {
     if (btn) btn.classList.remove("visible");
   }
-  let visibleBtns = [];
-  if (profile === "vertical") {
-    visibleBtns = [
-      { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
-      { el: mobileBtnJump, size: MOBILE_CONTROLS.fanSize },
-      { el: mobileBtnLaunch, size: MOBILE_CONTROLS.fanSize },
-      { el: mobileBtnCancel, size: MOBILE_CONTROLS.cancelSize }
-    ];
-  } else if (profile === "origin") {
-    visibleBtns = [];
-  } else if (profile === "rule-bending") {
-    visibleBtns = [
-      { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
-      { el: mobileBtnUlt, size: MOBILE_CONTROLS.primarySize },
-      { el: mobileBtnBend, size: MOBILE_CONTROLS.fanSize }
-    ];
-  } else {
-    visibleBtns = [
-      { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
-      { el: mobileBtnUlt, size: MOBILE_CONTROLS.primarySize }
-    ];
-  }
-  const mc = MOBILE_CONTROLS;
-  const anchorRight = mc.edgeMargin;
-  const anchorBottom = window.innerHeight * 0.2;
   const container = document.getElementById("mobile-actions");
   if (container) {
     container.style.right = "0px";
@@ -10460,20 +10438,54 @@ function updateMobileButtons() {
     container.style.width = "100%";
     container.style.height = "100%";
   }
-  const count = visibleBtns.length;
-  for (let i = 0; i < count; i++) {
-    const { el, size } = visibleBtns[i];
-    if (!el) continue;
+  const mc = MOBILE_CONTROLS;
+  function placeBtn(el, size, right, bottom) {
+    if (!el) return;
     el.classList.add("visible");
     el.style.width = size + "px";
     el.style.height = size + "px";
-    const angleDeg = mc.arcStartAngle + (count > 1 ? mc.arcSpread * i / (count - 1) : 0);
-    const angleRad = angleDeg * Math.PI / 180;
-    const dx = -Math.cos(angleRad) * mc.arcRadius;
-    const dy = -Math.sin(angleRad) * mc.arcRadius;
-    el.style.right = anchorRight - dx + "px";
-    el.style.bottom = anchorBottom - dy + "px";
-    el.style.transform = "translate(50%, 50%)";
+    el.style.right = right - size / 2 + "px";
+    el.style.bottom = bottom - size / 2 + "px";
+    el.style.transform = "none";
+  }
+  const primaryRight = mc.edgeMargin + mc.primarySize / 2 + 10;
+  const primaryBottom = window.innerHeight * 0.2;
+  function placeFan(btns) {
+    const count = btns.length;
+    for (let i = 0; i < count; i++) {
+      const { el, size } = btns[i];
+      const angleDeg = mc.arcStartAngle + (count > 1 ? mc.arcSpread * i / (count - 1) : 0);
+      const angleRad = angleDeg * Math.PI / 180;
+      const r = mc.arcRadius;
+      const right = primaryRight + Math.cos(angleRad) * r;
+      const bottom = primaryBottom + Math.sin(angleRad) * r;
+      placeBtn(el, size, right, bottom);
+    }
+  }
+  function placeCancel() {
+    placeBtn(mobileBtnCancel, mc.cancelSize, primaryRight, primaryBottom + mc.arcRadius + 10);
+  }
+  if (profile === "origin") {
+    placeBtn(mobileBtnDash, mc.fanSize, primaryRight, primaryBottom);
+  } else if (profile === "vertical") {
+    placeBtn(mobileBtnUlt, mc.primarySize, primaryRight, primaryBottom);
+    placeFan([
+      { el: mobileBtnDash, size: mc.fanSize },
+      { el: mobileBtnJump, size: mc.fanSize },
+      { el: mobileBtnLaunch, size: mc.fanSize }
+    ]);
+    placeCancel();
+  } else if (profile === "rule-bending") {
+    placeBtn(mobileBtnUlt, mc.primarySize, primaryRight, primaryBottom);
+    placeFan([
+      { el: mobileBtnDash, size: mc.fanSize },
+      { el: mobileBtnBend, size: mc.fanSize }
+    ]);
+  } else {
+    placeBtn(mobileBtnUlt, mc.primarySize, primaryRight, primaryBottom);
+    placeFan([
+      { el: mobileBtnDash, size: mc.fanSize }
+    ]);
   }
 }
 function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel }) {
@@ -10659,7 +10671,8 @@ function initRoomSelector(onSelect) {
     btn.className = "room-selector-btn";
     const nameSpan = document.createElement("span");
     nameSpan.className = "room-name";
-    nameSpan.textContent = `${index + 1}. ${room.name}`;
+    const dateSuffix = room.date ? ` \u2014 ${room.date}` : "";
+    nameSpan.textContent = `${index + 1}. ${room.name}${dateSuffix}`;
     btn.appendChild(nameSpan);
     const descSpan = document.createElement("span");
     descSpan.className = "room-desc";

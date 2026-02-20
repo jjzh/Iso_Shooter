@@ -22,7 +22,8 @@ export function initRoomSelector(onSelect: (roomIndex: number) => void): void {
 
     const nameSpan = document.createElement('span');
     nameSpan.className = 'room-name';
-    nameSpan.textContent = `${index + 1}. ${room.name}`;
+    const dateSuffix = room.date ? ` — ${room.date}` : '';
+    nameSpan.textContent = `${index + 1}. ${room.name}${dateSuffix}`;
     btn.appendChild(nameSpan);
 
     const descSpan = document.createElement('span');

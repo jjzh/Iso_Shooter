@@ -292,38 +292,6 @@ export function updateMobileButtons() {
     if (btn) btn.classList.remove('visible');
   }
 
-  // Determine which buttons to show
-  let visibleBtns: { el: any; size: number }[] = [];
-
-  if (profile === 'vertical') {
-    visibleBtns = [
-      { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
-      { el: mobileBtnJump, size: MOBILE_CONTROLS.fanSize },
-      { el: mobileBtnLaunch, size: MOBILE_CONTROLS.fanSize },
-      { el: mobileBtnCancel, size: MOBILE_CONTROLS.cancelSize },
-    ];
-  } else if (profile === 'origin') {
-    // Origin has auto-fire, no combat buttons needed
-    visibleBtns = [];
-  } else if (profile === 'rule-bending') {
-    visibleBtns = [
-      { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
-      { el: mobileBtnUlt, size: MOBILE_CONTROLS.primarySize },
-      { el: mobileBtnBend, size: MOBILE_CONTROLS.fanSize },
-    ];
-  } else {
-    // 'base', 'assassin' — default set
-    visibleBtns = [
-      { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
-      { el: mobileBtnUlt, size: MOBILE_CONTROLS.primarySize },
-    ];
-  }
-
-  // Position buttons in a radial fan from bottom-right anchor
-  const mc = MOBILE_CONTROLS;
-  const anchorRight = mc.edgeMargin;
-  const anchorBottom = window.innerHeight * 0.20; // 20% from bottom, matching old layout
-
   const container = document.getElementById('mobile-actions');
   if (container) {
     container.style.right = '0px';
@@ -332,27 +300,66 @@ export function updateMobileButtons() {
     container.style.height = '100%';
   }
 
-  const count = visibleBtns.length;
-  for (let i = 0; i < count; i++) {
-    const { el, size } = visibleBtns[i];
-    if (!el) continue;
-
+  // Helper: show + size + position a button (centered on the given right/bottom point)
+  const mc = MOBILE_CONTROLS;
+  function placeBtn(el: any, size: number, right: number, bottom: number) {
+    if (!el) return;
     el.classList.add('visible');
     el.style.width = size + 'px';
     el.style.height = size + 'px';
+    el.style.right = (right - size / 2) + 'px';
+    el.style.bottom = (bottom - size / 2) + 'px';
+    el.style.transform = 'none';
+  }
 
-    // Fan angle: distribute buttons along arc
-    const angleDeg = mc.arcStartAngle + (count > 1 ? (mc.arcSpread * i) / (count - 1) : 0);
-    const angleRad = (angleDeg * Math.PI) / 180;
+  // Fixed primary anchor: Push button always lives here
+  const primaryRight = mc.edgeMargin + mc.primarySize / 2 + 10;
+  const primaryBottom = window.innerHeight * 0.20;
 
-    // Compute position relative to anchor point (bottom-right)
-    const dx = -Math.cos(angleRad) * mc.arcRadius; // negative = leftward from right edge
-    const dy = -Math.sin(angleRad) * mc.arcRadius; // negative = upward from bottom
+  // Fan buttons arc above-left of the primary
+  function placeFan(btns: { el: any; size: number }[]) {
+    const count = btns.length;
+    for (let i = 0; i < count; i++) {
+      const { el, size } = btns[i];
+      const angleDeg = mc.arcStartAngle + (count > 1 ? (mc.arcSpread * i) / (count - 1) : 0);
+      const angleRad = (angleDeg * Math.PI) / 180;
+      const r = mc.arcRadius;
+      const right = primaryRight + Math.cos(angleRad) * r;
+      const bottom = primaryBottom + Math.sin(angleRad) * r;
+      placeBtn(el, size, right, bottom);
+    }
+  }
 
-    // Position from bottom-right corner
-    el.style.right = (anchorRight - dx) + 'px';
-    el.style.bottom = (anchorBottom - dy) + 'px';
-    el.style.transform = 'translate(50%, 50%)'; // center on computed position
+  // Cancel sits directly above the primary
+  function placeCancel() {
+    placeBtn(mobileBtnCancel, mc.cancelSize, primaryRight, primaryBottom + mc.arcRadius + 10);
+  }
+
+  if (profile === 'origin') {
+    // Origin: just dash
+    placeBtn(mobileBtnDash, mc.fanSize, primaryRight, primaryBottom);
+  } else if (profile === 'vertical') {
+    // Vertical: Push (primary) + Dash, Jump, Launch (fan) + Cancel (above)
+    placeBtn(mobileBtnUlt, mc.primarySize, primaryRight, primaryBottom);
+    placeFan([
+      { el: mobileBtnDash, size: mc.fanSize },
+      { el: mobileBtnJump, size: mc.fanSize },
+      { el: mobileBtnLaunch, size: mc.fanSize },
+    ]);
+    placeCancel();
+  } else if (profile === 'rule-bending') {
+    // Rule-bending: Push (primary) + Dash, Bend (fan)
+    placeBtn(mobileBtnUlt, mc.primarySize, primaryRight, primaryBottom);
+    placeFan([
+      { el: mobileBtnDash, size: mc.fanSize },
+      { el: mobileBtnBend, size: mc.fanSize },
+    ]);
+  } else {
+    // base, assassin: Push (primary) + Dash (fan)
+    placeBtn(mobileBtnUlt, mc.primarySize, primaryRight, primaryBottom);
+    placeFan([
+      { el: mobileBtnDash, size: mc.fanSize },
+    ]);
   }
 
 }

@@ -25,7 +25,8 @@ export function showRoomIntro(room: RoomDefinition, onContinue: () => void): voi
     currentCleanup = null;
   }
 
-  nameEl.textContent = room.name;
+  const dateSuffix = room.date ? ` — ${room.date}` : '';
+  nameEl.textContent = `${room.name}${dateSuffix}`;
   textEl.textContent = room.intro ?? room.commentary;
 
   // Show overlay (hidden → visible with fade)
