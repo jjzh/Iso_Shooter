@@ -84,7 +84,7 @@ export const ROOMS: RoomDefinition[] = [
   // Room 2: "The Foundation" — goblins only, teach melee + dash + pit kills
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'Foundations — Feb 12',
+    name: 'Foundations — Feb 8–12',
     profile: 'base',
     sandboxMode: true,
     commentary: "How does adding displacement affect combat? What about hazards?",
@@ -119,7 +119,7 @@ export const ROOMS: RoomDefinition[] = [
   // Room 2: "Physics Playground" — walls + pits, force push as spatial tool
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'Add More Physics — Feb 12',
+    name: 'Add More Physics — Feb 12–14',
     profile: 'base',
     sandboxMode: true,
     commentary: "Can we extend physics-first combat further?",
@@ -217,7 +217,7 @@ export const ROOMS: RoomDefinition[] = [
   // Room 5: "The Workshop" — rule-bending (enlarge/shrink physics objects)
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'Puzzles & Magic — Feb 15',
+    name: 'Puzzles & Magic — Feb 15–16',
     profile: 'rule-bending' as PlayerProfile,
     sandboxMode: true,
     commentary: "What does magic look like? Enlarge a rock, shrink a crate...",
@@ -266,7 +266,7 @@ export const ROOMS: RoomDefinition[] = [
   // Room 6: "The Arena" — vertical combat: jump, launch, dunk, spike
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'Physics Playground — Feb 16',
+    name: 'Physics Playground — Feb 16–18',
     profile: 'vertical' as PlayerProfile,
     sandboxMode: true,
     commentary: "What if combat had a real Z-axis? Jump, launch, spike, and dunk. What if terrain had more levels of height?",
