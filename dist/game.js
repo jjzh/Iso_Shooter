@@ -10719,13 +10719,21 @@ function initRoomSelector(onSelect) {
     descSpan.className = "room-desc";
     descSpan.textContent = room.commentary;
     btn.appendChild(descSpan);
-    const handleClick = () => {
+    const handleSelect = () => {
       if (onSelectCallback) onSelectCallback(index);
     };
-    btn.addEventListener("click", handleClick);
+    btn.addEventListener("click", handleSelect);
+    let touchStartY = 0;
+    const TAP_THRESHOLD = 10;
+    btn.addEventListener("touchstart", (e) => {
+      touchStartY = e.changedTouches[0].clientY;
+    }, { passive: true });
     btn.addEventListener("touchend", (e) => {
-      e.preventDefault();
-      handleClick();
+      const dy = Math.abs(e.changedTouches[0].clientY - touchStartY);
+      if (dy < TAP_THRESHOLD) {
+        e.preventDefault();
+        handleSelect();
+      }
     });
     listEl.appendChild(btn);
   });

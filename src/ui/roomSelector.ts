@@ -31,14 +31,25 @@ export function initRoomSelector(onSelect: (roomIndex: number) => void): void {
     descSpan.textContent = room.commentary;
     btn.appendChild(descSpan);
 
-    const handleClick = () => {
+    const handleSelect = () => {
       if (onSelectCallback) onSelectCallback(index);
     };
 
-    btn.addEventListener('click', handleClick);
+    // Desktop: standard click
+    btn.addEventListener('click', handleSelect);
+
+    // Mobile: only select on tap (not scroll release)
+    let touchStartY = 0;
+    const TAP_THRESHOLD = 10; // px — movement beyond this means scroll, not tap
+    btn.addEventListener('touchstart', (e) => {
+      touchStartY = e.changedTouches[0].clientY;
+    }, { passive: true });
     btn.addEventListener('touchend', (e) => {
-      e.preventDefault();
-      handleClick();
+      const dy = Math.abs(e.changedTouches[0].clientY - touchStartY);
+      if (dy < TAP_THRESHOLD) {
+        e.preventDefault(); // prevent duplicate click only on true tap
+        handleSelect();
+      }
     });
 
     listEl.appendChild(btn);
