@@ -1,6 +1,6 @@
 // Door System — visual door at the far end of each room (-Z wall)
 // States: locked → unlocking → open
-// Player must be near the open door AND press interact (F/Enter) or dash through
+// Player walks through the open door to enter next room (tight AABB collision volume)
 
 import { DOOR_CONFIG } from '../config/door';
 import { emit } from './events';
@@ -49,7 +49,7 @@ export function initDoor(scene: any) {
       text-shadow: 0 0 10px rgba(136, 187, 255, 0.6);
       z-index: 50;
     `;
-    promptEl.textContent = 'Press F to enter';
+    promptEl.textContent = 'Next Room →';
     document.body.appendChild(promptEl);
   }
 }
@@ -143,12 +143,10 @@ export function unlockDoor() {
 }
 
 /**
- * Update door state and check for interaction.
- * @param interact - true if the player pressed the interact key this frame
- * @param playerDashing - true if the player is currently dashing
+ * Update door state and check for walkthrough or interact.
  * @returns true if the player entered the door (trigger room transition)
  */
-export function updateDoor(dt: number, playerPos: any, interact: boolean, playerDashing: boolean): boolean {
+export function updateDoor(dt: number, playerPos: any, interact?: boolean): boolean {
   if (doorState === 'none' || !doorGroup) return false;
 
   if (doorState === 'unlocking') {
@@ -181,27 +179,22 @@ export function updateDoor(dt: number, playerPos: any, interact: boolean, player
     const pulse = 0.4 + 0.2 * Math.sin(doorAnimTimer * 0.003 * Math.PI * 2);
     doorGlowMesh.material.opacity = pulse;
 
-    // Check player proximity — use a generous radius since the door is at the wall
-    // Player is clamped to ±(arenaHalfZ - 0.5), door is at -arenaHalfZ
-    // So we check with a larger interact radius that accounts for the wall gap
+    // Walkthrough collision volume — tight AABB inside the door frame
     if (playerPos) {
-      const dx = playerPos.x - doorX;
-      const dz = playerPos.z - doorZ;
-      const dist = Math.sqrt(dx * dx + dz * dz);
+      const dx = Math.abs(playerPos.x - doorX);
+      const dz = Math.abs(playerPos.z - doorZ);
+      const insideDoor = dx < DOOR_CONFIG.walkthroughHalfX && dz < DOOR_CONFIG.walkthroughHalfZ;
 
-      const nearDoor = dist < DOOR_CONFIG.interactRadius;
+      // Show prompt when nearby (larger radius), enter when inside door frame
+      const nearDoor = dx < DOOR_CONFIG.walkthroughHalfX + 1.5 && dz < DOOR_CONFIG.walkthroughHalfZ + 2;
 
-      if (nearDoor) {
-        // Show prompt
+      if (insideDoor || (nearDoor && interact)) {
+        hidePrompt();
+        emit({ type: 'doorEntered', roomIndex: doorRoomIndex });
+        doorState = 'none';
+        return true; // trigger room transition
+      } else if (nearDoor) {
         showPrompt();
-
-        // Enter on interact key press OR dashing into the door
-        if (interact || playerDashing) {
-          hidePrompt();
-          emit({ type: 'doorEntered', roomIndex: doorRoomIndex });
-          doorState = 'none';
-          return true; // trigger room transition
-        }
       } else {
         hidePrompt();
       }

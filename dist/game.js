@@ -8729,8 +8729,11 @@ var DOOR_CONFIG = {
   unlockDuration: 1e3,
   // ms — door unlock animation duration
   interactRadius: 3.5,
-  // units — how close player must be to interact with door
-  // (door is at wall edge, player clamps ~0.5u away, so needs generous radius)
+  // units — proximity for showing prompt (deprecated: walkthrough replaces interact)
+  walkthroughHalfX: 1.5,
+  // units — half-width of walkthrough volume (inside door frame pillars at ±2)
+  walkthroughHalfZ: 1,
+  // units — half-depth of walkthrough volume (thin strip crossing threshold)
   restPause: 2e3
   // ms — how long before rest room door opens
 };
@@ -8770,7 +8773,7 @@ function initDoor(scene2) {
       text-shadow: 0 0 10px rgba(136, 187, 255, 0.6);
       z-index: 50;
     `;
-    promptEl.textContent = "Press F to enter";
+    promptEl.textContent = "Next Room \u2192";
     document.body.appendChild(promptEl);
   }
 }
@@ -8841,7 +8844,7 @@ function unlockDoor() {
   doorState = "unlocking";
   doorAnimTimer = 0;
 }
-function updateDoor(dt, playerPos2, interact, playerDashing) {
+function updateDoor(dt, playerPos2, interact) {
   if (doorState === "none" || !doorGroup) return false;
   if (doorState === "unlocking") {
     doorAnimTimer += dt * 1e3;
@@ -8864,18 +8867,17 @@ function updateDoor(dt, playerPos2, interact, playerDashing) {
     const pulse = 0.4 + 0.2 * Math.sin(doorAnimTimer * 3e-3 * Math.PI * 2);
     doorGlowMesh.material.opacity = pulse;
     if (playerPos2) {
-      const dx = playerPos2.x - doorX;
-      const dz = playerPos2.z - doorZ;
-      const dist = Math.sqrt(dx * dx + dz * dz);
-      const nearDoor = dist < DOOR_CONFIG.interactRadius;
-      if (nearDoor) {
+      const dx = Math.abs(playerPos2.x - doorX);
+      const dz = Math.abs(playerPos2.z - doorZ);
+      const insideDoor = dx < DOOR_CONFIG.walkthroughHalfX && dz < DOOR_CONFIG.walkthroughHalfZ;
+      const nearDoor = dx < DOOR_CONFIG.walkthroughHalfX + 1.5 && dz < DOOR_CONFIG.walkthroughHalfZ + 2;
+      if (insideDoor || nearDoor && interact) {
+        hidePrompt();
+        emit({ type: "doorEntered", roomIndex: doorRoomIndex });
+        doorState = "none";
+        return true;
+      } else if (nearDoor) {
         showPrompt();
-        if (interact || playerDashing) {
-          hidePrompt();
-          emit({ type: "doorEntered", roomIndex: doorRoomIndex });
-          doorState = "none";
-          return true;
-        }
       } else {
         hidePrompt();
       }
@@ -9859,7 +9861,7 @@ function updateRoomManager(dt, gameState2) {
   }
   const playerPos2 = getPlayerPos();
   const input = getInputState();
-  const doorTriggered = updateDoor(dt, playerPos2, input.interact, isPlayerDashing());
+  const doorTriggered = updateDoor(dt, playerPos2, input.interact);
   if (doorTriggered) {
     loadRoom(currentRoomIndex + 1, gameState2);
     return;

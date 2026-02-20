@@ -16,7 +16,7 @@ import { setProfile } from './profileManager';
 import { setArenaConfig, ARENA_HALF_X, ARENA_HALF_Z } from '../config/arena';
 import { SPAWN_CONFIG } from '../config/spawn';
 import { spawnEnemy, clearEnemies } from '../entities/enemy';
-import { getPlayerPos, isPlayerDashing, setPlayerVisual } from '../entities/player';
+import { getPlayerPos, setPlayerVisual } from '../entities/player';
 import { setPlayerPosition } from '../entities/player';
 import { getInputState } from './input';
 import { releaseAllProjectiles } from '../entities/projectile';
@@ -220,7 +220,7 @@ export function updateRoomManager(dt: number, gameState: any) {
   // ─── Update door + check for room transition ───
   const playerPos = getPlayerPos();
   const input = getInputState();
-  const doorTriggered = updateDoor(dt, playerPos, input.interact, isPlayerDashing());
+  const doorTriggered = updateDoor(dt, playerPos, input.interact);
   if (doorTriggered) {
     loadRoom(currentRoomIndex + 1, gameState);
     return;
