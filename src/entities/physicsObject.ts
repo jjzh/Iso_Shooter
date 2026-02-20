@@ -22,6 +22,9 @@ export function createPhysicsObject(placement: PhysicsObjectPlacement): PhysicsO
     mesh: null,
     destroyed: false,
     fellInPit: false,
+    suspended: placement.suspended ?? false,
+    suspendHeight: placement.suspendHeight ?? 0,
+    tetherMesh: null,
   };
 }
 
@@ -86,6 +89,23 @@ export function createPhysicsObjectMesh(obj: PhysicsObject, scene: any): void {
   group.userData._baseGeoSize = obj.radius * obj.scale;
   scene.add(group);
   obj.mesh = group;
+
+  // Suspended objects float at height with a tether line
+  if (obj.suspended && obj.suspendHeight > 0) {
+    group.position.y = obj.suspendHeight;
+
+    // Glowing tether line from rock down to ground
+    const tetherGeo = new THREE.CylinderGeometry(0.03, 0.03, obj.suspendHeight, 4);
+    const tetherMat = new THREE.MeshBasicMaterial({
+      color: 0x88bbff,
+      transparent: true,
+      opacity: 0.6,
+    });
+    const tether = new THREE.Mesh(tetherGeo, tetherMat);
+    tether.position.set(obj.pos.x, obj.suspendHeight / 2, obj.pos.z);
+    scene.add(tether);
+    obj.tetherMesh = tether;
+  }
 }
 
 export function applyBendVisuals(obj: PhysicsObject, tintColor: number): void {
@@ -118,6 +138,11 @@ export function clearBendVisuals(obj: PhysicsObject): void {
 
 export function clearPhysicsObjects(gameState: any, scene: any): void {
   for (const obj of gameState.physicsObjects) {
+    if (obj.tetherMesh) {
+      scene.remove(obj.tetherMesh);
+      obj.tetherMesh.geometry.dispose();
+      obj.tetherMesh.material.dispose();
+    }
     if (obj.mesh) {
       scene.remove(obj.mesh);
       obj.mesh.traverse((child: any) => {
@@ -127,4 +152,13 @@ export function clearPhysicsObjects(gameState: any, scene: any): void {
     }
   }
   gameState.physicsObjects = [];
+}
+
+export function updateTetherVisuals(gameState: any): void {
+  const t = performance.now() / 1000;
+  for (const obj of gameState.physicsObjects) {
+    if (!obj.suspended || !obj.tetherMesh) continue;
+    const pulse = 0.4 + 0.3 * Math.sin(t * 3);
+    obj.tetherMesh.material.opacity = pulse;
+  }
 }

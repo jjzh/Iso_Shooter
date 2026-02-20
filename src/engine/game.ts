@@ -30,6 +30,7 @@ import { raycastTerrainDist } from '../entities/enemy';
 import { PLAYER, MELEE, DUNK } from '../config/player';
 import { on } from './events';
 import { updatePressurePlates } from './pressurePlate';
+import { updateTetherVisuals } from '../entities/physicsObject';
 import { applyUrlParams, snapshotDefaults } from './urlParams';
 import { GameState } from '../types/index';
 
@@ -159,6 +160,9 @@ function gameLoop(timestamp: number): void {
 
   // 6a4. Pressure plates (check if heavy object resting on plate)
   updatePressurePlates(gameState);
+
+  // 6a5. Tether visuals (pulse opacity on suspended physics objects)
+  updateTetherVisuals(gameState);
 
   // 6b. Pit falls
   checkPitFalls(gameState);

@@ -336,6 +336,44 @@ export function tryApplyBendToTarget(target: any, targetType: 'physicsObject' | 
       applyBendVisuals(target, bend.tintColor);
     }
 
+    // Drop suspended objects
+    if (target.suspended) {
+      target.suspended = false;
+
+      // Remove tether visual
+      if (target.tetherMesh) {
+        target.tetherMesh.geometry.dispose();
+        target.tetherMesh.material.dispose();
+        const tetherScene = target.tetherMesh.parent;
+        if (tetherScene) tetherScene.remove(target.tetherMesh);
+        target.tetherMesh = null;
+      }
+
+      // Animate drop: move mesh from suspend height to ground
+      const mesh = target.mesh;
+      if (mesh) {
+        const startY = target.suspendHeight;
+        const dropDuration = 400; // ms
+        const startTime = performance.now();
+        const dropAnim = () => {
+          const elapsed = performance.now() - startTime;
+          const t = Math.min(elapsed / dropDuration, 1);
+          // Ease-in (accelerating fall)
+          const eased = t * t;
+          mesh.position.y = startY * (1 - eased);
+          if (t < 1) {
+            requestAnimationFrame(dropAnim);
+          } else {
+            mesh.position.y = 0;
+            // Impact feedback
+            screenShake(5, 300);
+            emit({ type: 'objectDropped', position: { x: target.pos.x, z: target.pos.z } });
+          }
+        };
+        requestAnimationFrame(dropAnim);
+      }
+    }
+
     // Emit event
     emit({
       type: 'bendApplied',

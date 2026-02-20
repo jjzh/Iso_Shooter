@@ -6737,7 +6737,7 @@ var ROOMS = [
     ],
     physicsObjects: [
       // Rock: enlarge to reach pressure plate mass threshold (2.0 → 4.0)
-      { meshType: "rock", material: "stone", x: -3, z: 4, mass: 2, health: Infinity, radius: 0.6 },
+      { meshType: "rock", material: "stone", x: 0, z: 0, mass: 2, health: Infinity, radius: 0.6, suspended: true, suspendHeight: 3 },
       // Crate: blocks the door at -Z end, too heavy to push (mass 5.0), shrink to move aside
       { meshType: "crate", material: "wood", x: 0, z: -12, mass: 5, health: 80, radius: 1.5 }
     ],
@@ -7182,6 +7182,7 @@ function applyVelocities(dt, gameState2) {
 function applyObjectVelocities(dt, gameState2) {
   for (const obj of gameState2.physicsObjects) {
     if (obj.destroyed) continue;
+    if (obj.suspended) continue;
     const vel = obj.vel;
     const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
     if (speed < PHYSICS.minVelocity) {
@@ -7378,9 +7379,11 @@ function resolveObjectCollisions(gameState2) {
     for (let i = 0; i < objects.length; i++) {
       const a = objects[i];
       if (a.destroyed) continue;
+      if (a.suspended) continue;
       for (let j = i + 1; j < objects.length; j++) {
         const b = objects[j];
         if (b.destroyed) continue;
+        if (b.suspended) continue;
         const dx = b.pos.x - a.pos.x;
         const dz = b.pos.z - a.pos.z;
         const distSq = dx * dx + dz * dz;
@@ -7440,6 +7443,7 @@ function resolveObjectCollisions(gameState2) {
   }
   for (const obj of objects) {
     if (obj.destroyed) continue;
+    if (obj.suspended) continue;
     for (const enemy of enemies) {
       if (enemy.health <= 0) continue;
       if (enemy.isLeaping) continue;
@@ -7507,6 +7511,7 @@ function resolvePhysicsObjectBodyCollisions(gameState2) {
   const playerR = PLAYER.size.radius;
   for (const obj of objects) {
     if (obj.destroyed) continue;
+    if (obj.suspended) continue;
     const pdx = playerPos2.x - obj.pos.x;
     const pdz = playerPos2.z - obj.pos.z;
     const pDistSq = pdx * pdx + pdz * pdz;
@@ -7793,6 +7798,7 @@ function checkCollisions(gameState2) {
     }
     for (const obj of gameState2.physicsObjects) {
       if (obj.destroyed) continue;
+      if (obj.suspended) continue;
       if (isInRotatedRect(
         obj.pos.x,
         obj.pos.z,
@@ -8937,7 +8943,10 @@ function createPhysicsObject(placement) {
     restitution: void 0,
     mesh: null,
     destroyed: false,
-    fellInPit: false
+    fellInPit: false,
+    suspended: placement.suspended ?? false,
+    suspendHeight: placement.suspendHeight ?? 0,
+    tetherMesh: null
   };
 }
 var MATERIAL_COLORS = {
@@ -8989,6 +8998,19 @@ function createPhysicsObjectMesh(obj, scene2) {
   group.userData._baseGeoSize = obj.radius * obj.scale;
   scene2.add(group);
   obj.mesh = group;
+  if (obj.suspended && obj.suspendHeight > 0) {
+    group.position.y = obj.suspendHeight;
+    const tetherGeo = new THREE.CylinderGeometry(0.03, 0.03, obj.suspendHeight, 4);
+    const tetherMat = new THREE.MeshBasicMaterial({
+      color: 8961023,
+      transparent: true,
+      opacity: 0.6
+    });
+    const tether = new THREE.Mesh(tetherGeo, tetherMat);
+    tether.position.set(obj.pos.x, obj.suspendHeight / 2, obj.pos.z);
+    scene2.add(tether);
+    obj.tetherMesh = tether;
+  }
 }
 function applyBendVisuals(obj, tintColor) {
   if (!obj.mesh) return;
@@ -9015,6 +9037,11 @@ function clearBendVisuals(obj) {
 }
 function clearPhysicsObjects(gameState2, scene2) {
   for (const obj of gameState2.physicsObjects) {
+    if (obj.tetherMesh) {
+      scene2.remove(obj.tetherMesh);
+      obj.tetherMesh.geometry.dispose();
+      obj.tetherMesh.material.dispose();
+    }
     if (obj.mesh) {
       scene2.remove(obj.mesh);
       obj.mesh.traverse((child) => {
@@ -9024,6 +9051,14 @@ function clearPhysicsObjects(gameState2, scene2) {
     }
   }
   gameState2.physicsObjects = [];
+}
+function updateTetherVisuals(gameState2) {
+  const t = performance.now() / 1e3;
+  for (const obj of gameState2.physicsObjects) {
+    if (!obj.suspended || !obj.tetherMesh) continue;
+    const pulse = 0.4 + 0.3 * Math.sin(t * 3);
+    obj.tetherMesh.material.opacity = pulse;
+  }
 }
 
 // src/config/bends.ts
@@ -9577,6 +9612,36 @@ function tryApplyBendToTarget(target4, targetType) {
     const bend = getBendById(selectedBend);
     if (bend) {
       applyBendVisuals(target4, bend.tintColor);
+    }
+    if (target4.suspended) {
+      target4.suspended = false;
+      if (target4.tetherMesh) {
+        target4.tetherMesh.geometry.dispose();
+        target4.tetherMesh.material.dispose();
+        const tetherScene = target4.tetherMesh.parent;
+        if (tetherScene) tetherScene.remove(target4.tetherMesh);
+        target4.tetherMesh = null;
+      }
+      const mesh = target4.mesh;
+      if (mesh) {
+        const startY = target4.suspendHeight;
+        const dropDuration = 400;
+        const startTime = performance.now();
+        const dropAnim = () => {
+          const elapsed = performance.now() - startTime;
+          const t = Math.min(elapsed / dropDuration, 1);
+          const eased = t * t;
+          mesh.position.y = startY * (1 - eased);
+          if (t < 1) {
+            requestAnimationFrame(dropAnim);
+          } else {
+            mesh.position.y = 0;
+            screenShake(5, 300);
+            emit({ type: "objectDropped", position: { x: target4.pos.x, z: target4.pos.z } });
+          }
+        };
+        requestAnimationFrame(dropAnim);
+      }
     }
     emit({
       type: "bendApplied",
@@ -11366,6 +11431,7 @@ function gameLoop(timestamp) {
   resolveObjectCollisions(gameState);
   resolvePhysicsObjectBodyCollisions(gameState);
   updatePressurePlates(gameState);
+  updateTetherVisuals(gameState);
   checkPitFalls(gameState);
   updateEffectGhosts(gameDt);
   updateParticles(gameDt);

@@ -403,6 +403,7 @@ export function applyVelocities(dt: number, gameState: GameState): void {
 export function applyObjectVelocities(dt: number, gameState: GameState): void {
   for (const obj of gameState.physicsObjects) {
     if (obj.destroyed) continue;
+    if (obj.suspended) continue;
 
     const vel = obj.vel;
     const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
@@ -661,10 +662,12 @@ export function resolveObjectCollisions(gameState: GameState): void {
     for (let i = 0; i < objects.length; i++) {
       const a = objects[i];
       if (a.destroyed) continue;
+      if (a.suspended) continue;
 
       for (let j = i + 1; j < objects.length; j++) {
         const b = objects[j];
         if (b.destroyed) continue;
+        if (b.suspended) continue;
 
         const dx = b.pos.x - a.pos.x;
         const dz = b.pos.z - a.pos.z;
@@ -732,6 +735,7 @@ export function resolveObjectCollisions(gameState: GameState): void {
   // Object-Enemy collisions
   for (const obj of objects) {
     if (obj.destroyed) continue;
+    if (obj.suspended) continue;
 
     for (const enemy of enemies) {
       if (enemy.health <= 0) continue;
@@ -822,6 +826,7 @@ export function resolvePhysicsObjectBodyCollisions(gameState: GameState): void {
 
   for (const obj of objects) {
     if (obj.destroyed) continue;
+    if (obj.suspended) continue;
 
     // ─── Player vs Object ───
     const pdx = playerPos.x - obj.pos.x;
@@ -1178,6 +1183,7 @@ export function checkCollisions(gameState: GameState): void {
     // Physics objects
     for (const obj of gameState.physicsObjects) {
       if (obj.destroyed) continue;
+      if (obj.suspended) continue;
       if (isInRotatedRect(obj.pos.x, obj.pos.z, pushEvt.x, pushEvt.z,
                            pushEvt.width, pushEvt.length, pushEvt.rotation, obj.radius)) {
         const dx = obj.pos.x - playerX;

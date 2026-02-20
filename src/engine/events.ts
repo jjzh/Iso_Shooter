@@ -55,7 +55,8 @@ export type GameEvent =
   | { type: 'objectDestroyed'; object: any; position: { x: number; z: number } }
   | { type: 'objectImpact'; objectA: any; objectB: any; speed: number; damage: number; position: { x: number; z: number } }
   | { type: 'objectPushed'; object: any; position: { x: number; z: number } }
-  | { type: 'pressurePlateActivated'; position: { x: number; z: number } };
+  | { type: 'pressurePlateActivated'; position: { x: number; z: number } }
+  | { type: 'objectDropped'; position: { x: number; z: number } };
 
 // ─── Bus Implementation ───
 

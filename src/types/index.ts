@@ -528,6 +528,9 @@ export interface PhysicsObject {
   mesh: any;
   destroyed: boolean;
   fellInPit: boolean;
+  suspended: boolean;
+  suspendHeight: number;
+  tetherMesh: any;
 }
 
 export interface PhysicsObjectPlacement {
@@ -539,6 +542,8 @@ export interface PhysicsObjectPlacement {
   health: number;
   radius: number;
   scale?: number;
+  suspended?: boolean;
+  suspendHeight?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
