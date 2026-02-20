@@ -6583,7 +6583,7 @@ var ROOMS = [
   // Room 2: "The Foundation" — goblins only, teach melee + dash + pit kills
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: "Foundations \u2014 Feb 18",
+    name: "Foundations \u2014 Feb 12",
     profile: "base",
     sandboxMode: true,
     commentary: "How does adding displacement affect combat? What about hazards?",
@@ -6617,7 +6617,7 @@ var ROOMS = [
   // Room 2: "Physics Playground" — walls + pits, force push as spatial tool
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: "Add More Physics \u2014 Feb 18",
+    name: "Add More Physics \u2014 Feb 12",
     profile: "base",
     sandboxMode: true,
     commentary: "Can we extend physics-first combat further?",
@@ -6653,7 +6653,7 @@ var ROOMS = [
   // Room 4: "The Shadows" — patrol maze, vision cones, detection puzzle
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: "Tension & Sneak \u2014 Feb 19",
+    name: "Tension & Sneak \u2014 Feb 14",
     profile: "assassin",
     sandboxMode: true,
     commentary: "How do we add tension? How can we slow the game down?",
@@ -6721,7 +6721,7 @@ var ROOMS = [
   // Room 5: "The Workshop" — rule-bending (enlarge/shrink physics objects)
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: "Puzzles & Magic \u2014 Feb 19",
+    name: "Puzzles & Magic \u2014 Feb 15",
     profile: "rule-bending",
     sandboxMode: true,
     commentary: "What does magic look like? Enlarge a rock, shrink a crate...",
@@ -6771,7 +6771,7 @@ var ROOMS = [
   // Room 6: "The Arena" — vertical combat: jump, launch, dunk, spike
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: "Physics Playground \u2014 Feb 19",
+    name: "Physics Playground \u2014 Feb 16",
     profile: "vertical",
     sandboxMode: true,
     commentary: "What if combat had a real Z-axis? Jump, launch, spike, and dunk. What if terrain had more levels of height?",

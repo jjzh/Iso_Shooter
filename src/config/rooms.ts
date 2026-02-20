@@ -84,7 +84,7 @@ export const ROOMS: RoomDefinition[] = [
   // Room 2: "The Foundation" — goblins only, teach melee + dash + pit kills
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'Foundations — Feb 18',
+    name: 'Foundations — Feb 12',
     profile: 'base',
     sandboxMode: true,
     commentary: "How does adding displacement affect combat? What about hazards?",
@@ -119,7 +119,7 @@ export const ROOMS: RoomDefinition[] = [
   // Room 2: "Physics Playground" — walls + pits, force push as spatial tool
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'Add More Physics — Feb 18',
+    name: 'Add More Physics — Feb 12',
     profile: 'base',
     sandboxMode: true,
     commentary: "Can we extend physics-first combat further?",
@@ -156,7 +156,7 @@ export const ROOMS: RoomDefinition[] = [
   // Room 4: "The Shadows" — patrol maze, vision cones, detection puzzle
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'Tension & Sneak — Feb 19',
+    name: 'Tension & Sneak — Feb 14',
     profile: 'assassin' as PlayerProfile,
     sandboxMode: true,
     commentary: "How do we add tension? How can we slow the game down?",
@@ -217,7 +217,7 @@ export const ROOMS: RoomDefinition[] = [
   // Room 5: "The Workshop" — rule-bending (enlarge/shrink physics objects)
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'Puzzles & Magic — Feb 19',
+    name: 'Puzzles & Magic — Feb 15',
     profile: 'rule-bending' as PlayerProfile,
     sandboxMode: true,
     commentary: "What does magic look like? Enlarge a rock, shrink a crate...",
@@ -266,7 +266,7 @@ export const ROOMS: RoomDefinition[] = [
   // Room 6: "The Arena" — vertical combat: jump, launch, dunk, spike
   // ══════════════════════════════════════════════════════════════════════
   {
-    name: 'Physics Playground — Feb 19',
+    name: 'Physics Playground — Feb 16',
     profile: 'vertical' as PlayerProfile,
     sandboxMode: true,
     commentary: "What if combat had a real Z-axis? Jump, launch, spike, and dunk. What if terrain had more levels of height?",
