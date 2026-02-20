@@ -494,13 +494,15 @@ export function applyObjectVelocities(dt: number, gameState: GameState): void {
     if (result.hitWall && speed > PHYSICS.objectWallSlamMinSpeed) {
       const slamDamage = Math.round((speed - PHYSICS.objectWallSlamMinSpeed) * PHYSICS.objectWallSlamDamage);
 
-      // Damage the object itself
-      obj.health -= slamDamage;
-      if (obj.health <= 0) {
-        obj.health = 0;
-        obj.destroyed = true;
-        if (obj.mesh) obj.mesh.visible = false;
-        emit({ type: 'objectDestroyed', object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+      // Damage the object itself (skip if indestructible)
+      if (isFinite(obj.health)) {
+        obj.health -= slamDamage;
+        if (obj.health <= 0) {
+          obj.health = 0;
+          obj.destroyed = true;
+          if (obj.mesh) obj.mesh.visible = false;
+          emit({ type: 'objectDestroyed', object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+        }
       }
 
       emit({ type: 'objectWallSlam', object: obj, speed, damage: slamDamage, position: { x: obj.pos.x, z: obj.pos.z } });

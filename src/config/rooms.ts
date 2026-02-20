@@ -230,7 +230,7 @@ export const ROOMS: RoomDefinition[] = [
     ],
     physicsObjects: [
       // Rock: enlarge to reach pressure plate mass threshold (2.0 → 4.0)
-      { meshType: 'rock' as const, material: 'stone' as const, x: -3, z: 4, mass: 2.0, health: 50, radius: 0.6 },
+      { meshType: 'rock' as const, material: 'stone' as const, x: -3, z: 4, mass: 2.0, health: Infinity, radius: 0.6 },
       // Crate: blocks the door at -Z end, too heavy to push (mass 5.0), shrink to move aside
       { meshType: 'crate' as const, material: 'wood' as const, x: 0, z: -12, mass: 5.0, health: 80, radius: 1.5 },
     ],
