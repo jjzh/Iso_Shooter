@@ -6616,7 +6616,7 @@ var ROOMS = [
     profile: "base",
     sandboxMode: true,
     commentary: "How does adding displacement affect combat? What about hazards?",
-    intro: "Activate force-push with E or press-and-hold LMB. Dash past goblins and push them into pits.\n\nOn mobile: tap the Push button to attack, press and hold to charge force-push.",
+    intro: "Activate push with E or press-and-hold LMB. Try pushing goblins into pits.\n\nOn mobile: tap the Push button to attack, press and hold to charge force-push.",
     arenaHalfX: 10,
     arenaHalfZ: 20,
     enableWallSlamDamage: false,
