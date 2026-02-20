@@ -10280,41 +10280,20 @@ function initMobileButtons() {
       triggerCancel();
     });
   }
-  mobileBtnBend = document.createElement("div");
-  mobileBtnBend.id = "mobile-btn-bend";
-  mobileBtnBend.className = "mobile-btn";
-  mobileBtnBend.textContent = "Q";
-  mobileBtnBend.style.cssText = `
-    position: fixed;
-    bottom: 140px;
-    left: 20px;
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
-    background: rgba(100, 180, 255, 0.3);
-    border: 2px solid rgba(100, 180, 255, 0.6);
-    color: rgba(100, 180, 255, 0.9);
-    font-family: 'Courier New', monospace;
-    font-size: 14px;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    touch-action: none;
-    user-select: none;
-    z-index: 100;
-  `;
-  document.body.appendChild(mobileBtnBend);
-  mobileBtnBend.addEventListener("touchstart", (e) => {
-    e.preventDefault();
-    getInputState().bendMode = true;
-  });
+  mobileBtnBend = document.getElementById("mobile-btn-bend");
+  if (mobileBtnBend) {
+    mobileBtnBend.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      getInputState().bendMode = true;
+    });
+  }
   updateMobileButtons();
 }
 function updateMobileButtons() {
   const profile = getActiveProfile();
   if (profile === lastMobileProfile) return;
   lastMobileProfile = profile;
-  const allBtns = [mobileBtnDash, mobileBtnUlt, mobileBtnJump, mobileBtnLaunch, mobileBtnCancel];
+  const allBtns = [mobileBtnDash, mobileBtnUlt, mobileBtnJump, mobileBtnLaunch, mobileBtnCancel, mobileBtnBend];
   for (const btn of allBtns) {
     if (btn) btn.classList.remove("visible");
   }
@@ -10328,6 +10307,12 @@ function updateMobileButtons() {
     ];
   } else if (profile === "origin") {
     visibleBtns = [];
+  } else if (profile === "rule-bending") {
+    visibleBtns = [
+      { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
+      { el: mobileBtnUlt, size: MOBILE_CONTROLS.primarySize },
+      { el: mobileBtnBend, size: MOBILE_CONTROLS.fanSize }
+    ];
   } else {
     visibleBtns = [
       { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
@@ -10358,9 +10343,6 @@ function updateMobileButtons() {
     el.style.right = anchorRight - dx + "px";
     el.style.bottom = anchorBottom - dy + "px";
     el.style.transform = "translate(50%, 50%)";
-  }
-  if (mobileBtnBend) {
-    mobileBtnBend.style.display = profile === "rule-bending" ? "flex" : "none";
   }
 }
 function setupDragToAim(btnEl, { onDragStart, onDragMove, onRelease, onCancel }) {

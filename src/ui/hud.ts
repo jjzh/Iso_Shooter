@@ -263,36 +263,14 @@ function initMobileButtons() {
     });
   }
 
-  // --- Bend toggle: create button and wire tap ---
-  mobileBtnBend = document.createElement('div');
-  mobileBtnBend.id = 'mobile-btn-bend';
-  mobileBtnBend.className = 'mobile-btn';
-  mobileBtnBend.textContent = 'Q';
-  mobileBtnBend.style.cssText = `
-    position: fixed;
-    bottom: 140px;
-    left: 20px;
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
-    background: rgba(100, 180, 255, 0.3);
-    border: 2px solid rgba(100, 180, 255, 0.6);
-    color: rgba(100, 180, 255, 0.9);
-    font-family: 'Courier New', monospace;
-    font-size: 14px;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    touch-action: none;
-    user-select: none;
-    z-index: 100;
-  `;
-  document.body.appendChild(mobileBtnBend);
-
-  mobileBtnBend.addEventListener('touchstart', (e: any) => {
-    e.preventDefault();
-    getInputState().bendMode = true;
-  });
+  // --- Bend toggle: wire existing HTML button ---
+  mobileBtnBend = document.getElementById('mobile-btn-bend') as HTMLDivElement | null;
+  if (mobileBtnBend) {
+    mobileBtnBend.addEventListener('touchstart', (e: any) => {
+      e.preventDefault();
+      getInputState().bendMode = true;
+    });
+  }
 
   // Initial profile-based layout
   updateMobileButtons();
@@ -307,7 +285,7 @@ export function updateMobileButtons() {
   if (profile === lastMobileProfile) return;
   lastMobileProfile = profile;
 
-  const allBtns = [mobileBtnDash, mobileBtnUlt, mobileBtnJump, mobileBtnLaunch, mobileBtnCancel];
+  const allBtns = [mobileBtnDash, mobileBtnUlt, mobileBtnJump, mobileBtnLaunch, mobileBtnCancel, mobileBtnBend];
 
   // Hide all first
   for (const btn of allBtns) {
@@ -327,8 +305,14 @@ export function updateMobileButtons() {
   } else if (profile === 'origin') {
     // Origin has auto-fire, no combat buttons needed
     visibleBtns = [];
+  } else if (profile === 'rule-bending') {
+    visibleBtns = [
+      { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
+      { el: mobileBtnUlt, size: MOBILE_CONTROLS.primarySize },
+      { el: mobileBtnBend, size: MOBILE_CONTROLS.fanSize },
+    ];
   } else {
-    // 'base', 'assassin', 'rule-bending' — default set
+    // 'base', 'assassin' — default set
     visibleBtns = [
       { el: mobileBtnDash, size: MOBILE_CONTROLS.fanSize },
       { el: mobileBtnUlt, size: MOBILE_CONTROLS.primarySize },
@@ -371,10 +355,6 @@ export function updateMobileButtons() {
     el.style.transform = 'translate(50%, 50%)'; // center on computed position
   }
 
-  // Bend button — positioned on left side, only for rule-bending profile
-  if (mobileBtnBend) {
-    mobileBtnBend.style.display = profile === 'rule-bending' ? 'flex' : 'none';
-  }
 }
 
 /**
