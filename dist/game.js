@@ -113,7 +113,7 @@ function initRenderer() {
   camera.position.copy(cameraOffset);
   camera.lookAt(0, 0, 0);
   const hasTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
-  if (hasTouch) applyFrustum(8);
+  if (hasTouch) applyFrustum(6.2);
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(w, h);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -6737,7 +6737,7 @@ var ROOMS = [
     ],
     physicsObjects: [
       // Rock: enlarge to reach pressure plate mass threshold (2.0 → 4.0)
-      { meshType: "rock", material: "stone", x: -3, z: 4, mass: 2, health: 50, radius: 0.6 },
+      { meshType: "rock", material: "stone", x: -3, z: 4, mass: 2, health: Infinity, radius: 0.6 },
       // Crate: blocks the door at -Z end, too heavy to push (mass 5.0), shrink to move aside
       { meshType: "crate", material: "wood", x: 0, z: -12, mass: 5, health: 80, radius: 1.5 }
     ],
@@ -7252,12 +7252,14 @@ function applyObjectVelocities(dt, gameState2) {
     }
     if (result.hitWall && speed > PHYSICS.objectWallSlamMinSpeed) {
       const slamDamage = Math.round((speed - PHYSICS.objectWallSlamMinSpeed) * PHYSICS.objectWallSlamDamage);
-      obj.health -= slamDamage;
-      if (obj.health <= 0) {
-        obj.health = 0;
-        obj.destroyed = true;
-        if (obj.mesh) obj.mesh.visible = false;
-        emit({ type: "objectDestroyed", object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+      if (isFinite(obj.health)) {
+        obj.health -= slamDamage;
+        if (obj.health <= 0) {
+          obj.health = 0;
+          obj.destroyed = true;
+          if (obj.mesh) obj.mesh.visible = false;
+          emit({ type: "objectDestroyed", object: obj, position: { x: obj.pos.x, z: obj.pos.z } });
+        }
       }
       emit({ type: "objectWallSlam", object: obj, speed, damage: slamDamage, position: { x: obj.pos.x, z: obj.pos.z } });
       screenShake(PHYSICS.objectWallSlamShake, 120);

@@ -37,7 +37,7 @@ export function initRenderer() {
 
   // Zoom camera in on mobile for tighter view
   const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-  if (hasTouch) applyFrustum(8);
+  if (hasTouch) applyFrustum(6.2);
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(w, h);
@@ -275,7 +275,7 @@ function applyFrustum(f: number) {
 }
 
 export function setZoom(frustum: number) {
-  applyFrustum(Math.max(8, Math.min(30, frustum)));
+  applyFrustum(Math.max(6, Math.min(30, frustum)));
 }
 
 export function setFrustumSize(size: number) {
