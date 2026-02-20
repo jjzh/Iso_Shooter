@@ -126,7 +126,7 @@ export const ROOMS: RoomDefinition[] = [
     profile: 'base',
     sandboxMode: true,
     commentary: "Can we extend physics-first combat further?",
-    intro: "Can we extend physics more and lean into the isometric camera. Knocking enemies into each other and terrain is satisfying. Players have more options in second-to-second gameplay.",
+    intro: "I wanted to extend the physics and lean into the isometric camera. Enemy position and terrain mattering more increases second-to-second fun.",
     enableWallSlamDamage: true,
     enableEnemyCollisionDamage: true,
     arenaHalfX: 9,
