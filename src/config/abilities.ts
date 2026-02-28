@@ -3,7 +3,7 @@ import { AbilitiesConfig } from '../types/index';
 export const ABILITIES: AbilitiesConfig = {
   dash: {
     name: 'Shadow Dash',
-    key: 'Space',
+    key: 'Shift',
     cooldown: 3000,
     duration: 200,
     distance: 5,
@@ -25,13 +25,13 @@ export const ABILITIES: AbilitiesConfig = {
   ultimate: {
     name: 'Force Push',
     key: 'E',
-    cooldown: 5000,
+    cooldown: 500,
     chargeTimeMs: 1500,
     minLength: 3,
     maxLength: 12,
     width: 3,
-    minKnockback: 1.5,
-    maxKnockback: 5,
+    minKnockback: 4,
+    maxKnockback: 12,
     color: 0x44ffaa,
     telegraphOpacity: 0.3,
     chargeMoveSpeedMult: 0.4,

@@ -17,7 +17,46 @@ export type GameEvent =
   | { type: 'shieldBreak'; enemy: any; position: { x: number; z: number } }
   | { type: 'chargeFired'; chargeT: number; direction: { x: number; z: number }; position: { x: number; z: number } }
   | { type: 'enemyPushed'; enemy: any; position: { x: number; z: number } }
-  | { type: 'pitFall'; position: { x: number; z: number }; isPlayer: boolean };
+  | { type: 'pitFall'; position: { x: number; z: number }; isPlayer: boolean }
+  | { type: 'meleeSwing'; position: { x: number; z: number }; direction: { x: number; z: number } }
+  | { type: 'meleeHit'; enemy: any; damage: number; position: { x: number; z: number } }
+  | { type: 'roomCleared'; roomIndex: number }
+  | { type: 'roomClearComplete'; roomIndex: number }
+  | { type: 'doorUnlocked'; roomIndex: number }
+  | { type: 'doorEntered'; roomIndex: number }
+  | { type: 'spawnPackTelegraph'; packIndex: number; roomIndex: number }
+  | { type: 'spawnPackSpawned'; packIndex: number; roomIndex: number }
+  | { type: 'restRoomEntered'; roomIndex: number }
+  | { type: 'playerHealed'; amount: number; position: { x: number; z: number } }
+  | { type: 'enemyMeleeTelegraph'; position: { x: number; z: number }; facingAngle: number; hitArc: number; hitRange: number; duration: number }
+  | { type: 'wallSlam'; enemy: any; speed: number; damage: number; position: { x: number; z: number } }
+  | { type: 'enemyImpact'; enemyA: any; enemyB: any; speed: number; damage: number; position: { x: number; z: number } }
+  | { type: 'enemyAggroed'; enemy: any; position: { x: number; z: number } }
+  | { type: 'detectionStarted'; enemy: any; position: { x: number; z: number } }
+  | { type: 'detectionCleared'; enemy: any; position: { x: number; z: number } }
+  | { type: 'bulletTimeActivated' }
+  | { type: 'bulletTimeDeactivated' }
+  | { type: 'playerJump'; position: { x: number; z: number } }
+  | { type: 'playerLand'; position: { x: number; z: number }; fallSpeed: number }
+  | { type: 'enemyLaunched'; enemy: any; position: { x: number; z: number }; velocity: number }
+  | { type: 'aerialStrike'; enemy: any; damage: number; position: { x: number; z: number } }
+  | { type: 'playerSlam'; position: { x: number; z: number }; fallSpeed: number }
+  | { type: 'dunkGrab'; enemy: any; position: { x: number; z: number } }
+  | { type: 'dunkImpact'; enemy: any; damage: number; position: { x: number; z: number } }
+  | { type: 'spikeStrike'; enemy: any; damage: number; position: { x: number; z: number } }
+  | { type: 'spikeThrough'; enemy: any; damage: number; position: { x: number; z: number } }
+  | { type: 'spikeImpact'; position: { x: number; z: number }; damage: number; radius: number }
+  | { type: 'bendModeActivated' }
+  | { type: 'bendModeDeactivated' }
+  | { type: 'bendApplied'; bendId: string; targetType: string; targetId: number; position: { x: number; z: number } }
+  | { type: 'bendFailed'; bendId: string; reason: string }
+  | { type: 'objectPitFall'; object: any; position: { x: number; z: number } }
+  | { type: 'objectWallSlam'; object: any; speed: number; damage: number; position: { x: number; z: number } }
+  | { type: 'objectDestroyed'; object: any; position: { x: number; z: number } }
+  | { type: 'objectImpact'; objectA: any; objectB: any; speed: number; damage: number; position: { x: number; z: number } }
+  | { type: 'objectPushed'; object: any; position: { x: number; z: number } }
+  | { type: 'pressurePlateActivated'; position: { x: number; z: number } }
+  | { type: 'objectDropped'; position: { x: number; z: number }; radius: number; mass: number };
 
 // ─── Bus Implementation ───
 

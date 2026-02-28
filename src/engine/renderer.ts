@@ -1,14 +1,18 @@
-import { OBSTACLES, PITS, ARENA_HALF, WALL_THICKNESS, WALL_HEIGHT } from '../config/arena';
+import { OBSTACLES, PITS, ARENA_HALF_X, ARENA_HALF_Z, WALL_THICKNESS, WALL_HEIGHT } from '../config/arena';
+import { HEIGHT_ZONES } from '../config/terrain';
 
 let scene: any, camera: any, renderer: any;
 const baseFrustum = 12;
+const mobileFrustum = 5.6;
 let currentFrustum = 12;
+let isMobile = false;
 const cameraOffset = new THREE.Vector3(20, 20, 20);
 
 // Tracked arena meshes for dynamic rebuild
 let obstacleMeshes: any[] = [];
 let wallMeshes: any[] = [];
 let pitMeshes: any[] = [];
+let _platformMeshes: any[] = [];
 
 // Screen shake state
 let shakeRemaining = 0;
@@ -35,7 +39,10 @@ export function initRenderer() {
 
   // Zoom camera in on mobile for tighter view
   const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-  if (hasTouch) applyFrustum(8);
+  if (hasTouch) {
+    isMobile = true;
+    applyFrustum(mobileFrustum);
+  }
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(w, h);
@@ -54,16 +61,17 @@ export function initRenderer() {
   rimLight.position.set(-10, 5, -10);
   scene.add(rimLight);
 
-  // Ground
+  // Ground — sized generously so it covers any room shape
+  const groundSize = 120;
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(60, 60),
+    new THREE.PlaneGeometry(groundSize, groundSize),
     new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.9, metalness: 0.1 })
   );
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
   // Grid overlay
-  const grid = new THREE.GridHelper(60, 30, 0x2a4a4a, 0x1a2a3a);
+  const grid = new THREE.GridHelper(groundSize, 60, 0x2a4a4a, 0x1a2a3a);
   grid.position.y = 0.01;
   scene.add(grid);
 
@@ -125,23 +133,23 @@ function createObstacles() {
     roughness: 0.8
   });
 
-  // North/South walls
+  // North/South walls (span arena width)
   for (const zSign of [-1, 1]) {
     const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(ARENA_HALF * 2 + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS),
+      new THREE.BoxGeometry(ARENA_HALF_X * 2 + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS),
       wallMat
     );
-    wall.position.set(0, WALL_HEIGHT / 2, zSign * ARENA_HALF);
+    wall.position.set(0, WALL_HEIGHT / 2, zSign * ARENA_HALF_Z);
     scene.add(wall);
     wallMeshes.push(wall);
   }
-  // East/West walls
+  // East/West walls (span arena depth)
   for (const xSign of [-1, 1]) {
     const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, ARENA_HALF * 2 + WALL_THICKNESS),
+      new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, ARENA_HALF_Z * 2 + WALL_THICKNESS),
       wallMat
     );
-    wall.position.set(xSign * ARENA_HALF, WALL_HEIGHT / 2, 0);
+    wall.position.set(xSign * ARENA_HALF_X, WALL_HEIGHT / 2, 0);
     scene.add(wall);
     wallMeshes.push(wall);
   }
@@ -216,10 +224,34 @@ function createPits() {
   }
 }
 
-// Rebuild all arena visuals (obstacles + pits) — called by level editor
+function clearPlatformMeshes() {
+  for (const m of _platformMeshes) {
+    scene.remove(m);
+    if (m.geometry) m.geometry.dispose();
+  }
+  _platformMeshes = [];
+}
+
+function createPlatforms() {
+  clearPlatformMeshes();
+
+  const mat = new THREE.MeshStandardMaterial({ color: 0x3366aa, roughness: 0.7 });
+
+  for (const zone of HEIGHT_ZONES) {
+    const geo = new THREE.BoxGeometry(zone.w, zone.y, zone.d);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(zone.x, zone.y / 2, zone.z);
+    scene.add(mesh);
+    _platformMeshes.push(mesh);
+  }
+}
+
+// Rebuild all arena visuals (obstacles + pits + platforms) — called by level editor
 export function rebuildArenaVisuals() {
   createObstacles();
   createPits();
+  clearPlatformMeshes();
+  createPlatforms();
 }
 
 function getViewportSize() {
@@ -248,7 +280,16 @@ function applyFrustum(f: number) {
 }
 
 export function setZoom(frustum: number) {
-  applyFrustum(Math.max(8, Math.min(30, frustum)));
+  applyFrustum(Math.max(3, Math.min(30, frustum)));
+}
+
+export function setFrustumSize(size: number) {
+  // On mobile, scale the requested frustum relative to mobile base
+  if (isMobile) {
+    applyFrustum(mobileFrustum * (size / baseFrustum));
+  } else {
+    applyFrustum(size);
+  }
 }
 
 export function resetZoom() {
@@ -301,3 +342,5 @@ export function screenToWorld(ndcX: number, ndcY: number) {
 export function getScene() { return scene; }
 export function getCamera() { return camera; }
 export function getRendererInstance() { return renderer; }
+export function getPitMeshes() { return pitMeshes; }
+export function getObstacleMeshes() { return obstacleMeshes; }

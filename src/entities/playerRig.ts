@@ -83,6 +83,7 @@ const COLORS = {
   head:     { color: 0x55ddaa, emissive: 0x33bb88, emissiveIntensity: 0.5 },
   arm:      { color: 0x3ab87a, emissive: 0x1e9960, emissiveIntensity: 0.35 },
   leg:      { color: 0x38b575, emissive: 0x1c9658, emissiveIntensity: 0.35 },
+  fist:     { color: 0x55ddaa, emissive: 0x33bb88, emissiveIntensity: 0.5 },
 };
 
 // ─── Shared Geometry Cache (created once) ───
@@ -93,6 +94,7 @@ let _upperArmGeo: any = null;
 let _lowerArmGeo: any = null;
 let _thighGeo: any = null;
 let _shinGeo: any = null;
+let _fistGeo: any = null;
 
 function ensureGeometry() {
   if (_torsoGeo) return;
@@ -102,6 +104,7 @@ function ensureGeometry() {
   _lowerArmGeo = new THREE.BoxGeometry(P.lowerArmWidth, P.lowerArmHeight, P.lowerArmDepth);
   _thighGeo    = new THREE.BoxGeometry(P.thighWidth, P.thighHeight, P.thighDepth);
   _shinGeo     = new THREE.BoxGeometry(P.shinWidth, P.shinHeight, P.shinDepth);
+  _fistGeo = new THREE.BoxGeometry(0.10, 0.08, 0.10);  // chunky fist — wider than forearm for readability
 }
 
 function makeMat(palette: { color: number; emissive: number; emissiveIntensity: number }) {
@@ -171,6 +174,7 @@ export function createPlayerRig(parentGroup: any): PlayerRig {
   lowerArmL.position.y = P.elbowY;
   upperArmL.add(lowerArmL);
   addMesh(_lowerArmGeo, COLORS.arm, lowerArmL, 0, P.lowerArmY, 0);
+  addMesh(_fistGeo, COLORS.fist, lowerArmL, 0, P.lowerArmY - P.lowerArmHeight / 2 - 0.02, 0);  // fist at end of forearm
 
   // Right shoulder pivot
   const shoulderR = new THREE.Group();
@@ -187,6 +191,7 @@ export function createPlayerRig(parentGroup: any): PlayerRig {
   lowerArmR.position.y = P.elbowY;
   upperArmR.add(lowerArmR);
   addMesh(_lowerArmGeo, COLORS.arm, lowerArmR, 0, P.lowerArmY, 0);
+  addMesh(_fistGeo, COLORS.fist, lowerArmR, 0, P.lowerArmY - P.lowerArmHeight / 2 - 0.02, 0);  // fist at end of forearm
 
   // ─── Legs ───
 

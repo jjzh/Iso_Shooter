@@ -1,20 +1,36 @@
 import { initRenderer, updateCamera, getScene, getRendererInstance, getCamera } from './renderer';
-import { initInput, updateInput, consumeInput, getInputState, autoAimClosestEnemy } from './input';
+import { initInput, updateInput, consumeInput, getInputState, autoAimClosestEnemy, consumeCancel, setUltimateHeld } from './input';
 import { createPlayer, updatePlayer, getPlayerPos, resetPlayer } from '../entities/player';
-import { initProjectilePool, updateProjectiles, releaseAllProjectiles } from '../entities/projectile';
-import { initEnemySystem, updateEnemies, clearEnemies } from '../entities/enemy';
-import { initMortarSystem, updateMortarProjectiles, clearMortarProjectiles, updateIcePatches, clearIcePatches } from '../entities/mortarProjectile';
-import { initWaveRunner, updateWaveRunner, startWave, resetWaveRunner } from './waveRunner';
-import { checkCollisions, checkPitFalls, updateEffectGhosts, clearEffectGhosts } from './physics';
-import { initAoeTelegraph, updateAoeTelegraphs, updatePendingEffects, clearAoeTelegraphs } from './aoeTelegraph';
+import { initProjectilePool, updateProjectiles } from '../entities/projectile';
+import { initEnemySystem, updateEnemies } from '../entities/enemy';
+import { initMortarSystem, updateMortarProjectiles, updateIcePatches } from '../entities/mortarProjectile';
+import { initRoomManager, loadRoom, updateRoomManager, resetRoomManager } from './roomManager';
+import { checkCollisions, checkPitFalls, updateEffectGhosts, applyVelocities, resolveEnemyCollisions, applyObjectVelocities, resolveObjectCollisions, resolvePhysicsObjectBodyCollisions } from './physics';
+import { initAoeTelegraph, updateAoeTelegraphs, updatePendingEffects } from './aoeTelegraph';
 import { initHUD, updateHUD } from '../ui/hud';
 import { initScreens, showGameOver, hideScreens } from '../ui/screens';
-import { initDamageNumbers, updateDamageNumbers, clearDamageNumbers } from '../ui/damageNumbers';
-import { initTuningPanel } from '../ui/tuning';
-import { initSpawnEditor, checkEditorToggle, updateSpawnEditor, isEditorActive } from '../ui/spawnEditor';
+import { initDamageNumbers, updateDamageNumbers } from '../ui/damageNumbers';
 import { initAudio, resumeAudio } from './audio';
-import { initParticles, updateParticles, clearParticles } from './particles';
-import { PLAYER } from '../config/player';
+import { initParticles, updateParticles } from './particles';
+import { initBulletTime, toggleBulletTime, updateBulletTime, getBulletTimeScale, resetBulletTime } from './bulletTime';
+import { initBendMode, toggleBendMode, isBendModeActive, isBendTargeting, handleBendClick, enterTargeting, resetBendMode, updateBendMode, updateBendHover } from './bendMode';
+import { initRadialMenu, setOnBendSelected } from '../ui/radialMenu';
+import { getActiveProfile } from './profileManager';
+import { initAerialVerbs, updateAerialVerbs, resetAerialVerbs, cancelActiveVerb } from './aerialVerbs';
+import { clearAllTags } from './tags';
+import { dunkVerb } from '../verbs/dunk';
+import { floatSelectorVerb } from '../verbs/floatSelector';
+import { spikeVerb } from '../verbs/spike';
+import { updateCarriers, clearCarriers } from './entityCarrier';
+import { initGroundShadows, updateGroundShadows } from './groundShadows';
+import { initVisionCones } from './visionCone';
+import { initLaunchPillars, updateLaunchPillars, clearLaunchPillars } from '../effects/launchPillar';
+import { initLaunchIndicator, clearLaunchIndicator } from '../effects/launchIndicator';
+import { raycastTerrainDist } from '../entities/enemy';
+import { PLAYER, MELEE, DUNK } from '../config/player';
+import { on } from './events';
+import { updatePressurePlates } from './pressurePlate';
+import { updateTetherVisuals } from '../entities/physicsObject';
 import { applyUrlParams, snapshotDefaults } from './urlParams';
 import { GameState } from '../types/index';
 
@@ -25,6 +41,10 @@ const gameState: GameState = {
   currency: 0,
   currentWave: 1,
   enemies: [],
+  physicsObjects: [],
+  bendMode: false,
+  bendsPerRoom: 3,
+  pressurePlates: [],
   abilities: {
     dash:     { cooldownRemaining: 0 },
     ultimate: { cooldownRemaining: 0, active: false, activeRemaining: 0, charging: false, chargeT: 0 }
@@ -32,6 +52,7 @@ const gameState: GameState = {
 };
 
 let lastTime = 0;
+let hitPauseTimer = 0; // ms remaining — freeze frame on melee hit
 
 function gameLoop(timestamp: number): void {
   requestAnimationFrame(gameLoop);
@@ -41,16 +62,13 @@ function gameLoop(timestamp: number): void {
     return;
   }
 
-  if (gameState.phase === 'gameOver') {
+  if (gameState.phase === 'intro') {
     getRendererInstance().render(getScene(), getCamera());
     return;
   }
 
-  if (gameState.phase === 'editorPaused') {
-    updateInput();
-    updateSpawnEditor(0);
+  if (gameState.phase === 'gameOver') {
     getRendererInstance().render(getScene(), getCamera());
-    consumeInput();
     return;
   }
 
@@ -60,67 +78,141 @@ function gameLoop(timestamp: number): void {
 
   if (dt <= 0) return;
 
+  // Hit pause (freeze frame on melee hit)
+  if (hitPauseTimer > 0) {
+    hitPauseTimer -= dt * 1000;
+    updateInput();   // keep input state fresh so joystick releases aren't missed
+    consumeInput();
+    getRendererInstance().render(getScene(), getCamera());
+    return;
+  }
+
   // 1. Input
   updateInput();
+
+  // 1a. Cancel — release aerial verb + force push charge
+  if (consumeCancel()) {
+    cancelActiveVerb();
+    setUltimateHeld(false);
+  }
+
   autoAimClosestEnemy(gameState.enemies);
   const input = getInputState();
 
-  // 2. Player
-  updatePlayer(input, dt, gameState);
+  // 1b. Bend Mode / Bullet Time toggle (profile-gated)
+  if (getActiveProfile() === 'rule-bending') {
+    if (input.bendMode) toggleBendMode();
+  } else {
+    if (input.bulletTime) toggleBulletTime();
+  }
+  updateBulletTime(dt);
+  const gameDt = dt * getBulletTimeScale(); // slowed dt for world systems
 
-  // 3. Projectiles
-  updateProjectiles(dt);
+  // 1c. Bend targeting click
+  if (isBendModeActive() && isBendTargeting() && input.attack) {
+    handleBendClick(input.mouseNDC, gameState);
+  }
 
-  // 4. Wave Runner
-  updateWaveRunner(dt, gameState);
+  // 1d. Bend mode update (highlights + hover)
+  updateBendMode(dt, gameState);
+  if (isBendModeActive() && isBendTargeting()) {
+    updateBendHover(input.mouseNDC, gameState);
+  }
 
-  // 5. Enemies
-  updateEnemies(dt, getPlayerPos(), gameState);
+  // 2. Player (uses real dt — player moves at normal speed)
+  // Gate combat input when bend mode is active
+  if (isBendModeActive()) {
+    const gatedInput = { ...input, attack: false, dash: false, ultimate: false, ultimateHeld: false };
+    updatePlayer(gatedInput, dt, gameState);
+  } else {
+    updatePlayer(input, dt, gameState);
+  }
+
+  // 2b. Aerial verbs (dunk, spike, etc.) — uses gameDt so bullet time slows
+  (input as any)._gameState = gameState;
+  updateAerialVerbs(gameDt, getPlayerPos(), input);
+
+  // 2c. Entity carriers (spiked enemies as projectiles) — real dt like player
+  updateCarriers(dt, gameState);
+
+  // 2d. Launch pillars (visual only, real dt)
+  updateLaunchPillars(dt);
+
+  // 3. Projectiles (slowed)
+  updateProjectiles(gameDt);
+
+  // 4. Room Manager (slowed)
+  updateRoomManager(gameDt, gameState);
+
+  // 5. Enemies (slowed)
+  updateEnemies(gameDt, getPlayerPos(), gameState);
 
   // 6. Collisions
   checkCollisions(gameState);
 
+  // 6a. Physics velocities — knockback sliding, wall slam detection (slowed)
+  applyVelocities(gameDt, gameState);
+
+  // 6a2. Enemy-enemy collision (separation + momentum transfer)
+  resolveEnemyCollisions(gameState);
+
+  // 6a1. Physics object velocities (no-ops when physicsObjects array is empty)
+  applyObjectVelocities(gameDt, gameState);
+
+  // 6a3. Object-object + object-enemy collision
+  resolveObjectCollisions(gameState);
+
+  // 6a3b. Physics objects as solid bodies
+  resolvePhysicsObjectBodyCollisions(gameState);
+
+  // 6a4. Pressure plates (check if heavy object resting on plate)
+  updatePressurePlates(gameState);
+
+  // 6a5. Tether visuals (pulse opacity on suspended physics objects)
+  updateTetherVisuals(gameState);
+
   // 6b. Pit falls
   checkPitFalls(gameState);
 
-  // 6c. Effect ghosts
-  updateEffectGhosts(dt);
+  // 6c. Effect ghosts (slowed)
+  updateEffectGhosts(gameDt);
 
-  // 6d. Particles
-  updateParticles(dt);
+  // 6d. Particles (slowed)
+  updateParticles(gameDt);
 
-  // 7. AoE telegraphs
-  updateAoeTelegraphs(dt);
-  updatePendingEffects(dt);
+  // 7. AoE telegraphs (slowed)
+  updateAoeTelegraphs(gameDt);
+  updatePendingEffects(gameDt);
 
-  // 8. Mortar projectiles
-  updateMortarProjectiles(dt);
+  // 8. Mortar projectiles (slowed)
+  updateMortarProjectiles(gameDt);
 
-  // 8b. Ice patches
-  updateIcePatches(dt);
+  // 8b. Ice patches (slowed)
+  updateIcePatches(gameDt);
 
-  // 9. Check for game over (phase may have changed during collision checks)
-  if ((gameState.phase as string) === 'gameOver') {
-    showGameOver(gameState);
+  // 9. Clamp health — demo mode, player can't die
+  if (gameState.playerHealth < 1) {
+    gameState.playerHealth = 1;
+    gameState.phase = 'playing';
   }
 
-  // 10. Camera
+  // 10. Camera (real dt — smooth camera)
   updateCamera(getPlayerPos(), dt);
+
+  // 10b. Ground shadows (track entity positions)
+  updateGroundShadows(gameState);
 
   // 11. HUD
   updateHUD(gameState);
 
-  // 12. Check editor toggle
-  checkEditorToggle();
-
-  // 13. Consume edge-triggered inputs
+  // 12. Consume edge-triggered inputs
   consumeInput();
 
   // 14. Render
   getRendererInstance().render(getScene(), getCamera());
 
-  // 15. Damage numbers
-  updateDamageNumbers(dt);
+  // 15. Damage numbers (slowed)
+  updateDamageNumbers(gameDt);
 }
 
 function restart(): void {
@@ -136,18 +228,15 @@ function restart(): void {
   gameState.abilities.ultimate.charging = false;
   gameState.abilities.ultimate.chargeT = 0;
 
-  clearEnemies(gameState);
-  releaseAllProjectiles();
   resetPlayer();
-  clearDamageNumbers();
-  clearAoeTelegraphs();
-  clearMortarProjectiles();
-  clearIcePatches();
-  clearEffectGhosts();
-  clearParticles();
-  resetWaveRunner();
-
-  startWave(0, gameState);
+  resetAerialVerbs();
+  clearCarriers();
+  clearLaunchPillars();
+  clearLaunchIndicator();
+  clearAllTags();
+  resetRoomManager();
+  resetBulletTime();
+  loadRoom(0, gameState);
 }
 
 function init(): void {
@@ -163,18 +252,49 @@ function init(): void {
     initEnemySystem(scene);
     initMortarSystem(scene);
     initAoeTelegraph(scene);
-    initWaveRunner(scene);
+    initRoomManager(scene);
     initAudio();
     initParticles(scene);
+    initBulletTime();
+    initRadialMenu();
+    setOnBendSelected((_bendId: string) => { enterTargeting(); });
+    initBendMode();
+    initVisionCones(scene, raycastTerrainDist);
+    initAerialVerbs([floatSelectorVerb, dunkVerb, spikeVerb]);
+    initLaunchPillars(scene);
+    initLaunchIndicator(scene);
+    initGroundShadows();
+
+    // Hit pause — subscribe to impact events
+    on('meleeHit', () => {
+      hitPauseTimer = MELEE.hitPause;
+    });
+    on('dunkGrab', () => {
+      hitPauseTimer = DUNK.grabPause;
+    });
+    // Boulder drop — deal crush damage to enemies underneath
+    on('objectDropped', (evt: any) => {
+      const { position, radius, mass } = evt;
+      const crushDamage = mass * 25;
+      for (const enemy of gameState.enemies) {
+        const dx = enemy.pos.x - position.x;
+        const dz = enemy.pos.z - position.z;
+        if (dx * dx + dz * dz <= radius * radius) {
+          enemy.health -= crushDamage;
+        }
+      }
+    });
     initHUD();
     initDamageNumbers();
-    initTuningPanel();
-    initSpawnEditor(scene, gameState);
     initScreens(restart, () => {
       resumeAudio(); // AudioContext requires user gesture to start
-      gameState.phase = 'playing';
       document.getElementById('hud')!.style.visibility = 'visible';
-      startWave(0, gameState);
+      loadRoom(0, gameState);
+      lastTime = performance.now();
+    }, (roomIndex: number) => {
+      resumeAudio();
+      document.getElementById('hud')!.style.visibility = 'visible';
+      loadRoom(roomIndex, gameState);
       lastTime = performance.now();
     });
 

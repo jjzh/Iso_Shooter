@@ -1,5 +1,14 @@
 import { EnemyConfig } from '../types/index';
 
+// Global multipliers for tuning all mobs at once
+export const MOB_GLOBAL = {
+  speedMult: 1,
+  damageMult: 1,
+  healthMult: 1,
+  telegraphMult: 1,
+  recoveryMult: 1,
+};
+
 export const ENEMY_TYPES: Record<string, EnemyConfig> = {
   goblin: {
     name: "Goblin",
@@ -10,17 +19,34 @@ export const ENEMY_TYPES: Record<string, EnemyConfig> = {
     attackRate: 800,
     behavior: "rush",
     knockbackResist: 0,
+    mass: 1.0,
     color: 16729190,
     emissive: 16720452,
     size: { radius: 0.3, height: 0.8 },
     drops: { currency: { min: 1, max: 3 }, healthChance: 0.1 },
     rush: { stopDistance: 0.5 },
+    melee: {
+      telegraphDuration: 300,
+      attackDuration: 100,
+      recoveryDuration: 400,
+      lungeDistance: 0.8,
+      damage: 10,
+      hitArc: 1.5,
+      hitRange: 1.2,
+    },
     pitLeap: {
       edgeTimeRequired: 1500,
       leapSpeed: 7,
       arcHeight: 2,
       cooldown: 4000
-    }
+    },
+    aggroRadius: 8,
+    patrol: {
+      distance: 6,
+      speed: 1.2,
+      pauseMin: 500,
+      pauseMax: 1500,
+    },
   },
   skeletonArcher: {
     name: "Skeleton Archer",
@@ -31,6 +57,7 @@ export const ENEMY_TYPES: Record<string, EnemyConfig> = {
     attackRate: 2500,
     behavior: "kite",
     knockbackResist: 0.1,
+    mass: 0.8,
     color: 11176191,
     emissive: 8930508,
     size: { radius: 0.25, height: 1 },
@@ -56,6 +83,7 @@ export const ENEMY_TYPES: Record<string, EnemyConfig> = {
     attackRate: 3000,
     behavior: "mortar",
     knockbackResist: 0.1,
+    mass: 0.9,
     color: 4513279,
     emissive: 13391104,
     size: { radius: 0.3, height: 0.9 },
@@ -94,6 +122,7 @@ export const ENEMY_TYPES: Record<string, EnemyConfig> = {
     attackRate: 1200,
     behavior: "tank",
     knockbackResist: 0.6,
+    mass: 3.0,
     color: 16746547,
     emissive: 2263244,
     size: { radius: 0.5, height: 1.4 },
@@ -116,6 +145,14 @@ export const ENEMY_TYPES: Record<string, EnemyConfig> = {
       color: 8974079,
       emissive: 4508927,
       opacity: 0.35
+    },
+    melee: {
+      telegraphDuration: 700,
+      attackDuration: 150,
+      recoveryDuration: 800,
+      damage: 30,
+      hitArc: 2.0,
+      hitRange: 2.5,
     },
     deathExplosion: {
       radius: 4,

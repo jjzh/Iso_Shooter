@@ -11,6 +11,12 @@ export interface Vector3 {
 export interface Position extends Vector3 {}
 
 // ═══════════════════════════════════════════════════════════════════════════
+// PROFILE
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type PlayerProfile = 'origin' | 'base' | 'assassin' | 'rule-bending' | 'vertical';
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MODIFIERS
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -167,6 +173,7 @@ export interface Enemy extends Entity {
   mortarTarget: { x: number; z: number };
   mortarArcLine: any;
   mortarGroundCircle: any;
+  vel: { x: number; y?: number; z: number };  // knockback velocity (physics system)
   wasDeflected: boolean;
   fellInPit: boolean;
   isLeaping: boolean;
@@ -203,6 +210,7 @@ export interface EnemyConfig {
   attackRange: number;
   attackRate: number;
   knockbackResist: number;
+  mass?: number;            // physics mass (default 1.0) — heavier enemies resist momentum transfer
   behavior: string;
   size: SizeConfig;
   drops: DropsConfig;
@@ -269,11 +277,27 @@ export interface EnemyConfig {
     stunDuration: number;
     telegraphDuration: number;
   };
+  melee?: {
+    telegraphDuration: number;
+    attackDuration: number;
+    recoveryDuration: number;
+    lungeDistance?: number;
+    damage: number;
+    hitArc: number;
+    hitRange: number;
+  };
   pitLeap?: {
     edgeTimeRequired: number;
     leapSpeed: number;
     arcHeight: number;
     cooldown: number;
+  };
+  aggroRadius?: number;
+  patrol?: {
+    distance: number;
+    speed: number;
+    pauseMin: number;
+    pauseMax: number;
   };
 }
 
@@ -393,12 +417,16 @@ export interface AbilityState {
 }
 
 export interface GameState {
-  phase: 'waiting' | 'playing' | 'gameOver' | 'editorPaused';
+  phase: 'waiting' | 'playing' | 'gameOver' | 'intro';
   playerHealth: number;
   playerMaxHealth: number;
   currency: number;
   currentWave: number;
   enemies: Enemy[];
+  physicsObjects: PhysicsObject[];
+  bendMode: boolean;
+  bendsPerRoom: number;
+  pressurePlates: PressurePlate[];
   abilities: {
     dash: AbilityState;
     ultimate: AbilityState;
@@ -430,6 +458,30 @@ export interface WaveDefinition {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// INCREMENTAL SPAWNS (replaces waves for room manager)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type SpawnZone = 'ahead' | 'sides' | 'far' | 'behind';
+
+export interface SpawnPackEnemy {
+  type: string;
+  fixedPos?: { x: number; z: number };            // override zone-based position
+  patrolWaypoints?: { x: number; z: number }[];   // waypoint circuit for assassin patrol
+  frozen?: boolean;                                // spawn permanently stunned (won't move or attack)
+}
+
+export interface SpawnPack {
+  enemies: SpawnPackEnemy[];     // 2-3 enemies per pack
+  spawnZone: SpawnZone;          // where to spawn relative to player (ignored when fixedPos set)
+}
+
+export interface RoomSpawnBudget {
+  packs: SpawnPack[];            // ordered list of packs to dispatch
+  maxConcurrent: number;         // max alive enemies at once
+  telegraphDuration: number;     // ms for spawn telegraph per pack
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ARENA
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -453,6 +505,66 @@ export interface AABB {
   maxX: number;
   minZ: number;
   maxZ: number;
+  maxY?: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHYSICS OBJECTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type ObstacleMaterial = 'stone' | 'wood' | 'metal' | 'ice';
+
+export interface PhysicsObject {
+  id: number;
+  pos: { x: number; z: number };
+  vel: { x: number; z: number };
+  radius: number;
+  mass: number;
+  health: number;
+  maxHealth: number;
+  material: ObstacleMaterial;
+  meshType: 'rock' | 'crate' | 'barrel' | 'pillar';
+  scale: number;
+  restitution?: number;
+  mesh: any;
+  destroyed: boolean;
+  fellInPit: boolean;
+  suspended: boolean;
+  suspendHeight: number;
+  tetherMesh: any;
+}
+
+export interface PhysicsObjectPlacement {
+  meshType: 'rock' | 'crate' | 'barrel' | 'pillar';
+  material: ObstacleMaterial;
+  x: number;
+  z: number;
+  mass: number;
+  health: number;
+  radius: number;
+  scale?: number;
+  suspended?: boolean;
+  suspendHeight?: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRESSURE PLATE
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface PressurePlate {
+  x: number;
+  z: number;
+  radius: number;
+  massThreshold: number;
+  activated: boolean;
+  mesh: any;
+}
+
+export interface PressurePlatePlacement {
+  x: number;
+  z: number;
+  radius: number;
+  massThreshold: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -465,9 +577,16 @@ export interface InputState {
   aimWorldPos: Vector3;
   mouseNDC: { x: number; y: number };
   dash: boolean;
+  attack: boolean;
   ultimate: boolean;
   ultimateHeld: boolean;
-  toggleEditor: boolean;
+  interact: boolean;
+  bulletTime: boolean;
+  jump: boolean;
+  launch: boolean;
+  attackHeld: boolean;
+  chargeStarted: boolean;
+  bendMode: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

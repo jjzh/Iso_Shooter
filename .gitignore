@@ -1,5 +1,9 @@
 .DS_Store
 node_modules/
-.claude/
+# Claude Code — track shared automation, ignore private/local files
+.claude/settings.local.json
+.claude/session-notes/
+.claude/todos/
+.playwright-mcp/
 screenshots/
 .playwright-mcp/

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Iso Battler</title>
+  <title>Design Exploration — Jeff Zhang</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -20,6 +20,7 @@
       <span id="currency-count">0</span>
     </div>
     <div id="ability-bar"></div>
+    <button id="mute-btn" title="Toggle sound">&#x1F50A;</button>
   </div>
 
   <!-- Wave announcement -->
@@ -27,9 +28,15 @@
 
   <!-- Overlay screens -->
   <div id="start-screen" class="screen">
-    <h1>ISO BATTLER</h1>
-    <p>Wave-based arena combat</p>
-    <button id="start-btn">Start</button>
+    <div class="start-screen-main">
+      <h1>GAMEPLAY SANDBOX</h1>
+      <p>This demo is a 2-week showcase of how I explore and layer a gameplay sandbox</p>
+      <button id="start-btn">Start</button>
+    </div>
+    <div id="room-selector">
+      <p class="room-selector-label">Or jump to a room:</p>
+      <div id="room-selector-list"></div>
+    </div>
   </div>
 
   <div id="game-over-screen" class="screen hidden">
@@ -38,17 +45,51 @@
     <button id="restart-btn">Restart</button>
   </div>
 
+  <div id="room-intro" class="hidden">
+    <div class="room-intro-content">
+      <h2 id="room-intro-name"></h2>
+      <p id="room-intro-text"></p>
+      <button id="room-intro-continue">Continue</button>
+    </div>
+  </div>
+
   <!-- Mobile action buttons (hidden on desktop via CSS) -->
   <div id="mobile-actions">
-    <div id="mobile-btn-dash" class="mobile-btn ready">
+    <!-- Base / shared buttons -->
+    <div id="mobile-btn-dash" class="mobile-btn ready" data-profiles="base vertical">
       <div class="mobile-btn-icon">⚡</div>
       <div class="mobile-btn-label">Dash</div>
       <div class="mobile-btn-cd-text"></div>
       <div class="mobile-btn-cd-overlay"></div>
     </div>
-    <div id="mobile-btn-ultimate" class="mobile-btn ready">
+    <div id="mobile-btn-ultimate" class="mobile-btn ready" data-profiles="base">
       <div class="mobile-btn-icon">💨</div>
-      <div class="mobile-btn-label">Push</div>
+      <div class="mobile-btn-label">Push / Atk</div>
+      <div class="mobile-btn-cd-text"></div>
+      <div class="mobile-btn-cd-overlay"></div>
+    </div>
+    <!-- Vertical profile buttons -->
+    <div id="mobile-btn-jump" class="mobile-btn ready" data-profiles="vertical">
+      <div class="mobile-btn-icon">🦘</div>
+      <div class="mobile-btn-label">Jump</div>
+      <div class="mobile-btn-cd-text"></div>
+      <div class="mobile-btn-cd-overlay"></div>
+    </div>
+    <div id="mobile-btn-launch" class="mobile-btn ready" data-profiles="vertical">
+      <div class="mobile-btn-icon">🚀</div>
+      <div class="mobile-btn-label">Launch</div>
+      <div class="mobile-btn-cd-text"></div>
+      <div class="mobile-btn-cd-overlay"></div>
+    </div>
+    <div id="mobile-btn-cancel" class="mobile-btn ready" data-profiles="vertical">
+      <div class="mobile-btn-icon">✕</div>
+      <div class="mobile-btn-label">Cancel</div>
+      <div class="mobile-btn-cd-text"></div>
+      <div class="mobile-btn-cd-overlay"></div>
+    </div>
+    <div id="mobile-btn-bend" class="mobile-btn ready" data-profiles="rule-bending">
+      <div class="mobile-btn-icon">🔧</div>
+      <div class="mobile-btn-label">Bend</div>
       <div class="mobile-btn-cd-text"></div>
       <div class="mobile-btn-cd-overlay"></div>
     </div>

@@ -14,6 +14,7 @@ const TYPE_LABELS: Record<string, string> = {
   goblin: 'G',
   skeletonArcher: 'A',
   stoneGolem: 'T',
+  iceMortarImp: 'I',
 };
 
 export function initTelegraph(scene: any) {
@@ -34,6 +35,8 @@ export function initTelegraph(scene: any) {
   typeGeos.skeletonArcher = new THREE.BoxGeometry(0.25, 0.25, 0.25);
   // Golem: hexagon (cylinder 6 sides, flat)
   typeGeos.stoneGolem = new THREE.CylinderGeometry(0.25, 0.25, 0.1, 6);
+  // Imp: sphere (mortar projectile shape)
+  typeGeos.iceMortarImp = new THREE.SphereGeometry(0.2, 8, 8);
 }
 
 export function createTelegraph(x: number, z: number, typeName: string) {

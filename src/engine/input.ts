@@ -1,5 +1,6 @@
 import { screenToWorld } from './renderer';
 import { getPlayerPos } from '../entities/player';
+import { getActiveEnemy } from './aerialVerbs';
 
 const keys: Record<string, boolean> = {};
 
@@ -9,9 +10,16 @@ const inputState = {
   aimWorldPos: { x: 0, y: 0, z: 0 },
   mouseNDC: { x: 0, y: 0 },
   dash: false,
+  attack: false,
+  attackHeld: false,       // continuous: true while LMB is down
   ultimate: false,
   ultimateHeld: false,
-  toggleEditor: false,
+  interact: false,
+  bulletTime: false,
+  bendMode: false,
+  jump: false,
+  launch: false,
+  chargeStarted: false,
 };
 
 // Isometric basis vectors (from prototype)
@@ -35,9 +43,12 @@ let usingGamepad = false;
 
 // Touch joystick state (nipplejs)
 let touchMoveX = 0, touchMoveY = 0;  // screen-space from left stick
+let touchMoveActive = false;         // true only while left stick is held
 let touchAimX = 0, touchAimY = 0;    // screen-space from right stick
 let touchAimActive = false;
-let touchActive = false;             // true when any touch joystick is in use
+let touchActive = false;             // true when any touch joystick has been used
+
+let _checkMouseHold: () => void = () => {};
 
 export function initInput() {
   window.addEventListener('keydown', (e) => {
@@ -46,9 +57,11 @@ export function initInput() {
     usingGamepad = false;
 
     // Edge-triggered ability inputs
-    if (e.code === 'Space') { inputState.dash = true; e.preventDefault(); }
-    if (e.code === 'KeyE') inputState.ultimate = true;
-    if (e.code === 'Backquote') inputState.toggleEditor = true;
+    if (e.code === 'Space') { inputState.jump = true; e.preventDefault(); }
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') inputState.dash = true;
+    if (e.code === 'KeyE') { inputState.launch = true; inputState.ultimate = true; }
+    if (e.code === 'KeyF' || e.code === 'Enter') inputState.interact = true;
+    if (e.code === 'KeyQ') { inputState.bulletTime = true; inputState.bendMode = true; }
   });
 
   window.addEventListener('keyup', (e) => {
@@ -60,6 +73,34 @@ export function initInput() {
     inputState.mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
     usingGamepad = false;
   });
+
+  let mouseDownTime = 0;
+  let mouseIsDown = false;
+  const HOLD_THRESHOLD = 200; // ms — LMB hold longer than this triggers force push charge
+
+  window.addEventListener('mousedown', (e) => {
+    if (e.button === 0) { // left click
+      inputState.attack = true;
+      inputState.attackHeld = true;
+      mouseDownTime = performance.now();
+      mouseIsDown = true;
+      usingGamepad = false;
+    }
+  });
+
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 0) {
+      mouseIsDown = false;
+      inputState.attackHeld = false;
+    }
+  });
+
+  // Check LMB hold each frame (called from updateInput)
+  _checkMouseHold = () => {
+    if (mouseIsDown && (performance.now() - mouseDownTime > HOLD_THRESHOLD)) {
+      inputState.chargeStarted = true;
+    }
+  };
 
   // Gamepad connect/disconnect
   window.addEventListener('gamepadconnected', (e: GamepadEvent) => {
@@ -113,11 +154,13 @@ function initTouchJoysticks() {
     const angle = data.angle.radian;
     touchMoveX = Math.cos(angle) * force;   // screen-right
     touchMoveY = Math.sin(angle) * force;   // screen-up
+    touchMoveActive = true;
     touchActive = true;
   });
   leftJoystick.on('end', () => {
     touchMoveX = 0;
     touchMoveY = 0;
+    touchMoveActive = false;
   });
 
   // Right joystick — aim + auto-fire
@@ -148,8 +191,8 @@ function initTouchJoysticks() {
 function pollTouchJoysticks() {
   if (!touchActive) return;
 
-  // --- Left stick: movement ---
-  if (Math.abs(touchMoveX) > 0.01 || Math.abs(touchMoveY) > 0.01) {
+  // --- Left stick: movement (only while stick is actively held) ---
+  if (touchMoveActive && (Math.abs(touchMoveX) > 0.01 || Math.abs(touchMoveY) > 0.01)) {
     // Map screen-space joystick to isometric world-space (same as WASD/gamepad)
     // touchMoveX = screen right, touchMoveY = screen up
     const tMoveX = touchMoveX * ISO_RIGHT_X + touchMoveY * ISO_UP_X;
@@ -246,6 +289,16 @@ function pollGamepad() {
   if (ultBtn && !prevGamepadButtons.ult) inputState.ultimate = true;
   prevGamepadButtons.ult = !!ultBtn;
 
+  // Interact: Y button (3) — door interaction
+  const interactBtn = buttons[3] && buttons[3].pressed;
+  if (interactBtn && !prevGamepadButtons.interact) inputState.interact = true;
+  prevGamepadButtons.interact = !!interactBtn;
+
+  // Bullet Time: LT (6)
+  const btBtn = buttons[6] && buttons[6].pressed;
+  if (btBtn && !prevGamepadButtons.bulletTime) inputState.bulletTime = true;
+  prevGamepadButtons.bulletTime = !!btBtn;
+
   // Ultimate held (for charge release detection)
   if (ultBtn) inputState.ultimateHeld = true;
 }
@@ -269,9 +322,12 @@ export function updateInput() {
     inputState.moveZ /= len;
   }
 
+  // Check LMB hold for force push charge
+  _checkMouseHold();
+
   // Continuous held state for charge abilities
-  // Merge keyboard + touch button hold (gamepad sets it in pollGamepad)
-  inputState.ultimateHeld = !!keys['KeyE'] || _touchUltHeld;
+  // Merge keyboard + touch button hold + LMB hold (gamepad sets it in pollGamepad)
+  inputState.ultimateHeld = !!keys['KeyE'] || _touchUltHeld || inputState.chargeStarted;
 
   // Mouse → world position on y=0 plane (only if not overridden by gamepad/touch/ability drag)
   if ((!usingGamepad || !gamepadAimActive) && !touchAimActive && !_abilityAimActive) {
@@ -290,8 +346,14 @@ export function updateInput() {
 
 export function consumeInput() {
   inputState.dash = false;
+  inputState.attack = false;
   inputState.ultimate = false;
-  inputState.toggleEditor = false;
+  inputState.interact = false;
+  inputState.bulletTime = false;
+  inputState.bendMode = false;
+  inputState.jump = false;
+  inputState.launch = false;
+  inputState.chargeStarted = false;
 }
 
 export function getInputState() { return inputState; }
@@ -301,6 +363,18 @@ let _touchUltHeld = false;
 export function triggerDash() { inputState.dash = true; }
 export function triggerUltimate() { inputState.ultimate = true; }
 export function setUltimateHeld(held: boolean) { _touchUltHeld = held; }
+export function triggerAttack() { inputState.attack = true; }
+export function triggerJump() { inputState.jump = true; }
+export function triggerLaunch() { inputState.launch = true; }
+export function setAttackHeld(held: boolean) { inputState.attackHeld = held; }
+
+// Cancel flag — consumed by game loop to cancel active verb / charge
+let _cancelRequested = false;
+export function triggerCancel() { _cancelRequested = true; }
+export function consumeCancel(): boolean {
+  if (_cancelRequested) { _cancelRequested = false; return true; }
+  return false;
+}
 
 // Drag-to-aim: set aim world position from screen-space drag direction
 let _abilityAimActive = false; // true while a mobile button drag is overriding aim
@@ -335,12 +409,16 @@ export function autoAimClosestEnemy(enemies: any[]) {
   if (!enemies || enemies.length === 0) return;
 
   const pp = getPlayerPos();
+  const grabbed = getActiveEnemy();
   let closest: any = null;
   let closestDist = Infinity;
 
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i];
     if (e.fellInPit || e.health <= 0) continue;
+    // Skip the currently grabbed enemy — it's right next to the player
+    // and would cause spike to aim at itself instead of a ground target
+    if (e === grabbed) continue;
     const dx = e.pos.x - pp.x;
     const dz = e.pos.z - pp.z;
     const dist = dx * dx + dz * dz; // squared distance is fine for comparison

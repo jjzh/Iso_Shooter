@@ -11,7 +11,7 @@ import { getInputState, consumeInput } from '../engine/input';
 import { startWave, resetWaveRunner } from '../engine/waveRunner';
 import { clearEnemies } from '../entities/enemy';
 import { releaseAllProjectiles } from '../entities/projectile';
-import { ARENA_HALF, OBSTACLES, PITS } from '../config/arena';
+import { ARENA_HALF_X, ARENA_HALF_Z, OBSTACLES, PITS } from '../config/arena';
 import { invalidateCollisionBounds } from '../engine/physics';
 
 let sceneRef: any;
@@ -284,7 +284,7 @@ export function updateSpawnEditor(dt: number) {
   const input = getInputState();
 
   // Check for toggle
-  if (input.toggleEditor) {
+  if ((input as any).toggleEditor) {
     toggleEditor();
     consumeInput();
     return;
@@ -294,7 +294,7 @@ export function updateSpawnEditor(dt: number) {
 // Also check toggle from main game loop (called even when not in editor)
 export function checkEditorToggle() {
   const input = getInputState();
-  if (input.toggleEditor) {
+  if ((input as any).toggleEditor) {
     toggleEditor();
   }
 }
@@ -316,7 +316,7 @@ function onEditorWheel(e: any) {
 function enterEditor() {
   active = true;
   previousPhase = gameStateRef.phase;
-  gameStateRef.phase = 'editorPaused';
+  (gameStateRef as any).phase = 'editorPaused';
   panel.classList.remove('hidden');
   bannerEl.classList.add('visible');
   window.addEventListener('wheel', onEditorWheel, { passive: false });
@@ -388,10 +388,11 @@ function mouseToWorld(e: any) {
 }
 
 function clampToArena(x: number, z: number) {
-  const c = ARENA_HALF - 1.5;
+  const cx = ARENA_HALF_X - 1.5;
+  const cz = ARENA_HALF_Z - 1.5;
   return {
-    x: Math.round(Math.max(-c, Math.min(c, x))),
-    z: Math.round(Math.max(-c, Math.min(c, z))),
+    x: Math.round(Math.max(-cx, Math.min(cx, x))),
+    z: Math.round(Math.max(-cz, Math.min(cz, z))),
   };
 }
 
@@ -1936,7 +1937,9 @@ function buildEnemyConfigText() {
 function buildArenaConfigText() {
   let text = '// Arena layout — shared between renderer (meshes) and physics (collision)\n';
   text += '// All obstacles and walls defined here so designer can rearrange the arena\n\n';
-  text += `export const ARENA_HALF = ${ARENA_HALF};\n\n`;
+  text += `export let ARENA_HALF_X = ${ARENA_HALF_X};\n`;
+  text += `export let ARENA_HALF_Z = ${ARENA_HALF_Z};\n`;
+  text += `export let ARENA_HALF = ${ARENA_HALF_X}; // legacy alias\n\n`;
   text += '// Obstacles: x, z = center position; w, d = width/depth on xz plane; h = height (visual only)\n';
   text += 'export const OBSTACLES = [\n';
   for (const o of OBSTACLES) {
@@ -1986,16 +1989,17 @@ export function getCollisionBounds() {
   }
 
   // Walls
-  const h = ARENA_HALF;
+  const hx = ARENA_HALF_X;
+  const hz = ARENA_HALF_Z;
   const t = WALL_THICKNESS;
-  // North wall
-  bounds.push({ minX: -h - t/2, maxX: h + t/2, minZ: h - t/2, maxZ: h + t/2 });
-  // South wall
-  bounds.push({ minX: -h - t/2, maxX: h + t/2, minZ: -h - t/2, maxZ: -h + t/2 });
-  // East wall
-  bounds.push({ minX: h - t/2, maxX: h + t/2, minZ: -h - t/2, maxZ: h + t/2 });
-  // West wall
-  bounds.push({ minX: -h - t/2, maxX: -h + t/2, minZ: -h - t/2, maxZ: h + t/2 });
+  // North wall (far end, +Z)
+  bounds.push({ minX: -hx - t/2, maxX: hx + t/2, minZ: hz - t/2, maxZ: hz + t/2 });
+  // South wall (near end, -Z)
+  bounds.push({ minX: -hx - t/2, maxX: hx + t/2, minZ: -hz - t/2, maxZ: -hz + t/2 });
+  // East wall (+X)
+  bounds.push({ minX: hx - t/2, maxX: hx + t/2, minZ: -hz - t/2, maxZ: hz + t/2 });
+  // West wall (-X)
+  bounds.push({ minX: -hx - t/2, maxX: -hx + t/2, minZ: -hz - t/2, maxZ: hz + t/2 });
 
   return bounds;
 }
