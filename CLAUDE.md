@@ -20,11 +20,11 @@ npm run start        # node server.cjs (local dev server)
 
 ## Project Context
 
-**Who:** Jeff Zhang — product/UX designer with game design background (combat design, ability prototyping, Unreal Blueprint). Learning engineering through AI-assisted development. Uses voice dictation — expect transcription artifacts, filler words, and run-on sentences.
+**Who:** Jeff Zhang — product, UX, and game designer building as a solo indie developer. AI-native workflow: Claude handles implementation; Jeff drives design intent, systems architecture, and feel. Uses voice dictation — parse for embedded ideas even through transcription artifacts and topic shifts.
 
 **What:** Each `explore/*` branch prototypes a different mechanical direction. The `demo/portfolio` branch integrates them into sequential rooms for a playable showcase. This is a prototyping project — iteration speed matters more than production polish.
 
-**Where:** Jeff works across 3 machines (2 Windows, 1 Mac). Git is the sync mechanism. HANDOFF.md carries context between sessions and machines.
+**Where:** Mac laptop, single machine (traveling). Git is the sync mechanism. HANDOFF.md carries context between sessions.
 
 ---
 
@@ -41,7 +41,7 @@ Jeff often starts sessions by referencing the handoff: "let's pick up from hando
 - Neither skill is user-invoked — activate them automatically when triggered
 
 ### Context window awareness
-Jeff actively manages context. He asks "How much context do we have left?" and proactively wraps up sessions ("let's push these changes and update handoff", "let's spin up a new session"). When context is running low, prioritize: push changes, update HANDOFF.md, and prepare a clean handoff for the next session.
+Warn Jeff when context reaches 50% usage. He proactively wraps up sessions ("let's push these changes and update handoff", "let's spin up a new session"). When context is running low, prioritize: push changes, update HANDOFF.md, and prepare a clean handoff for the next session.
 
 ### Ending a session
 When Jeff signals wrap-up ("let's push", "update handoff", "that's it"), do a final HANDOFF.md update. The SessionEnd hook auto-commits and pushes context files.
@@ -103,27 +103,12 @@ Profiles: `'origin' | 'base' | 'assassin' | 'rule-bending' | 'vertical'`
 
 ## How Jeff Works
 
-### Two Modes
+See `~/.claude/CLAUDE.md` for full working style, communication patterns, and learning philosophy. Project-specific notes:
 
-**Exploration mode** — long voice-dictated messages, "what if" framing, hypothetical examples, topic shifts mid-thought. He's circling ideas, not making decisions.
-- Match his energy — explore broadly, don't converge prematurely
-- Offer frameworks and framings, not solutions
-- Push back genuinely when asked
-- Don't jump to implementation
-
-**Execution mode** — short messages, directive ("let's add X", "do Y"), bundled feedback. He's decided and wants to build.
-- Track all items in bundled feedback (3-5 per message). Use a todo list.
-- Build, test, iterate quickly
-- Transition signals: messages get shorter, hedging disappears, "let's go"
-
-### Feedback Style
-Jeff gives **feel-first feedback**: "it doesn't feel punchy", "the drift feels disconnected", "I can't seem to get spike to fire". Translate feel observations into parameter hypotheses yourself — don't ask Jeff to debug code.
-
-### Decision-Making
-- Jeff decides direction and design intent; Claude decides implementation details
-- When Jeff faces a decision with low context: **research trade-offs and present them** with a recommendation. Don't just ask "A or B?"
-- Jeff explicitly values steelmanning — challenge your own proposals before presenting them
-- Present trade-offs as tables when comparing approaches
+- Jeff gives **feel-first feedback** about game feel: "it doesn't feel punchy", "the drift feels disconnected", "spike doesn't fire reliably." Translate into parameter or physics hypotheses — default to diagnosing it yourself.
+- Jeff decides direction and design intent; Claude decides implementation details. Jeff will push for explanations when he wants to build intuition — don't pre-filter what's "too technical."
+- **Bundled feedback** is common after playtesting (3-5 items per message). Track all items. Use a todo list.
+- When exploring new mechanical directions, Jeff thinks in systems and player verbs. Don't converge on an implementation before the design space is explored.
 
 ---
 
@@ -193,7 +178,7 @@ When integrating mechanics from an explore branch, the standard pattern is:
 
 6. **Genre is scaffolding.** Don't over-invest in genre mechanics. They exist to support evaluating the twist.
 
-7. **Pair learning with building.** Jeff wants to understand WHY, not just get working code. Explain reasoning behind technical decisions when there's a teaching moment.
+7. **Explain when Jeff pulls the thread.** Jeff will push for explanations when he wants to build intuition. Don't pre-filter what's worth explaining — but don't slow down execution to teach unless asked.
 
 ---
 
